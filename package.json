@@ -1,0 +1,47 @@
+{
+  "name": "fin-ai-brief",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.11"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
+    "dev:web": "next dev -p 3100",
+    "dev:worker": "tsx watch --env-file-if-exists=.env src/worker.ts",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "worker": "tsx --env-file-if-exists=.env src/worker.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --env-file-if-exists=.data/test.env --test --test-concurrency=1 tests/*.test.ts",
+    "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
+    "check": "npm run typecheck && npm test && npm run build",
+    "test:browser": "playwright test",
+    "format": "prettier --write src scripts tests *.ts *.json README.md docs/architecture.md",
+    "data:import-20261022": "tsx --env-file-if-exists=.env scripts/import-reference.ts",
+    "sources:finance": "tsx --env-file-if-exists=.env scripts/setup-finance.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.4",
+    "next": "16.4.2",
+    "nodemailer": "10.2.1",
+    "pg": "^8.16.3",
+    "pg-boss": "12.38.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "rss-parser": "^3.13.0",
+    "tsx": "^4.21.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^24.10.0",
+    "@types/nodemailer": "^7.0.4",
+    "@types/pg": "^8.15.6",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "prettier": "^3.9.10",
+    "typescript": "7.0.2"
+  }
+}

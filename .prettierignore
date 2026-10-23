@@ -1,0 +1,8 @@
+node_modules
+.next
+.data
+docs/visual-reference
+package-lock.json
+AGENTS.md
+
+next-env.d.ts

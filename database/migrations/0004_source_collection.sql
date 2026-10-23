@@ -1,0 +1,12 @@
+ALTER TABLE sources DROP CONSTRAINT sources_format_check;
+ALTER TABLE sources ADD CONSTRAINT sources_format_check CHECK (format IN ('rss','json','aihot'));
+ALTER TABLE sources ADD COLUMN interval_minutes integer NOT NULL DEFAULT 30 CHECK (interval_minutes BETWEEN 5 AND 1440);
+ALTER TABLE sources ADD COLUMN etag text;
+ALTER TABLE sources ADD COLUMN next_fetch_at timestamptz;
+ALTER TABLE articles ADD COLUMN provenance jsonb;
+CREATE UNIQUE INDEX sources_url_unique ON sources(url);
+UPDATE industries SET sections='["AI 模型","AI 产品","行业动态","论文","教程","观点"]'::jsonb WHERE id='ai';
+UPDATE settings SET value=value || '{"autoPublish":true,"dailyEnabled":true,"weeklyEnabled":true,"monthlyEnabled":true}'::jsonb WHERE id=1;
+UPDATE events SET section=CASE section WHEN '模型与平台' THEN 'AI 产品' WHEN '产业进展' THEN '行业动态' WHEN '技术研究' THEN '论文' WHEN '应用实践' THEN 'AI 产品' ELSE section END WHERE industry_id='ai';
+UPDATE briefs SET published=jsonb_set(published,'{items}',(SELECT jsonb_agg(CASE WHEN item->>'industryId'='ai' THEN jsonb_set(item,'{section}',to_jsonb(CASE item->>'section' WHEN '模型与平台' THEN 'AI 产品' WHEN '产业进展' THEN '行业动态' WHEN '技术研究' THEN '论文' WHEN '应用实践' THEN 'AI 产品' ELSE item->>'section' END)) ELSE item END ORDER BY position) FROM jsonb_array_elements(published->'items') WITH ORDINALITY AS list(item,position))) WHERE published IS NOT NULL;
+UPDATE briefs SET draft=jsonb_set(draft,'{items}',(SELECT jsonb_agg(CASE WHEN item->>'industryId'='ai' THEN jsonb_set(item,'{section}',to_jsonb(CASE item->>'section' WHEN '模型与平台' THEN 'AI 产品' WHEN '产业进展' THEN '行业动态' WHEN '技术研究' THEN '论文' WHEN '应用实践' THEN 'AI 产品' ELSE item->>'section' END)) ELSE item END ORDER BY position) FROM jsonb_array_elements(draft->'items') WITH ORDINALITY AS list(item,position))) WHERE draft IS NOT NULL;
