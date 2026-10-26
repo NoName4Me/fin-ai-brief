@@ -32,8 +32,29 @@ export const briefItemSchema = z.object({
   section: z.string().max(80),
   title: z.string().min(1).max(200),
   summary: z.string().min(1).max(2000),
+  progress: z
+    .array(
+      z.object({
+        date: z.iso.date(),
+        endDate: z.iso.date().optional(),
+        text: z.string().min(1).max(500),
+        sourceUrls: z.array(z.url()).min(1),
+        evidence: z
+          .array(
+            z.object({
+              sourceUrl: z.url(),
+              statement: z.string(),
+              excerpt: z.string(),
+              status: z.string(),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .max(8)
+    .optional(),
   emphasis: z.array(z.string().max(200)).max(12).optional(),
-  sources: z.array(sourceRefSchema).min(1).max(30),
+  sources: z.array(sourceRefSchema).min(1).max(200),
 });
 export const briefTitleSchema = z
   .string()
@@ -41,6 +62,7 @@ export const briefTitleSchema = z
   .min(1)
   .refine((value) => [...value].length <= 200, '本期标题不能超过200字');
 export const briefContentSchema = z.object({
+  format: z.literal('weekly-review-v1').optional(),
   title: briefTitleSchema,
   note: z.string().max(2000).optional(),
   overview: z.record(z.string(), z.string().max(2000)),
@@ -50,9 +72,16 @@ export const briefContentSchema = z.object({
 });
 export type BriefContent = z.infer<typeof briefContentSchema>;
 export const settingsSchema = z.object({
+  retentionEnabled: z.boolean().default(true),
+  newsRetentionDays: z.number().int().min(7).max(3650).default(30),
+  taskRetentionDays: z.number().int().min(1).max(3650).default(30),
+  mailRetentionDays: z.number().int().min(1).max(3650).default(7),
   taskRetryLimit: z.number().int().min(0).max(3).default(1),
   processingConcurrency: z.number().int().min(1).max(20).default(3),
   collectionEnabled: z.boolean().default(false),
+  financeSummaryMaxLength: z.number().int().min(1).max(1000).default(140),
+  financeOverviewMaxLength: z.number().int().min(1).max(1000).default(120),
+  briefLengthTolerancePercent: z.number().int().min(0).max(50).default(10),
   briefTitleMaxLength: z.number().int().min(1).max(200).default(36),
   weeklyDay: z.number().int().min(0).max(6).default(1),
   monthlyDay: z.number().int().min(1).max(31).default(1),
@@ -81,9 +110,16 @@ export const settingsSchema = z.object({
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export const defaultSettings: Settings = {
+  retentionEnabled: true,
+  newsRetentionDays: 30,
+  taskRetentionDays: 30,
+  mailRetentionDays: 7,
   taskRetryLimit: 1,
   processingConcurrency: 3,
   briefTitleMaxLength: 36,
+  financeSummaryMaxLength: 140,
+  financeOverviewMaxLength: 120,
+  briefLengthTolerancePercent: 10,
   weeklyDay: 1,
   monthlyDay: 1,
   collectionEnabled: false,

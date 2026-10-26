@@ -100,12 +100,7 @@ export async function modelJSON<T>(
 ) {
   const base = requireModelConfig();
   const settings = await getSettings();
-  const model =
-    (purpose === 'brief'
-      ? settings.briefModel
-      : purpose === 'review'
-        ? settings.reviewModel
-        : settings.processingModel) || base.model;
+  const model = base.model;
   const config = { ...base, model };
   const maxTokens = options.maxTokens ?? 12000;
   const key = fingerprint({
@@ -243,15 +238,7 @@ export async function inspectModelRequest(
   input: unknown,
   maxTokens: number,
 ) {
-  const settings = await getSettings();
-  const model =
-    (purpose === 'brief'
-      ? settings.briefModel
-      : purpose === 'review'
-        ? settings.reviewModel
-        : settings.processingModel) ||
-    process.env.LLM_MODEL ||
-    '';
+  const model = process.env.LLM_MODEL || '';
   const key = fingerprint({
     purpose,
     system,

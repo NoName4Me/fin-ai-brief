@@ -11,7 +11,7 @@ export async function getQueue() {
     const boss = new PgBoss({ connectionString: process.env.DATABASE_URL, max: 3 });
     boss.on('error', (error) => console.error('Queue:', error.message));
     await boss.start();
-    for (const name of ['collect', 'process', 'generate', 'deliver', 'tick']) {
+    for (const name of ['collect', 'process', 'generate', 'deliver', 'tick', 'cleanup']) {
       const retry = ['collect', 'process', 'generate'].includes(name)
         ? { retryLimit: 1, retryDelay: 10, retryBackoff: true }
         : { retryLimit: 0 };
@@ -20,8 +20,9 @@ export async function getQueue() {
         ...retry,
         expireInSeconds: 900,
         retentionSeconds: 30 * 86400,
+        deleteAfterSeconds: 0,
       });
-      await boss.updateQueue(name, retry);
+      await boss.updateQueue(name, { ...retry, deleteAfterSeconds: 0 });
     }
     return boss;
   })());

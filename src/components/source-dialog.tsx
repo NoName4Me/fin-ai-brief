@@ -1,6 +1,14 @@
 'use client';
 import { useId, useRef } from 'react';
-export function SourceDialog({ title, children }: { title: string; children: React.ReactNode }) {
+export function SourceDialog({
+  title,
+  children,
+  label = '来源与依据',
+}: {
+  title: string;
+  children: React.ReactNode;
+  label?: string;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const id = useId();
   return (
@@ -11,7 +19,7 @@ export function SourceDialog({ title, children }: { title: string; children: Rea
         aria-controls={id}
         onClick={() => dialog.current?.showModal()}
       >
-        来源与依据
+        {label}
       </button>
       <dialog
         ref={dialog}

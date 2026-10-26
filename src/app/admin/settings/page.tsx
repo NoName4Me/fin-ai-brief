@@ -61,6 +61,10 @@ export default async function Settings({ searchParams }: { searchParams: Promise
               required
             />
           </label>
+          <label className="check">
+            <input type="checkbox" name="reviewEnabled" defaultChecked={c.reviewEnabled} />
+            启用疑难归组与事实复核
+          </label>
           <p className="form-hint">
             默认重试1次（最多3次，0表示关闭），不包含首次执行。达到上限后标记失败，不阻塞出刊，可手动重新处理。邮件不自动重发。默认并发3篇，最多20篇；保存后后台自动应用，调整并发时先完成正在执行的任务。
           </p>
@@ -178,6 +182,42 @@ export default async function Settings({ searchParams }: { searchParams: Promise
           />
           <span className="form-hint">含标点，适用于之后生成的简报；已有简报不截断、不重写。</span>
         </label>
+        <fieldset>
+          <legend>金融篇幅</legend>
+          <label>
+            摘要字数上限
+            <input
+              type="number"
+              name="financeSummaryMaxLength"
+              min={1}
+              max={1000}
+              defaultValue={c.financeSummaryMaxLength}
+              required
+            />
+          </label>
+          <label>
+            概览字数上限
+            <input
+              type="number"
+              name="financeOverviewMaxLength"
+              min={1}
+              max={1000}
+              defaultValue={c.financeOverviewMaxLength}
+              required
+            />
+          </label>
+          <label>
+            字数容差（%）
+            <input
+              type="number"
+              name="briefLengthTolerancePercent"
+              min={0}
+              max={50}
+              defaultValue={c.briefLengthTolerancePercent}
+              required
+            />
+          </label>
+        </fieldset>
         <label>
           每期最多事件数
           <input
@@ -209,32 +249,12 @@ export default async function Settings({ searchParams }: { searchParams: Promise
             maxLength={6000}
           />
         </label>
-        <fieldset>
-          <legend>模型配置</legend>
-          <p className="form-hint">
-            共用服务器API和密钥，模型名留空使用LLM_MODEL。普通资讯通常1次；疑难归组可能增加1次复核。
-          </p>
-          <label>
-            资讯处理模型
-            <input name="processingModel" defaultValue={c.processingModel} maxLength={200} />
-          </label>
-          <label>
-            复核模型
-            <input name="reviewModel" defaultValue={c.reviewModel} maxLength={200} />
-          </label>
-          <label>
-            简报综合模型
-            <input name="briefModel" defaultValue={c.briefModel} maxLength={200} />
-          </label>
-          <label className="check">
-            <input type="checkbox" name="reviewEnabled" defaultChecked={c.reviewEnabled} />
-            启用疑难归组与事实复核
-          </label>
-        </fieldset>
+
         <button className="solid-button">保存设置</button>
       </form>
       <section className="admin-section">
         <h2>手动补刊</h2>
+        <p className="form-hint">补刊保存为待审稿；发布后不自动推送，可在订阅管理选择发送。</p>
         <form className="inline-form">
           <label>
             类型

@@ -86,6 +86,7 @@ export const briefs = pgTable(
     kind: text().notNull(),
     periodDate: date('period_date').notNull(),
     issueNumber: integer('issue_number'),
+    autoMail: boolean('auto_mail').notNull().default(true),
     draft: jsonb().$type<BriefContent>(),
     published: jsonb().$type<BriefContent>(),
     generatedAt: at('generated_at'),

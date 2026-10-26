@@ -11,6 +11,7 @@ import {
 import { briefs, deliveries, sources } from './server/schema.ts';
 import { collectSource } from './server/collect.ts';
 import { processingController } from './server/processing-worker.ts';
+import { cleanupRetention } from './server/retention.ts';
 import { deliver } from './server/mail.ts';
 import { getSettings } from './server/settings.ts';
 import { duePeriods, rangeFor } from './server/periods.ts';
@@ -100,6 +101,10 @@ async function tick() {
     for (const delivery of pending) await enqueue('deliver', { id: delivery.id }, delivery.id);
   }
 }
+await boss.work('cleanup', async () => {
+  await cleanupRetention();
+});
+await boss.schedule('cleanup', '20 3 * * *', {}, { tz: 'Asia/Shanghai' });
 await boss.work('tick', async () => tick());
 await boss.schedule('tick', '* * * * *');
 await tick();

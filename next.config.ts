@@ -1,6 +1,13 @@
 import type { NextConfig } from 'next';
+import { networkInterfaces } from 'node:os';
+const localDevHosts = Object.values(networkInterfaces()).flatMap((addresses) =>
+  (addresses ?? [])
+    .filter((address) => address.family === 'IPv4' && !address.internal)
+    .map((address) => address.address),
+);
 const config: NextConfig = {
   output: 'standalone',
+  allowedDevOrigins: localDevHosts,
   poweredByHeader: false,
   async headers() {
     return [

@@ -1,6 +1,7 @@
-import { and, desc, eq, isNotNull, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, inArray, sql } from 'drizzle-orm';
 import { db, pool } from './db.ts';
 import { briefs, events, articles, industries } from './schema.ts';
+import { getSettings } from './settings.ts';
 import type { Kind } from './types.ts';
 // 所有读者页面与邮件只从这里取得正式内容。
 export async function listPublished(kind?: Kind) {
@@ -39,11 +40,16 @@ export async function latestNews(
   q = '',
   before?: { time: string; id: string },
 ) {
+  const config = await getSettings();
+  const cutoff = config.retentionEnabled
+    ? new Date(Date.now() - config.newsRetentionDays * 86_400_000)
+    : undefined;
   const rows = await db
     .select()
     .from(events)
     .where(
       and(
+        cutoff ? gte(events.occurredAt, cutoff) : undefined,
         industryId ? eq(events.industryId, industryId) : undefined,
         q ? sql`${events.title} ILIKE ${'%' + q + '%'}` : undefined,
         before
@@ -92,6 +98,10 @@ export async function newsSnapshot(
   return { cursor: head.rows[0].cursor as string, items: await latestNews(industry, q, before) };
 }
 export async function newsChanges(since: string, industry?: string, q = '') {
+  const config = await getSettings();
+  const cutoff = config.retentionEnabled
+    ? new Date(Date.now() - config.newsRetentionDays * 86_400_000)
+    : undefined;
   const changes = await pool.query(
     `SELECT id::text,event_id FROM news_changes WHERE id>$1::bigint ORDER BY id LIMIT 200`,
     [since],
@@ -106,6 +116,7 @@ export async function newsChanges(since: string, industry?: string, q = '') {
     .where(
       and(
         inArray(events.id, ids),
+        cutoff ? gte(events.occurredAt, cutoff) : undefined,
         industry ? eq(events.industryId, industry) : undefined,
         q ? sql`${events.title} ILIKE ${'%' + q + '%'}` : undefined,
       ),

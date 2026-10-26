@@ -1,4 +1,6 @@
 'use server';
+import { cleanupRetention } from '../server/retention.ts';
+import { requestManualDelivery } from '../server/manual-delivery.ts';
 import { requireModelConfig } from '../server/model.ts';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
@@ -8,7 +10,7 @@ import { db, pool } from '../server/db.ts';
 import { sources, industries } from '../server/schema.ts';
 import { login, logout, requireAdmin } from '../server/auth.ts';
 import { subscribe, unsubscribe, removeSubscription } from '../server/subscriptions.ts';
-import { saveSettings } from '../server/settings.ts';
+import { getSettings, saveSettings } from '../server/settings.ts';
 import { enqueue } from '../server/queue.ts';
 import { requestGeneration } from '../server/generation-requests.ts';
 import { publishBrief } from '../server/briefs.ts';
@@ -163,11 +165,15 @@ export async function industryRemoveAction(form: FormData) {
 export async function settingsAction(form: FormData) {
   await perform('/admin/settings', async () =>
     saveSettings({
+      ...(await getSettings()),
       taskRetryLimit: Number(text(form, 'taskRetryLimit') || 0),
       processingConcurrency: Number(text(form, 'processingConcurrency') || 3),
       autoPublish: form.has('autoPublish'),
       collectionEnabled: form.has('collectionEnabled'),
       briefTitleMaxLength: Number(text(form, 'briefTitleMaxLength') || 36),
+      financeSummaryMaxLength: Number(text(form, 'financeSummaryMaxLength') || 140),
+      financeOverviewMaxLength: Number(text(form, 'financeOverviewMaxLength') || 120),
+      briefLengthTolerancePercent: Number(text(form, 'briefLengthTolerancePercent') || 10),
       weeklyDay: Number(text(form, 'weeklyDay') || 1),
       monthlyDay: Number(text(form, 'monthlyDay') || 1),
       startDate: text(form, 'startDate'),
@@ -299,7 +305,11 @@ export async function backfillAction(form: FormData) {
             ? config.monthlyTime
             : config.dailyTime;
       if (rangeFor(kind, period.date, time, config).end > new Date()) continue;
-      await enqueue('generate', { ...period, trigger: 'manual' }, `${kind}:${period.date}`);
+      await enqueue(
+        'generate',
+        { ...period, backfill: true, trigger: 'manual' },
+        `${kind}:${period.date}`,
+      );
     }
   });
 }
@@ -315,4 +325,66 @@ export async function previewGenerateAction(form: FormData) {
 
 export async function retryManagedTaskAction(form: FormData) {
   await perform('/admin/articles', () => retryManagedTask(text(form, 'taskId')));
+}
+
+export async function manualDeliveryAction(form: FormData) {
+  await requireAdmin();
+  let message = '';
+  let failed = false;
+  try {
+    const result = await requestManualDelivery({
+      briefId: text(form, 'briefId'),
+      subscriptionIds: form.getAll('subscriptionIds'),
+      force: form.has('force'),
+    });
+    message = `已加入发送队列 ${result.created} 封${result.skipped ? `，跳过排队中、已发送或待核对的投递 ${result.skipped} 封` : ''}`;
+    revalidatePath('/admin/subscriptions');
+  } catch (error) {
+    failed = true;
+    message =
+      error instanceof z.ZodError
+        ? '请选择邮箱和已发布刊期'
+        : error instanceof Error
+          ? error.message
+          : '推送失败';
+  }
+  redirect(
+    `/admin/subscriptions?${failed ? 'error' : 'notice'}=${encodeURIComponent(message)}&event=${crypto.randomUUID()}`,
+  );
+}
+export async function addSubscriberAction(form: FormData) {
+  await perform('/admin/subscriptions', async () => {
+    const token = await subscribe({ email: text(form, 'email'), kinds: form.getAll('kinds') });
+    if (!token) throw new Error('该邮箱已有登记，请在名单中查看其订阅状态');
+  });
+}
+
+export async function retentionSettingsAction(form: FormData) {
+  await perform('/admin/retention', async () =>
+    saveSettings({
+      ...(await getSettings()),
+      retentionEnabled: form.has('retentionEnabled'),
+      newsRetentionDays: Number(text(form, 'newsRetentionDays')),
+      taskRetentionDays: Number(text(form, 'taskRetentionDays')),
+      mailRetentionDays: Number(text(form, 'mailRetentionDays')),
+    }),
+  );
+}
+export async function cleanupRetentionAction() {
+  await requireAdmin();
+  let notice = '',
+    failed = false;
+  try {
+    const result = await cleanupRetention();
+    notice = result.skipped
+      ? '自动清理未开启，或已有清理任务正在执行'
+      : `清理完成：资讯 ${result.counts.events ?? 0} 条，任务 ${result.counts.jobs ?? 0} 条，邮件记录 ${result.counts.deliveries ?? 0} 条`;
+    revalidatePath('/', 'layout');
+  } catch (error) {
+    failed = true;
+    notice = error instanceof Error ? error.message : '清理失败';
+  }
+  redirect(
+    `/admin/retention?${failed ? 'error' : 'notice'}=${encodeURIComponent(notice)}&event=${crypto.randomUUID()}`,
+  );
 }

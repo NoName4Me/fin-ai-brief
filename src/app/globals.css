@@ -8,8 +8,9 @@
   --blue: #233c53;
   --line: #d7d6cf;
   --rule: #929a9f;
-  --serif: 'Songti SC', 'STSong', 'SimSun', serif;
-  --sans: 'Songti SC', 'STSong', 'SimSun', serif;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif;
+  --serif: var(--sans);
 }
 * {
   box-sizing: border-box;
@@ -34,6 +35,7 @@ body {
 h1,
 h2,
 h3,
+h4,
 p {
   margin: 0;
 }
@@ -477,7 +479,7 @@ time {
   padding: 22px 0 25px;
   scroll-margin-top: 25px;
 }
-.story-item:nth-child(even) {
+.story-grid > .story-item:nth-child(even) {
   border-left: 1px solid var(--line);
   padding-left: 27px;
 }
@@ -1126,7 +1128,7 @@ body[data-embed='true'] .preview-bar {
   .story-grid {
     column-gap: 21px;
   }
-  .story-item:nth-child(even) {
+  .story-grid > .story-item:nth-child(even) {
     padding-left: 21px;
   }
   .story-item h3 {
@@ -1297,7 +1299,7 @@ body[data-embed='true'] .preview-bar {
     display: block;
   }
   .story-item,
-  .story-item:nth-child(even) {
+  .story-grid > .story-item:nth-child(even) {
     padding: 22px 0 24px;
     border-left: 0;
   }
@@ -1733,7 +1735,7 @@ body[data-embed='true'] .preview-bar {
   padding-top: 23px;
   padding-bottom: 25px;
 }
-.chapter > .chapter-brief {
+.section-stories > .chapter-brief {
   border-left: 0;
   padding-left: 0;
 }
@@ -3012,7 +3014,7 @@ button:disabled {
 }
 @supports (background-clip: text) {
   .edition-calendar-day {
-    background-image: radial-gradient(circle, var(--blue) 0.8px, transparent 0.95px);
+    background-image: radial-gradient(circle, var(--blue) 1.05px, transparent 1.2px);
     background-size: 2.4px 2.4px;
     background-clip: text;
     -webkit-background-clip: text;
@@ -3038,16 +3040,11 @@ button:disabled {
   padding: 0;
 }
 .edition-overview {
-  border-left: 2px solid var(--blue);
   padding: 20px 22px 23px;
   background: var(--wash);
   margin-bottom: 29px;
 }
-.edition-overview > h2 {
-  font: 700 17px/1.5 var(--serif);
-  color: var(--blue);
-  margin-bottom: 16px;
-}
+
 .overview-domains {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3618,4 +3615,617 @@ button:disabled {
   .task-facts {
     grid-template-columns: 1fr;
   }
+}
+
+/* Period reports retain the publication's paper, ink and shared font system. */
+.period-workspace {
+  --period-accent: #294f62;
+  --period-tint: #e9eeed;
+}
+.period-monthly {
+  --period-accent: #475949;
+  --period-tint: #e9ece4;
+}
+.period-paper {
+  color: var(--ink);
+}
+.period-masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 3px double var(--period-accent);
+}
+.period-publication {
+  color: var(--period-accent);
+  font: 700 30px/1.5 var(--serif);
+  letter-spacing: 2px;
+}
+.period-issue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: #626967;
+}
+.period-date-mark {
+  flex-shrink: 0;
+  text-align: right;
+  color: var(--period-accent);
+}
+.period-date-mark > span {
+  font-size: 12px;
+}
+.period-date-mark > strong {
+  display: block;
+  font:
+    500 38px/1.3 Georgia,
+    var(--serif);
+  font-variant-numeric: tabular-nums;
+}
+.period-date-mark small {
+  font: 400 16px/1 var(--serif);
+  margin: 0 5px;
+}
+.period-monthly .period-date-mark > strong {
+  font-size: 56px;
+}
+.period-meta-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 11px 0;
+  font-size: 12px;
+  color: #626967;
+}
+.period-meta-line button {
+  min-height: 32px;
+}
+.period-opening {
+  padding: 22px 0 28px;
+}
+.period-focus-label {
+  font-size: 13px;
+  color: var(--period-accent);
+  margin-bottom: 10px;
+}
+.period-opening h1 {
+  font: 700 clamp(26px, 2.5vw, 36px)/1.55 var(--serif);
+  color: var(--period-accent);
+  letter-spacing: 0.5px;
+  max-width: 24em;
+  text-wrap: pretty;
+}
+.period-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 26px;
+  margin-top: 25px;
+}
+.period-summary h2 {
+  font-size: 14px;
+  color: var(--period-accent);
+  margin-bottom: 8px;
+}
+.period-summary p {
+  font-size: 15px;
+  line-height: 1.95;
+  color: var(--body);
+}
+.period-monthly .period-opening {
+  padding: 24px;
+  margin: 12px 0 26px;
+  background: var(--period-tint);
+  border-top: 2px solid var(--period-accent);
+}
+.period-monthly .period-summary {
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+.period-monthly .period-summary > div {
+  display: grid;
+  grid-template-columns: 65px minmax(0, 1fr);
+  gap: 14px;
+}
+.period-monthly .period-summary h2 {
+  padding-top: 2px;
+}
+.period-data {
+  margin: 0 0 32px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 16px 0 20px;
+}
+.period-data > h2 {
+  font-size: 13px;
+  color: var(--period-accent);
+  font-weight: 500;
+}
+.period-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  padding-top: 13px;
+}
+.period-metrics > a {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  align-items: start;
+}
+.period-metrics > a + a {
+  border-left: 1px solid var(--line);
+  padding-left: 18px;
+}
+.period-metric-value {
+  font:
+    400 clamp(24px, 2.3vw, 34px)/1.4 Georgia,
+    var(--serif);
+  color: var(--period-accent);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.period-metric-value small {
+  font: 400 13px/1.5 var(--serif);
+  margin-left: 3px;
+}
+.period-metrics strong {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 7px 0 5px;
+}
+.period-metric-context {
+  color: #626967;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.period-section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--period-accent);
+}
+.period-section-title h2 {
+  font-size: 20px;
+  color: var(--period-accent);
+}
+.period-section-title > span {
+  font-size: 12px;
+  color: #626967;
+}
+.period-domain {
+  margin: 26px 0 32px;
+  scroll-margin-top: 24px;
+}
+.period-domain-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding-bottom: 16px;
+}
+.period-domain-heading h2 {
+  font-size: 21px;
+  color: var(--period-accent);
+}
+.period-domain-heading span,
+.period-domain-heading small {
+  font-size: 12px;
+  color: #626967;
+}
+.period-domain-heading small {
+  margin-left: auto;
+}
+.period-story {
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+  scroll-margin-top: 24px;
+}
+.period-story-meta {
+  display: flex;
+  gap: 18px;
+  color: #626967;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.period-story h3 {
+  font: 700 20px/1.7 var(--serif);
+  color: var(--ink);
+  margin-bottom: 10px;
+  text-wrap: pretty;
+}
+.period-story-lead h3 {
+  font-size: 24px;
+  color: var(--period-accent);
+}
+.period-story > p {
+  font-size: 15px;
+  line-height: 2;
+  color: var(--body);
+}
+.period-story .source-row {
+  margin-top: 13px;
+  font-size: 12px;
+}
+.period-story .source-row button {
+  min-height: 32px;
+}
+.period-monthly .period-stories {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 26px;
+}
+.period-monthly .period-story-lead {
+  grid-column: 1 / -1;
+}
+.period-chronology {
+  margin: 36px 0;
+}
+.period-chronology ol {
+  margin-top: 18px;
+}
+.period-chronology li {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 18px;
+  padding: 10px 0;
+  font-size: 13px;
+}
+.period-chronology time {
+  color: var(--period-accent);
+}
+.period-chronology a {
+  border-left: 2px solid var(--line);
+  padding-left: 18px;
+}
+.period-chronology a:hover,
+.period-metrics a:hover strong,
+.period-context a:hover {
+  color: var(--period-accent);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.period-watch {
+  margin: 34px 0;
+}
+.period-watch > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+  padding: 20px 0;
+}
+.period-watch h3 {
+  font-size: 14px;
+  color: var(--period-accent);
+  margin-bottom: 8px;
+}
+.period-watch p {
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--body);
+}
+.period-footer {
+  margin-top: 36px;
+  border-top: 3px double var(--period-accent);
+  padding-top: 17px;
+  font-size: 12px;
+  color: #626967;
+}
+.period-footer > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  color: var(--period-accent);
+}
+.period-footer > div strong {
+  font-size: 16px;
+}
+.period-footer > p + p {
+  margin-top: 10px;
+}
+.period-context .context-block > a {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 0;
+  font-size: 13px;
+}
+.period-context a span {
+  font-size: 12px;
+  color: #626967;
+}
+.sample-sidebar {
+  border-top: 1px solid var(--line);
+  padding: 18px 0;
+  display: grid;
+  gap: 10px;
+  font-size: 13px;
+}
+@media (max-width: 1250px) and (min-width: 651px) {
+  .period-metrics {
+    gap: 12px;
+  }
+  .period-metrics > a + a {
+    padding-left: 12px;
+  }
+  .period-metric-value {
+    font-size: 23px;
+  }
+}
+@media (max-width: 650px) {
+  .period-publication {
+    font-size: 23px;
+    letter-spacing: 0;
+  }
+  .period-masthead {
+    gap: 14px;
+  }
+  .period-issue {
+    display: grid;
+    gap: 5px;
+    font-size: 11px;
+  }
+  .period-issue span {
+    font-size: 11px;
+  }
+  .period-date-mark > strong {
+    font-size: 30px;
+  }
+  .period-monthly .period-date-mark > strong {
+    font-size: 45px;
+  }
+  .period-opening h1 {
+    font-size: 27px;
+  }
+  .period-summary,
+  .period-monthly .period-stories {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .period-summary p,
+  .period-story > p {
+    font-size: 16px;
+  }
+  .period-monthly .period-opening {
+    padding: 20px 16px;
+  }
+  .period-monthly .period-summary > div {
+    display: block;
+  }
+  .period-metrics {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .period-metrics > a {
+    display: grid;
+    grid-template-columns: minmax(125px, 0.9fr) minmax(0, 1fr);
+    column-gap: 14px;
+    align-items: center;
+  }
+  .period-metrics > a + a {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 14px 0 0;
+  }
+  .period-metric-value {
+    grid-row: 1 / 3;
+    font-size: 27px;
+  }
+  .period-metrics strong {
+    margin: 0 0 4px;
+  }
+  .period-story-lead h3 {
+    font-size: 22px;
+  }
+  .period-domain-heading {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+  .period-watch > div:last-child {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .period-watch p {
+    font-size: 15px;
+  }
+  .period-section-title {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+}
+@media print {
+  .period-meta-line button,
+  .period-context {
+    display: none !important;
+  }
+  .period-workspace {
+    display: block;
+  }
+  .period-story,
+  .period-watch section,
+  .period-metrics,
+  .period-opening,
+  .period-chronology li {
+    break-inside: avoid;
+  }
+  .period-domain-heading,
+  .period-section-title {
+    break-after: avoid;
+  }
+  .period-monthly .period-opening {
+    print-color-adjust: exact;
+  }
+}
+
+.delivery-form { margin-top: 0; }
+.delivery-form h2 { color: var(--blue); font-size: 19px; }
+.delivery-form .form-hint { margin-top: 0; }
+
+.edition-calendar-day {
+  font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 900;
+  letter-spacing: -0.035em;
+}
+.period-title {
+  min-width: 0;
+  color: var(--period-accent);
+  font: 700 34px/1.55 var(--serif);
+  letter-spacing: .5px;
+}
+.period-date-mark {
+  min-width: 166px;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.period-date-mark > strong.edition-calendar-day {
+  font: 900 60px/0.8 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+  letter-spacing: -0.035em;
+}
+.period-date-mark > .period-date-range {
+  display: block;
+  margin-top: 0;
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--ink);
+}
+.period-date-mark .period-issue {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.period-opening .period-summary { margin-top: 0; }
+.brief-section { margin-top: 22px; }
+.brief-section-heading { color: var(--blue); font: 700 16px/1.6 var(--serif); margin-bottom: 8px; }
+.section-stories .lead-story h4 { color: var(--blue); font: 700 23px/1.7 var(--serif); margin-bottom: 10px; }
+.section-stories .story-item h4 { color: var(--ink); font: 700 19px/1.7 var(--serif); margin-bottom: 8px; }
+.period-story h4 { font: 700 20px/1.7 var(--serif); color: var(--ink); margin-bottom: 10px; }
+.period-story-lead h4 { font-size: 24px; color: var(--period-accent); }
+@media (max-width: 700px) {
+  .period-title { font-size: 26px; }
+  .period-masthead { align-items: start; }
+  .period-date-mark { min-width: 110px; }
+  .period-date-mark > strong.edition-calendar-day { font-size: 48px; }
+}
+@media (max-width: 480px) {
+  .period-masthead { flex-direction: column; gap: 16px; }
+  .period-date-mark { align-self: flex-end; }
+}
+
+.publication-footer {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 14px 0;
+  border-bottom: 3px double var(--period-accent, var(--blue));
+  color: var(--period-accent, var(--blue));
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: nowrap;
+}
+.publication-name { font-weight: 700; }
+.publication-finish { text-align: center; color: var(--muted); font-size: 12px; }
+.publication-colophon { text-align: right; }
+.publication-colophon strong { font-weight: 600; }
+.publication-colophon > span { color: var(--muted); }
+@media (max-width: 600px) {
+  .publication-footer { gap: 6px; font-size: clamp(9px, 2.65vw, 12px); padding: 12px 0; }
+  .publication-finish { font-size: inherit; }
+}
+
+.publication-range {
+  margin-top: 10px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+/* Shared publication styling; each period retains its own story layout. */
+.period-workspace { --period-accent: var(--blue); --period-tint: var(--wash); }
+.period-opening.edition-overview {
+  padding: 20px 22px 23px;
+  margin: 0 0 29px;
+  border: 0;
+  background: var(--wash);
+}
+.period-summary h3 { font-size: 14px; font-weight: 650; color: var(--blue); margin: 0 0 7px; }
+.period-story-meta { margin-bottom: 3px; line-height: 1.25; }
+.period-story h4 { margin: 0 0 10px; font-size: 19px; }
+.period-story-lead h4 { font-size: 23px; }
+.period-story > p { line-height: 1.95; }
+.period-story-lead > p { font-size: 16px; }
+.period-calendar-weekly {
+  position: relative;
+  width: 54px;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.period-range-start, .period-range-end { position: absolute; color: var(--muted); font-size: 9px; line-height: 1.3; }
+.period-range-start { top: 0; left: 0; }
+.period-range-end { bottom: 0; right: 0; }
+.period-day, .period-link.current .period-day {
+  font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 25px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -.035em;
+}
+
+.period-weekly .period-summary > div + div { border-left: 1px solid var(--line); padding-left: 24px; }
+@media (max-width: 650px) {
+  .period-weekly .period-summary > div + div { border-left: 0; padding-left: 0; }
+}
+
+.archive-number {
+  width: 100px;
+  padding-top: 0;
+  text-align: center;
+}
+.archive-number strong {
+  display: block;
+  margin: 5px 0;
+  font: 900 28px/1 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.archive-number small {
+  margin-top: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+@media (max-width: 650px) {
+  .archive-number { width: 82px; }
+  .archive-number strong { font-size: 25px; }
+  .archive-number small { font-size: 11px; }
+}
+
+.weekly-review .period-story-lead h4 { font-size: 21px; }
+.weekly-review .period-story-lead > p { font-size: 15px; }
+.weekly-progress { margin-top: 18px; }
+.weekly-progress h5 { margin: 0 0 8px; color: var(--blue); font-size: 13px; font-weight: 600; }
+.weekly-progress ol { margin: 0; padding: 0; list-style: none; }
+.weekly-progress li { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 16px; padding: 8px 0; }
+.weekly-progress-date { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.weekly-progress-date time, .weekly-progress-date span { display: block; }
+.weekly-progress-copy p { margin: 0; color: var(--body); font-size: 14px; line-height: 1.9; }
+.weekly-progress-copy > button { min-height: 28px; font-size: 12px; }
+.progress-evidence section + section { margin-top: 22px; }
+.progress-evidence blockquote { margin: 10px 0; padding: 10px 14px; background: var(--wash); color: var(--body); font-size: 14px; line-height: 1.9; }
+@media (max-width: 650px) {
+  .weekly-progress li { grid-template-columns: 48px minmax(0, 1fr); gap: 12px; }
 }

@@ -7,6 +7,8 @@ const items = [
   ['/admin/sources', '信源'],
   ['/admin/industries', '行业与栏目'],
   ['/admin/settings', '出刊设置'],
+  ['/admin/subscriptions', '订阅管理'],
+  ['/admin/retention', '数据保留'],
 ] as const;
 export function AdminNavigation() {
   const path = usePathname();

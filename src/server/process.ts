@@ -262,8 +262,15 @@ export async function processArticle(id: string) {
           })
           .where(eq(articles.id, id));
         if (changed) {
+          const [snapshot] = await tx.select().from(events).where(eq(events.id, eventId));
+          const editorial = {
+            title: snapshot.title,
+            summary: snapshot.summary,
+            section: snapshot.section,
+            score: snapshot.score,
+          };
           await tx.execute(
-            sql`INSERT INTO event_developments(event_id,article_id,fact_hash,facts,happened_at) VALUES(${eventId},${id},${factHash},${JSON.stringify(facts)}::jsonb,${article.publishedAt.toISOString()}::timestamptz) ON CONFLICT DO NOTHING`,
+            sql`INSERT INTO event_developments(event_id,article_id,fact_hash,facts,happened_at,editorial) VALUES(${eventId},${id},${factHash},${JSON.stringify(facts)}::jsonb,${article.publishedAt.toISOString()}::timestamptz,${JSON.stringify(editorial)}::jsonb) ON CONFLICT DO NOTHING`,
           );
           await tx.execute(sql`INSERT INTO news_changes(event_id) VALUES(${eventId})`);
         }

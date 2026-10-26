@@ -1,30 +1,17 @@
-import nodemailer from 'nodemailer';
+import { randomUUID } from 'node:crypto';
+import { createMailTransport } from './mail-transport.ts';
+import { mailFailure } from './mail-errors.ts';
+import { requireMailConfig } from './mail-config.ts';
 import { and, eq } from 'drizzle-orm';
 import { db } from './db.ts';
 import { deliveries, subscriptions } from './schema.ts';
-import { publishedBrief } from './publication.ts';
+import { publicIndustries, publishedBrief } from './publication.ts';
 import { unsubscribeToken } from './subscriptions.ts';
-import type { BriefContent } from './types.ts';
-export const escapeHtml = (v: string) =>
-  v.replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
-  );
-export function renderEmail(content: BriefContent, issueUrl: string, cancelUrl: string) {
-  return `<html lang="zh-CN"><body style="margin:0;background:#f7f5ef;color:#252b30;font:15px/1.9 Songti SC,STSong,SimSun,serif"><table role="presentation" style="max-width:720px;width:100%;margin:auto;padding:28px"><tr><td><p style="color:#233c53;font-size:26px;font-weight:bold">Fin&AI简报</p><h1 style="font-size:24px;color:#233c53;border-bottom:3px double #233c53;padding-bottom:16px">${escapeHtml(content.title)}</h1>${Object.entries(
-    content.overview,
-  )
-    .map(
-      ([key, v]) =>
-        `<p><strong>${escapeHtml(key === 'finance' ? '金融' : key === 'ai' ? 'AI' : key)}</strong>　${escapeHtml(v)}</p>`,
-    )
-    .join(
-      '',
-    )}${content.items.map((item) => `<h2 style="font-size:20px;border-top:1px solid #d7d6cf;padding-top:18px">${escapeHtml(item.title)}</h2><p>${escapeHtml(item.summary)}</p><p style="font-size:13px">${item.sources.map((s) => `<a style="color:#233c53" href="${escapeHtml(s.url)}">${escapeHtml(s.name)}</a>`).join(' / ')}</p>`).join('')}<p style="border-top:3px double #233c53;padding-top:16px;text-align:right">数智化转型办公室·智创组　编制</p><p style="font-size:13px"><a href="${escapeHtml(issueUrl)}">网页阅读</a>　<a href="${escapeHtml(cancelUrl)}">取消订阅</a></p></td></tr></table></body></html>`;
-}
+export { escapeHtml, renderEmail } from './mail-template.ts';
+import { renderEmail } from './mail-template.ts';
+import { kindNames, type Kind } from './types.ts';
 export async function deliver(id: string) {
-  if (process.env.MAIL_ENABLED !== 'true') throw new Error('正式邮件发送尚未启用');
-  if (!process.env.SMTP_HOST || !process.env.MAIL_FROM) throw new Error('请先配置正式发信服务');
+  requireMailConfig();
   const [row] = await db.select().from(deliveries).where(eq(deliveries.id, id));
   if (!row || row.state !== 'pending') return;
   const [recipient] = await db
@@ -48,28 +35,25 @@ export async function deliver(id: string) {
     .where(and(eq(deliveries.id, id), eq(deliveries.state, 'pending')))
     .returning();
   if (!claimed.length) return;
-  const transport = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT ?? 587),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: process.env.SMTP_USER
-      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }
-      : undefined,
-    connectionTimeout: 30_000,
-    socketTimeout: 60_000,
-  });
+  const transport = createMailTransport();
   try {
     await transport.sendMail({
       from: process.env.MAIL_FROM,
       to: recipient.email,
-      subject: brief.content.title,
-      messageId: `<${row.id}@${new URL(base).hostname}>`,
-      html: renderEmail(brief.content, new URL(`/briefs/${brief.id}`, base).href, cancelUrl),
+      subject: `Fin&AI${kindNames[brief.kind as Kind]}｜${brief.content.title}`,
+      messageId: `<${row.id}.${randomUUID()}@${new URL(base).hostname}>`,
+      html: renderEmail(brief.content, new URL(`/briefs/${brief.id}`, base).href, cancelUrl, {
+        kind: brief.kind as Kind,
+        date: brief.periodDate,
+        issueNumber: brief.issueNumber,
+        industries: await publicIndustries(),
+      }),
       text: [
         brief.content.title,
         ...Object.values(brief.content.overview),
         ...brief.content.items.map(
-          (i) => `${i.title}\n${i.summary}\n${i.sources.map((s) => s.url).join('\n')}`,
+          (i) =>
+            `${i.title}\n${i.summary}\n${(i.progress ?? []).map((p) => `${p.date}${p.endDate ? `—${p.endDate}` : ''} 报道：${p.text}\n${p.sourceUrls.join('\n')}`).join('\n')}\n${i.sources.map((s) => s.url).join('\n')}`,
         ),
         `取消订阅：${cancelUrl}`,
       ].join('\n\n'),
@@ -80,12 +64,9 @@ export async function deliver(id: string) {
       .set({ state: 'sent', sentAt: new Date(), error: null })
       .where(eq(deliveries.id, id));
   } catch (error) {
-    // SMTP提交后断线无法判断对方是否接受；不自动重发，避免重复邮件。
-    await db
-      .update(deliveries)
-      .set({ state: 'uncertain', error: '发送未确认，请核对发信服务记录' })
-      .where(eq(deliveries.id, id));
-    throw new Error('邮件发送未确认，请核对发信服务记录');
+    const failure = mailFailure(error);
+    await db.update(deliveries).set(failure).where(eq(deliveries.id, id));
+    throw new Error(failure.error);
   } finally {
     transport.close();
   }

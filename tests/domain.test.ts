@@ -191,7 +191,7 @@ test('邮件使用同一份内容、独立版式并转义所有正文和链接',
   assert.ok(html.includes(content.items[1].title));
 });
 
-test('日报周报按月分组，只有当月展开；月报仅显示当年并按年归组', async () => {
+test('日报周报按月分组，只有当月展开；月报保留各年份并按年归组', async () => {
   const { groupIssues } = await import('../src/server/brief-presentation.ts');
   const issues = [
     { periodDate: '2025-12-01' },
@@ -213,9 +213,23 @@ test('日报周报按月分组，只有当月展开；月报仅显示当年并�
     assert.equal(groups[0].items[0].periodDate, '2026-10-22');
   }
   const monthly = groupIssues(issues, 'monthly', now);
-  assert.equal(monthly.length, 1);
+  assert.equal(monthly.length, 2);
+  assert.equal(monthly[1].label, '2025年');
+  assert.equal(monthly[1].open, false);
   assert.equal(monthly[0].label, '2026年');
   assert.ok(monthly[0].items.every((i) => i.periodDate.startsWith('2026')));
+  const crossYear = groupIssues(
+    [
+      { periodDate: '2026-02-01', content: { rangeStart: '2026-01-01T00:00:00Z' } },
+      { periodDate: '2026-01-01', content: { rangeStart: '2025-12-01T00:00:00Z' } },
+    ],
+    'monthly',
+    now,
+  );
+  assert.deepEqual(
+    crossYear.map((group) => group.key),
+    ['2026', '2025'],
+  );
 });
 test('目录按已出现的栏目去重', async () => {
   const { sectionLinks, weekday } = await import('../src/server/brief-presentation.ts');
@@ -423,4 +437,43 @@ test('月报31号在大小月、平闰年和跨年连续覆盖相邻计划刊期
     ['2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30'],
   );
   assert.throws(() => rangeFor('monthly', '2026-03-30', '08:00', schedule));
+});
+
+test('周报刊头按ISO周编号展示完整周日期，月报大数字为所属月份', async () => {
+  const { editionCalendar } = await import('../src/server/brief-presentation.ts');
+  const content = fixtureContent();
+  content.rangeStart = '2026-10-19T00:00:00.000Z';
+  content.rangeEnd = '2026-10-26T00:00:00.000Z';
+  assert.deepEqual(editionCalendar('weekly', '2026-10-26', content), {
+    top: '2026年10月',
+    number: '43',
+    detail: '10.19-10.25',
+    weekYear: 2026,
+  });
+  content.rangeStart = '2020-12-28T00:00:00.000Z';
+  content.rangeEnd = '2021-01-04T00:00:00.000Z';
+  assert.equal(editionCalendar('weekly', '2021-01-04', content).number, '53');
+  assert.equal(editionCalendar('weekly', '2021-01-04', content).weekYear, 2020);
+  content.rangeStart = '2026-10-01T00:00:00.000Z';
+  content.rangeEnd = '2026-11-01T00:00:00.000Z';
+  const monthly = editionCalendar('monthly', '2026-11-01', content);
+  assert.equal(monthly.top, '2026年');
+  assert.equal(monthly.number, '10');
+});
+test('板块分类按配置聚合，未配置分类补在末尾，分类内保持原顺序', async () => {
+  const { sectionGroups } = await import('../src/server/brief-presentation.ts');
+  const items = fixtureContent().items.slice(0, 4);
+  items[0].section = '行业进展';
+  items[1].section = '行业监管';
+  items[2].section = '行业进展';
+  items[3].section = '新分类';
+  const groups = sectionGroups(items, ['行业监管', '行业进展', '相关报告']);
+  assert.deepEqual(
+    groups.map((g) => g.name),
+    ['行业监管', '行业进展', '新分类'],
+  );
+  assert.deepEqual(
+    groups[1].items.map((item) => item.eventId),
+    [items[0].eventId, items[2].eventId],
+  );
 });

@@ -12,6 +12,7 @@
     "dev:worker": "tsx watch --env-file-if-exists=.env src/worker.ts",
     "build": "next build",
     "start": "next start -p 3100",
+    "mail:verify": "tsx --env-file-if-exists=.env scripts/verify-mail.ts",
     "worker": "tsx --env-file-if-exists=.env src/worker.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --env-file-if-exists=.data/test.env --test --test-concurrency=1 tests/*.test.ts",

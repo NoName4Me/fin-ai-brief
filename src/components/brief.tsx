@@ -1,107 +1,29 @@
 import type { BriefContent, Kind } from '../server/types.ts';
 import { kindNames } from '../server/types.ts';
-import { dateLabel, timeLabel } from '../server/periods.ts';
-import { sectionAnchor, sectionLinks, weekday } from '../server/brief-presentation.ts';
-import { SourceDialog } from './source-dialog.tsx';
+import { dateLabel } from '../server/periods.ts';
+import { PublicationFooter } from './publication-footer.tsx';
+import { sectionAnchor, sectionGroups, weekday } from '../server/brief-presentation.ts';
+import { BriefContext } from './brief-context.tsx';
+import { SourceRow, Summary } from './brief-story.tsx';
 import { PrintButton } from './navigation.tsx';
+import { PeriodBrief } from './period-brief.tsx';
 type Industry = { id: string; name: string; description: string; sections: string[] };
-function SourceRow({ item }: { item: BriefContent['items'][number] }) {
-  return (
-    <div className="source-row">
-      <span>{[...new Set(item.sources.map((s) => s.name))].join(' / ')}</span>
-      <span className="sep">/</span>
-      <SourceDialog title={item.title}>
-        <div className="source-detail-content">
-          {item.sources.map((s) => (
-            <p key={s.url}>
-              <a href={s.url} target="_blank" rel="noopener noreferrer">
-                {s.title}
-              </a>
-              <br />
-              <span>
-                {s.name}　{dateLabel(s.publishedAt)}
-                {s.publishedAt.length > 10 ? ` ${timeLabel(s.publishedAt)}` : '（时刻未披露）'}
-              </span>
-              {s.timeNote && (
-                <>
-                  <br />
-                  <span>{s.timeNote}</span>
-                </>
-              )}
-              {s.detail && (
-                <>
-                  <br />
-                  <span>{s.detail}</span>
-                </>
-              )}
-              {s.announcementUrl && (
-                <>
-                  <br />
-                  <a href={s.announcementUrl} target="_blank" rel="noopener noreferrer">
-                    公告原帖
-                  </a>
-                </>
-              )}
-              {s.timingIndexUrl && (
-                <>
-                  　
-                  <a href={s.timingIndexUrl} target="_blank" rel="noopener noreferrer">
-                    时间索引
-                  </a>
-                </>
-              )}
-            </p>
-          ))}
-        </div>
-      </SourceDialog>
-    </div>
-  );
-}
-function Summary({ item }: { item: BriefContent['items'][number] }) {
-  const phrases = item.emphasis?.filter((phrase) => item.summary.includes(phrase)) ?? [];
-  if (!phrases.length) return <>{item.summary}</>;
-  const pattern = new RegExp(
-    `(${phrases.map((phrase) => phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
-    'g',
-  );
-  return (
-    <>
-      {item.summary
-        .split(pattern)
-        .map((part, index) =>
-          phrases.includes(part) ? <strong key={index}>{part}</strong> : part,
-        )}
-    </>
-  );
-}
 function Story({
   item,
   lead = false,
   brief = false,
-  anchor,
 }: {
   item: BriefContent['items'][number];
   lead?: boolean;
   brief?: boolean;
-  anchor?: string;
 }) {
   return (
     <article
       id={`event-${item.eventId}`}
       className={lead ? 'lead-story' : `story-item ${brief ? 'chapter-brief' : ''}`}
     >
-      {lead ? (
-        <div className="lead-kicker" id={anchor}>
-          <span>重点关注</span>
-          <span>{item.section}</span>
-        </div>
-      ) : (
-        <div className="category-label" id={anchor}>
-          {item.section}
-        </div>
-      )}
       <div className={lead ? undefined : 'story-copy'}>
-        <h3>{item.title}</h3>
+        <h4>{item.title}</h4>
         <p>
           <Summary item={item} />
         </p>
@@ -123,6 +45,17 @@ export function Brief({
   industries: Industry[];
   issueNumber?: number | null;
 }) {
+  if (kind !== 'daily') {
+    return (
+      <PeriodBrief
+        content={content}
+        kind={kind}
+        date={date}
+        industries={industries}
+        issueNumber={issueNumber}
+      />
+    );
+  }
   return (
     <div className="workspace">
       <div className="content-column">
@@ -153,7 +86,6 @@ export function Brief({
             <PrintButton />
           </div>
           <section className="edition-overview">
-            <h2>总览</h2>
             <div className="overview-domains">
               {industries
                 .filter((i) => content.overview[i.id])
@@ -185,103 +117,38 @@ export function Brief({
                   </div>
                   <span>本版{items.length}条</span>
                 </header>
-                <div className="chapter-lead">
-                  <Story
-                    item={items[0]}
-                    lead
-                    anchor={sectionAnchor(industry.id, items[0].section)}
-                  />
-                </div>
-                {items.length > 1 && (
-                  <div className="story-grid chapter-pair">
-                    {items.slice(1, 3).map((item) => (
-                      <Story
-                        item={item}
-                        key={item.eventId}
-                        anchor={
-                          items.find((first) => first.section === item.section)?.eventId ===
-                          item.eventId
-                            ? sectionAnchor(industry.id, item.section)
-                            : undefined
-                        }
-                      />
-                    ))}
-                  </div>
-                )}
-                {items.slice(3).map((item) => (
-                  <Story
-                    item={item}
-                    brief
-                    key={item.eventId}
-                    anchor={
-                      items.find((first) => first.section === item.section)?.eventId ===
-                      item.eventId
-                        ? sectionAnchor(industry.id, item.section)
-                        : undefined
-                    }
-                  />
+                {sectionGroups(items, industry.sections).map((group) => (
+                  <section className="brief-section" key={group.name}>
+                    <h3
+                      className="brief-section-heading"
+                      id={sectionAnchor(industry.id, group.name)}
+                    >
+                      {group.name}
+                    </h3>
+                    <div className="section-stories">
+                      <div className="chapter-lead">
+                        <Story item={group.items[0]} lead />
+                      </div>
+                      {group.items.length > 1 && (
+                        <div className="story-grid chapter-pair">
+                          {group.items.slice(1, 3).map((item) => (
+                            <Story item={item} key={item.eventId} />
+                          ))}
+                        </div>
+                      )}
+                      {group.items.slice(3).map((item) => (
+                        <Story item={item} brief key={item.eventId} />
+                      ))}
+                    </div>
+                  </section>
                 ))}
               </section>
             );
           })}
-          <div className="paper-end">
-            <span>Fin&AI简报 / 金融与AI资讯简报</span>
-            <span>本期完</span>
-          </div>
-          <p className="report-colophon">
-            <strong>数智化转型办公室·智创组</strong>　编制
-          </p>
-          <p className="test-note">
-            {content.note && (
-              <>
-                {content.note}
-                <br />
-              </>
-            )}
-            统计范围：{dateLabel(content.rangeStart)} {timeLabel(content.rangeStart)}—
-            {dateLabel(content.rangeEnd)} {timeLabel(content.rangeEnd)}
-            （北京时间）。正文为来源摘要，原始资料与事实边界以所附来源为准。
-          </p>
+          <PublicationFooter kind={kind} content={content} />
         </section>
       </div>
-      <aside className="context">
-        <div className="context-block">
-          <h2 className="context-head">
-            本期目录<small>{content.items.length}条要情</small>
-          </h2>
-          {industries.map((i) => {
-            const items = content.items.filter((item) => item.industryId === i.id);
-            return items.length ? (
-              <div className={`toc-domain domain-${i.id}`} key={i.id}>
-                <a className="toc-domain-title" href={`#chapter-${i.id}`}>
-                  {i.name}要情
-                </a>
-                <ul className="outline-list">
-                  {sectionLinks(content, i).map((section) => (
-                    <li key={section.name}>
-                      <a href={`#${section.anchor}`}>{section.name}</a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null;
-          })}
-        </div>
-        <div className="context-block">
-          <h2 className="context-head">资料来源</h2>
-          <ul className="source-files">
-            {[...new Set(content.items.flatMap((i) => i.sources.map((s) => s.name)))].map(
-              (name) => (
-                <li key={name}>{name}</li>
-              ),
-            )}
-          </ul>
-        </div>
-        <div className="source-note">
-          <strong>阅读说明</strong>
-          关注事实与后续进展，不将计划当作已实现结果。每条资讯保留原文链接。
-        </div>
-      </aside>
+      <BriefContext content={content} industries={industries} />
     </div>
   );
 }

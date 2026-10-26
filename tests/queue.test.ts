@@ -38,7 +38,13 @@ test('初始积压优先处理最新资讯，额度不足继续等待并保留�
     ('旧材料','https://example.invalid/old-budget','摘要',now()-interval '2 days','本地测试','ai'),
     ('新材料','https://example.invalid/new-budget','摘要',now()-interval '1 hour','本地测试','ai') RETURNING id`);
   const oldSettings = await getSettings();
-  await saveSettings({ ...oldSettings, modelDailyLimit: 2 });
+  await saveSettings({
+    ...oldSettings,
+    modelDailyLimit: 2,
+    dailyEnabled: false,
+    weeklyEnabled: false,
+    monthlyEnabled: false,
+  });
   try {
     await enqueuePendingArticles();
     const queued = await pool.query(

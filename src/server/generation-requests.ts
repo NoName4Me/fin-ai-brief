@@ -114,10 +114,11 @@ export interface GenerationTask {
   date: string;
   expectedKey?: string;
   requestId?: string;
+  backfill?: boolean;
 }
 export async function runGeneration(jobId: string, data: GenerationTask) {
   try {
-    return await generateBrief(data.kind, data.date, data.expectedKey);
+    return await generateBrief(data.kind, data.date, data.expectedKey, { backfill: data.backfill });
   } catch (error) {
     if (!(error instanceof PendingArticles) || !data.requestId) throw error;
     // Collection can add another article between dispatch and generation. Return to dependency

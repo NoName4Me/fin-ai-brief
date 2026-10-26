@@ -47,7 +47,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           出刊日期
           <input type="date" name="date" defaultValue={localDate()} required />
         </label>
-        <button className="solid-button">预览生成</button>
+        <button className="solid-button">生成前检查</button>
       </form>
       <p className="form-hint">
         日报统计出刊前24小时；周报选

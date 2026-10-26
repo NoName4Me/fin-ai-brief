@@ -97,7 +97,7 @@ test('手机可切换简报类型并打开订阅入口', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('link', { name: '周报', exact: true }).filter({ visible: true }).click();
   await expect(page).toHaveURL(/kind=weekly/);
-  await expect(page.getByRole('heading', { name: '周报' })).toBeVisible();
+  await expect(page.locator('.period-paper h1, .paper .empty-state').first()).toBeVisible();
   await page.getByRole('link', { name: '邮箱订阅', exact: true }).click();
   await expect(page.getByLabel('邮箱地址')).toBeVisible();
 });

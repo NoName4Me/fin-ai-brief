@@ -2,7 +2,8 @@ import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { eq } from 'drizzle-orm';
 import { db, pool } from '../src/server/db.ts';
-import { modelUsage } from '../src/server/model.ts';
+import { z } from 'zod';
+import { modelUsage, modelJSON } from '../src/server/model.ts';
 import { migrate } from '../scripts/migrate.ts';
 import {
   articles,
@@ -264,20 +265,56 @@ test('订阅去重不泄露凭据或修改偏好，退订幂等', async () => {
   assert.equal((await db.select().from(subscriptions))[0].active, false);
   await assert.rejects(() => unsubscribe('bad'), /无效/);
 });
-test('邮件投递随发布原子创建、退订者不入队，未开启发信不留历史待发', async () => {
+test('首次发布创建投递，重出不重发，即使投递记录已清理', async () => {
+  process.env.MAIL_ENABLED = 'true';
   await subscribe({ email: 'one@example.com', kinds: ['daily'] });
   const token = await subscribe({ email: 'two@example.com', kinds: ['daily'] });
   await unsubscribe(token!);
-  const old = await generateBrief('daily', '2026-10-22');
-  await publishBrief(old.id);
+  const row = await generateBrief('daily', '2026-10-22');
+  await publishBrief(row.id);
+  assert.equal((await db.select().from(deliveries)).length, 1);
+  await db.delete(deliveries);
+  await generateBrief('daily', '2026-10-22');
+  await publishBrief(row.id);
   assert.equal((await db.select().from(deliveries)).length, 0);
+  await saveSettings({ ...defaultSettings, autoPublish: true });
+  await generateBrief('daily', '2026-10-22');
+  assert.equal((await db.select().from(deliveries)).length, 0);
+});
+
+test('关闭发信时发布的简报，之后重出也不会补发', async () => {
+  await subscribe({ email: 'one@example.com', kinds: ['daily'] });
+  const row = await generateBrief('daily', '2026-10-22');
+  await publishBrief(row.id);
   process.env.MAIL_ENABLED = 'true';
   await generateBrief('daily', '2026-10-22');
-  await publishBrief(old.id);
-  assert.equal((await db.select().from(deliveries)).length, 1);
+  await publishBrief(row.id);
+  assert.equal((await db.select().from(deliveries)).length, 0);
+});
+
+test('补刊任务忽略自动发布设置，审核发布及后续重出均不自动推送', async () => {
+  const { runGeneration } = await import('../src/server/generation-requests.ts');
+  await saveSettings({ ...defaultSettings, autoPublish: true });
+  process.env.MAIL_ENABLED = 'true';
+  await subscribe({ email: 'one@example.com', kinds: ['daily'] });
+  const result = await runGeneration('test-backfill', {
+    kind: 'daily',
+    date: '2026-10-22',
+    backfill: true,
+  });
+  assert.ok('id' in result);
+  const [row] = await db.select().from(briefs);
+  assert.ok(row.draft);
+  assert.equal(row.published, null);
+  assert.equal(row.autoMail, false);
+  assert.equal((await db.select().from(deliveries)).length, 0);
+  await generateBrief('daily', '2026-10-22', undefined, { backfill: true });
+  assert.equal((await db.select().from(briefs))[0].autoMail, false);
+  await publishBrief(row.id);
+  assert.ok((await publishedBrief(row.id))?.content);
+  assert.equal((await db.select().from(deliveries)).length, 0);
   await generateBrief('daily', '2026-10-22');
-  await publishBrief(old.id);
-  assert.equal((await db.select().from(deliveries)).length, 1);
+  assert.equal((await db.select().from(deliveries)).length, 0);
 });
 
 test('时段内有待处理资讯时不生成不完整简报，也不调用模型', async () => {
@@ -559,19 +596,21 @@ test('简报标题上限配置同时约束提示词和结果，保留既有长�
   await assert.rejects(saveSettings({ ...(await getSettings()), briefTitleMaxLength: 0 }));
 });
 
-test('金融简报限定摘要与概览篇幅，AI摘要保留原有长度', async () => {
-  let content = fixtureContent();
-  content.items.find((i) => i.industryId === 'finance')!.summary = '金'.repeat(141);
-  globalThis.fetch = async () => modelReply(content);
-  await assert.rejects(generateBrief('daily', '2026-10-22'), /金融摘要不能超过140字/);
-  content.items.find((i) => i.industryId === 'finance')!.summary = '金'.repeat(120);
-  content.overview.finance = '金'.repeat(121);
-  await assert.rejects(generateBrief('daily', '2026-10-22'), /金融概览不能超过120字/);
-  content.overview.finance = '金融要情';
+test('金融篇幅容差内原样接受，AI摘要保持原有长度', async () => {
+  const content = fixtureContent();
+  content.items[0].summary = '金'.repeat(154);
+  content.overview.finance = '融'.repeat(132);
   content.items.find((i) => i.industryId === 'ai')!.summary = 'AI'.repeat(150);
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return modelReply(content);
+  };
   const saved = await generateBrief('daily', '2026-10-22');
-  assert.equal(saved.draft!.items.find((i) => i.industryId === 'finance')!.summary.length, 120);
+  assert.equal(saved.draft!.items[0].summary, content.items[0].summary);
+  assert.equal(saved.draft!.overview.finance, content.overview.finance);
   assert.equal(saved.draft!.items.find((i) => i.industryId === 'ai')!.summary.length, 300);
+  assert.equal(calls, 1);
 });
 
 test('重试耗尽的资讯保留失败记录，不阻塞同周期简报生成', async () => {
@@ -712,4 +751,218 @@ test('完全相同的并发生成共用一次模型请求，不消耗重试次�
   const log = await pool.query('SELECT state,reused_count FROM model_calls');
   assert.equal(log.rowCount, 1);
   assert.equal(log.rows[0].reused_count, 2);
+});
+
+test('简报提示词给出实际行业键的JSON示例，避免模型照抄行业ID占位符', async () => {
+  const response = globalThis.fetch;
+  let prompt = '';
+  globalThis.fetch = async (...args) => {
+    prompt = JSON.parse(String(args[1]?.body)).messages[0].content;
+    return response(...args);
+  };
+  await generateBrief('daily', '2026-10-22');
+  assert.ok(prompt.includes('"overview":{"finance":'), '概览格式必须使用实际finance键');
+  assert.ok(prompt.includes('"ai":'), '概览格式必须使用实际ai键');
+  assert.ok(!prompt.includes('overview:{行业ID:string}'), '不能把行业ID占位符当作格式示例');
+});
+
+test('行业概览格式错误时指出错误键、字段路径及允许值', async () => {
+  globalThis.fetch = async () =>
+    modelReply({ ...fixtureContent(), overview: { industryId: 'finance' } });
+  await assert.rejects(generateBrief('daily', '2026-10-22'), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /模型返回未配置的行业/);
+    assert.match(error.message, /industryId/);
+    assert.match(error.message, /finance/);
+    assert.match(error.message, /ai/);
+    assert.match(error.message, /overview/);
+    return true;
+  });
+  assert.equal((await db.select().from(briefs)).length, 0);
+});
+
+test('拒绝漏写已入选行业的概览，未入选行业可省略', async () => {
+  const content = fixtureContent();
+  globalThis.fetch = async () => modelReply({ ...content, overview: { ai: 'AI要情' } });
+  await assert.rejects(generateBrief('daily', '2026-10-22'), /缺少finance行业概览/);
+  assert.equal((await db.select().from(briefs)).length, 0);
+  globalThis.fetch = async () =>
+    modelReply({
+      ...content,
+      overview: { ai: 'AI要情' },
+      items: content.items.filter((item) => item.industryId === 'ai'),
+    });
+  const saved = await generateBrief('daily', '2026-10-22');
+  assert.deepEqual(saved.draft?.overview, { ai: 'AI要情' });
+});
+
+test('超出容差只压缩对应段落，保留其余内容、标题和事件顺序', async () => {
+  const content = fixtureContent();
+  content.items[0].summary = '金'.repeat(170);
+  content.items[1].summary = '融'.repeat(150);
+  content.overview.finance = '概'.repeat(139);
+  let calls = 0;
+  globalThis.fetch = async (_url, init) => {
+    calls++;
+    if (calls === 1) return modelReply(content);
+    const request = JSON.parse(String(init?.body));
+    const input = JSON.parse(request.messages[1].content);
+    assert.deepEqual(
+      input.segments.map((s: { id: string }) => s.id).sort(),
+      [`summary:${ids[0]}`, 'overview:finance'].sort(),
+    );
+    const summary = input.segments.find((s: { id: string }) => s.id === `summary:${ids[0]}`);
+    assert.equal(summary.currentLength, 170);
+    assert.equal(summary.maxLength, 140);
+    assert.equal(summary.acceptedMaxLength, 154);
+    assert.match(request.messages[0].content, /数字|事实/);
+    return modelReply({
+      segments: input.segments.map((s: { id: string }) => ({
+        id: s.id,
+        text: s.id === 'overview:finance' ? '压缩后概览' : '压缩后摘要',
+      })),
+    });
+  };
+  const saved = await generateBrief('daily', '2026-10-22');
+  assert.equal(calls, 2);
+  assert.equal(saved.draft!.title, content.title);
+  assert.equal(saved.draft!.items[0].summary, '压缩后摘要');
+  assert.equal(saved.draft!.overview.finance, '压缩后概览');
+  assert.deepEqual(
+    saved.draft!.items.slice(1).map((i) => i.summary),
+    content.items.slice(1).map((i) => i.summary),
+  );
+  assert.deepEqual(
+    saved.draft!.items.map((i) => i.eventId),
+    content.items.map((i) => i.eventId),
+  );
+});
+
+test('压缩失败后重试复用初稿，修正成功前不落库或发布', async () => {
+  const content = fixtureContent();
+  content.items[0].summary = '金'.repeat(170);
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) return modelReply(content);
+    return modelReply({
+      segments: [{ id: `summary:${ids[0]}`, text: calls === 2 ? '金'.repeat(155) : '完成压缩' }],
+    });
+  };
+  await assert.rejects(generateBrief('daily', '2026-10-22'), /155.*154/);
+  assert.equal((await db.select().from(briefs)).length, 0);
+  const { previewBrief } = await import('../src/server/briefs.ts');
+  assert.equal((await previewBrief('daily', '2026-10-22')).cached, false);
+  assert.equal(calls, 2);
+  const saved = await generateBrief('daily', '2026-10-22');
+  assert.equal((await previewBrief('daily', '2026-10-22')).cached, true);
+  assert.equal(calls, 3);
+  assert.equal(saved.draft!.items[0].summary, '完成压缩');
+  const log = await pool.query('SELECT reused_count FROM model_calls ORDER BY created_at LIMIT 1');
+  assert.equal(log.rows[0].reused_count, 1);
+});
+
+test('篇幅配置持久化并约束生成，支持关闭容差及拒绝无效配置', async () => {
+  await saveSettings({
+    ...(await getSettings()),
+    financeSummaryMaxLength: 100,
+    financeOverviewMaxLength: 80,
+    briefLengthTolerancePercent: 0,
+  });
+  const settings = await getSettings();
+  assert.equal(settings.financeSummaryMaxLength, 100);
+  assert.equal(settings.financeOverviewMaxLength, 80);
+  assert.equal(settings.briefLengthTolerancePercent, 0);
+  const content = fixtureContent();
+  content.items[0].summary = '金'.repeat(101);
+  content.overview.finance = '概'.repeat(81);
+  let calls = 0;
+  globalThis.fetch = async (_url, init) => {
+    calls++;
+    const request = JSON.parse(String(init?.body));
+    if (calls === 1) {
+      assert.match(request.messages[0].content, /不超过100字/);
+      return modelReply(content);
+    }
+    const input = JSON.parse(request.messages[1].content);
+    assert.equal(
+      input.segments.find((s: { id: string }) => s.id === 'overview:finance').maxLength,
+      80,
+    );
+    return modelReply({
+      segments: input.segments.map((s: { id: string }) => ({ id: s.id, text: '压缩完成' })),
+    });
+  };
+  await generateBrief('daily', '2026-10-22');
+  assert.equal(calls, 2);
+  for (const invalid of [
+    { financeSummaryMaxLength: 0 },
+    { financeOverviewMaxLength: 1001 },
+    { briefLengthTolerancePercent: -1 },
+    { briefLengthTolerancePercent: 51 },
+  ]) {
+    await assert.rejects(saveSettings({ ...settings, ...invalid }));
+  }
+});
+
+test('压缩响应不得遗漏、重复或改写未指定段落', async () => {
+  const content = fixtureContent();
+  content.items[0].summary = '金'.repeat(155);
+  const target = { id: `summary:${ids[0]}`, text: '合格摘要' };
+  let baseCalls = 0;
+  let patch: { id: string; text: string }[] = [];
+  globalThis.fetch = async (_url, init) => {
+    const input = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+    if (!input.segments) {
+      baseCalls++;
+      return modelReply(content);
+    }
+    return modelReply({ segments: patch });
+  };
+  for (const invalid of [
+    [],
+    [target, target],
+    [{ ...target, id: `summary:${ids[1]}` }],
+    [target, { id: 'overview:finance', text: '不应修改' }],
+  ]) {
+    patch = invalid;
+    await assert.rejects(generateBrief('daily', '2026-10-22'));
+    assert.equal((await db.select().from(briefs)).length, 0);
+  }
+  assert.equal(baseCalls, 1);
+});
+
+test('容差变化会使旧生成预览失效', async () => {
+  const { previewBrief } = await import('../src/server/briefs.ts');
+  const preview = await previewBrief('daily', '2026-10-22');
+  await saveSettings({ ...(await getSettings()), briefLengthTolerancePercent: 20 });
+  await assert.rejects(generateBrief('daily', '2026-10-22', preview.key), /重新预览/);
+});
+
+test('各任务统一使用环境默认模型，旧的分任务模型设置不再生效', async () => {
+  await saveSettings({
+    ...(await getSettings()),
+    processingModel: 'legacy-process',
+    reviewModel: 'legacy-review',
+    briefModel: 'legacy-brief',
+  });
+  const models: string[] = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    models.push(body.model);
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ok: true }) } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+    );
+  };
+  for (const purpose of ['article', 'review', 'brief'])
+    await modelJSON(
+      purpose,
+      'single-model-' + purpose,
+      { test: purpose },
+      z.object({ ok: z.boolean() }),
+    );
+  assert.deepEqual(models, ['test-model', 'test-model', 'test-model']);
 });
