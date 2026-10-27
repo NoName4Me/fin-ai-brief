@@ -21,7 +21,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   if (query.preview === '1' && previewKind.success && typeof query.date === 'string')
     try {
       pendingStatus = await generationStatus(previewKind.data, query.date);
-      if (!pendingStatus.pending) preview = await previewBrief(previewKind.data, query.date);
+      if (!pendingStatus.pending && query.reprocess !== '1')
+        preview = await previewBrief(previewKind.data, query.date);
     } catch (e) {
       previewError = e instanceof Error ? e.message : '预览失败';
     }
@@ -36,7 +37,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         <label>
           类型
           <select name="kind">
-            {Object.entries(kindNames).map(([key, label]) => (
+            {Object.entries({ daily: '日报' }).map(([key, label]) => (
               <option key={key} value={key}>
                 {label}
               </option>
@@ -50,12 +51,30 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         <button className="solid-button">生成前检查</button>
       </form>
       <p className="form-hint">
-        日报统计出刊前24小时；周报选
-        {['周日', '周一', '周二', '周三', '周四', '周五', '周六'][config.weeklyDay]}，月报选每月
-        {config.monthlyDay}号，超过当月天数时选月末。生成会调用服务器配置的模型。
+        每天北京时间08:00截稿，覆盖前一日08:00至当日08:00。生成完成后按发布设置发布。
+      </p>
+      <p>
+        <Link href="/admin/articles?type=generate">出刊任务与记录</Link>
       </p>
       {previewError && <p className="notice error">{previewError}</p>}
-      {pendingStatus && pendingStatus.pending > 0 && (
+      {query.reprocess === '1' && previewKind.success && (
+        <section className="admin-section">
+          <h2>重新处理后生成</h2>
+          <p>
+            系统将重新处理本期时间范围内的全部资讯，完成后更新日报；原正式版保持可读，不发送邮件。
+          </p>
+          <form action={generateAction}>
+            <input type="hidden" name="kind" value={previewKind.data} />
+            <input type="hidden" name="date" value={String(query.date)} />
+            <label className="check">
+              <input type="checkbox" name="reprocess" defaultChecked />
+              先重新处理资讯
+            </label>
+            <button className="solid-button">确认重新处理并生成</button>
+          </form>
+        </section>
+      )}
+      {pendingStatus && pendingStatus.pending > 0 && query.reprocess !== '1' && (
         <section className="admin-section" aria-labelledby="force-title">
           <h2 id="force-title">
             确认强制生成{previewKind.success ? kindNames[previewKind.data] : '简报'}
@@ -92,13 +111,17 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           <p>
             {preview.cached
               ? '输入与已有成功结果一致，将复用缓存，不新增模型请求。'
-              : '预计新增1次简报模型请求，失败也占用次数，失败后会自动重试。'}
+              : '预计新增1—2次成稿请求，超长栏目按需压缩；失败请求也占用次数。'}
           </p>
           <p>发布方式：{config.autoPublish ? '生成成功直接发布' : '先保存待审稿'}。</p>
           <form action={generateAction}>
             <input type="hidden" name="kind" value={String(query.kind)} />
             <input type="hidden" name="date" value={String(query.date)} />
             <input type="hidden" name="expectedKey" value={preview.key} />
+            <label className="check">
+              <input type="checkbox" name="reprocess" />
+              先重新处理资讯
+            </label>
             <button className="solid-button">确认生成</button>
           </form>
         </section>
@@ -138,11 +161,17 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                       </>
                     )}
                     {row.published && <Link href={`/briefs/${row.id}`}>正式版</Link>}
-                    <form action={previewGenerateAction}>
-                      <input type="hidden" name="kind" value={row.kind} />
-                      <input type="hidden" name="date" value={row.periodDate} />
-                      <button className="quiet-button">重新生成</button>
-                    </form>
+                    {row.kind === 'daily' && (
+                      <form action={previewGenerateAction}>
+                        <input type="hidden" name="kind" value={row.kind} />
+                        <input type="hidden" name="date" value={row.periodDate} />
+                        <label className="check">
+                          <input type="checkbox" name="reprocess" />
+                          先重新处理资讯
+                        </label>
+                        <button className="quiet-button">重新生成</button>
+                      </form>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -151,7 +180,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         </table>
       </div>
       {!rows.length && (
-        <p className="empty-state">尚无简报。先配置行业和信源，采集或导入资讯，再生成。</p>
+        <p className="empty-state">尚无简报。先配置栏目和信源，采集或导入资讯，再生成。</p>
       )}
     </>
   );

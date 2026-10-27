@@ -1,6 +1,7 @@
 import { pool } from './db.ts';
 import { enqueue } from './queue.ts';
 import { z } from 'zod';
+import { editionRecordSchema, ratingRuleSchema, defaultRatingRules } from './editorial.ts';
 export interface TaskStep {
   id: string;
   subject: string;
@@ -133,9 +134,19 @@ export async function taskDetail(id: string) {
   return {
     task,
     steps: steps.rows,
+    ratingRules: ratingRuleSchema
+      .array()
+      .catch(defaultRatingRules)
+      .parse(
+        (steps.rows.find((s) => s.stage === 'validate')?.result as { ratingRules?: unknown } | null)
+          ?.ratingRules,
+      ),
     article: article.rows[0] ?? null,
     source: source.rows[0] ?? null,
     attempts: attempts.rows,
+    edition: editionRecordSchema
+      .array()
+      .parse(steps.rows.find((s) => s.stage === 'edition')?.result ?? []),
   };
 }
 export async function retryManagedTask(id: string) {
@@ -193,9 +204,16 @@ export async function retryJob(name: string, id: string) {
       expectedKey: job.data.expectedKey,
     });
   }
-  return enqueue(
+  const nextId = await enqueue(
     name as 'collect' | 'generate',
     { ...job.data, trigger: 'manual', ...(name === 'collect' ? { manual: true } : {}) },
     name === 'generate' ? `${job.data.kind}:${job.data.date}` : job.data.id,
   );
+  if (nextId && name === 'generate' && job.data.reprocessBatchId) {
+    await pool.query(
+      "UPDATE reprocessing_batches SET state='generating',generation_job_id=$2,error=NULL,finished_at=NULL WHERE id=$1 AND state='failed'",
+      [job.data.reprocessBatchId, nextId],
+    );
+  }
+  return nextId;
 }

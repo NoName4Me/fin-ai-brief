@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { ManagedTask, taskDetail } from '../server/admin-tasks.ts';
 import { stageNames, stateNames, taskTypes, taskStamp } from '../server/task-labels.ts';
 import { retryManagedTaskAction } from '../app/actions.ts';
+import { assessmentSchema, ratingFor, defaultRatingRules } from '../server/editorial.ts';
 type Detail = NonNullable<Awaited<ReturnType<typeof taskDetail>>>;
 export function TaskRow({ task }: { task: ManagedTask }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -35,6 +36,12 @@ export function TaskRow({ task }: { task: ManagedTask }) {
     }
   }
   const current = detail?.task ?? task;
+  const assessment = assessmentSchema.safeParse(detail?.article?.assessment);
+  const scoringRules = detail?.ratingRules ?? defaultRatingRules;
+  const dimensionName = (key: string, rules = scoringRules) => {
+    const rule = rules.find((r) => r.id === key);
+    return rule ? `${rule.name}${rule.enabled ? '' : '（暂停）'}` : key;
+  };
   const elapsed =
     current.started_on && current.completed_on
       ? Math.max(
@@ -48,6 +55,7 @@ export function TaskRow({ task }: { task: ManagedTask }) {
   return (
     <tr
       className="article-task-row"
+      data-task-id={task.id}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest('button,a,dialog,input,select,summary,form'))
           return;
@@ -208,10 +216,74 @@ export function TaskRow({ task }: { task: ManagedTask }) {
                       <p>{detail.article.excerpt}</p>
                     </details>
                     {detail.article.event_title && <p>归组事件：{detail.article.event_title}</p>}
+                    {assessment.success && (
+                      <section className="task-stage">
+                        <h3>
+                          选题评分：{ratingFor(assessment.data, scoringRules) ?? '待重评'} / 5
+                        </h3>
+                        <dl>
+                          {Object.entries(assessment.data).map(([key, value]) => (
+                            <div key={key}>
+                              <dt>
+                                {dimensionName(key)}：{value.score}分
+                              </dt>
+                              <dd>{value.reason}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </section>
+                    )}
                     {detail.article.review_note && (
                       <p>复核／筛选说明：{detail.article.review_note}</p>
                     )}
                   </>
+                )}
+                {!!detail.edition.length && (
+                  <section aria-label="栏目选题与出刊结果">
+                    <h3>栏目选题与出刊结果</h3>
+                    {detail.edition.map((section) => (
+                      <details className="task-stage" key={section.section}>
+                        <summary>
+                          {section.section}　候选{section.candidate_count}条／采用
+                          {section.selected_count}条　
+                          {{
+                            unscheduled: '未排期',
+                            skipped: '正常跳过',
+                            error: '处理异常',
+                            ready: '待发布',
+                            published: '已刊登',
+                          }[section.status] ?? section.status}
+                        </summary>
+                        <p>{section.reason}</p>
+                        {section.details.map((candidate) => (
+                          <details key={candidate.id}>
+                            <summary>
+                              {candidate.title}　
+                              {candidate.rating === null ? '未评分' : `${candidate.rating}分`}　
+                              {candidate.selected ? '已采用' : '未采用'}
+                            </summary>
+                            <p>{candidate.reason}</p>
+                            {candidate.assessment && (
+                              <dl>
+                                {Object.entries(candidate.assessment).map(([key, value]) => (
+                                  <div key={key}>
+                                    <dt>
+                                      {dimensionName(
+                                        key,
+                                        candidate.ratingRules ?? defaultRatingRules,
+                                      )}
+                                      ：{value.score}分
+                                    </dt>
+                                    <dd>{value.reason}</dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            )}
+                          </details>
+                        ))}
+                      </details>
+                    ))}
+                  </section>
                 )}
                 <h3>
                   {current.queue === 'process'
@@ -219,48 +291,52 @@ export function TaskRow({ task }: { task: ManagedTask }) {
                     : '任务时间线（最新在前）'}
                 </h3>
                 <div className="task-timeline">
-                  {detail.steps.map((step) => (
-                    <section className="task-stage" key={step.id}>
-                      <h3>
-                        {stageNames[step.stage] ?? step.stage}{' '}
-                        <span className={'state-' + step.state}>
-                          {stateNames[step.state] ?? step.state}
-                        </span>
-                      </h3>
-                      <p>
-                        开始：{taskStamp(step.started_at)} · 完成：
-                        {step.finished_at ? taskStamp(step.finished_at) : '未完成'}
-                      </p>
-                      {step.error && <p className="notice error">{step.error}</p>}
-                      {step.result != null && (
-                        <details>
-                          <summary>查看结果</summary>
-                          <pre className="model-result">{JSON.stringify(step.result, null, 2)}</pre>
-                        </details>
-                      )}
-                      {step.call_id && (
-                        <details>
-                          <summary>模型调用详情</summary>
-                          <p>
-                            {step.model} · 输入 {step.input_tokens ?? '未记录'} / 输出{' '}
-                            {step.output_tokens ?? '未记录'} token
-                          </p>
+                  {detail.steps
+                    .filter((step) => step.stage !== 'edition')
+                    .map((step) => (
+                      <section className="task-stage" key={step.id}>
+                        <h3>
+                          {stageNames[step.stage] ?? step.stage}{' '}
+                          <span className={'state-' + step.state}>
+                            {stateNames[step.state] ?? step.state}
+                          </span>
+                        </h3>
+                        <p>
+                          开始：{taskStamp(step.started_at)} · 完成：
+                          {step.finished_at ? taskStamp(step.finished_at) : '未完成'}
+                        </p>
+                        {step.error && <p className="notice error">{step.error}</p>}
+                        {step.result != null && (
                           <details>
-                            <summary>输入与提示词</summary>
+                            <summary>查看结果</summary>
                             <pre className="model-result">
-                              {JSON.stringify(step.input_summary, null, 2)}
+                              {JSON.stringify(step.result, null, 2)}
                             </pre>
                           </details>
+                        )}
+                        {step.call_id && (
                           <details>
-                            <summary>模型结果</summary>
-                            <pre className="model-result">
-                              {JSON.stringify(step.response, null, 2)}
-                            </pre>
+                            <summary>模型调用详情</summary>
+                            <p>
+                              {step.model} · 输入 {step.input_tokens ?? '未记录'} / 输出{' '}
+                              {step.output_tokens ?? '未记录'} token
+                            </p>
+                            <details>
+                              <summary>输入与提示词</summary>
+                              <pre className="model-result">
+                                {JSON.stringify(step.input_summary, null, 2)}
+                              </pre>
+                            </details>
+                            <details>
+                              <summary>模型结果</summary>
+                              <pre className="model-result">
+                                {JSON.stringify(step.response, null, 2)}
+                              </pre>
+                            </details>
                           </details>
-                        </details>
-                      )}
-                    </section>
-                  ))}
+                        )}
+                      </section>
+                    ))}
                 </div>
                 {!detail.steps.length && <p className="muted">暂无已记录的处理步骤。</p>}
               </>

@@ -1,12 +1,14 @@
-export function isJiqizhixinRss(input: string) {
+export function isJiqizhixinRss(input: string | null) {
+  if (!input) return false;
   const url = new URL(input);
   return url.origin === 'https://mcp.applications.jiqizhixin.com' && url.pathname === '/rss';
 }
 export function validateSourceAccess(source: {
-  url: string;
+  url: string | null;
   format: string;
   intervalMinutes: number;
 }) {
+  if (!source.url) throw new Error('请先配置信源采集入口');
   if (!isJiqizhixinRss(source.url)) return;
   if (source.format !== 'rss' || source.intervalMinutes < 60)
     throw new Error('机器之心RSS采集间隔至少60分钟');

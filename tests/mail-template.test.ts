@@ -34,8 +34,8 @@ test('周报月报采用各自刊头、主线和时间轴，未知行业也不�
   content.items[0].industryId = 'custom';
   content.overview.custom = '<img src=x onerror=alert(1)>';
   for (const [kind, name, focus, timeline] of [
-    ['weekly', 'Fin&amp;AI简报·周报', '金融要情', '一周进程'],
-    ['monthly', 'Fin&amp;AI简报·月报', '金融要情', '月内时间轴'],
+    ['weekly', 'AI日报·周报', '金融要情', '一周进程'],
+    ['monthly', 'AI日报·月报', '金融要情', '月内时间轴'],
   ] as const) {
     const html = renderEmail(
       content,

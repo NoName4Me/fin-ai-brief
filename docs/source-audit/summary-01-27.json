@@ -1,0 +1,191 @@
+[
+ {
+  "number": 1,
+  "name": "中国人民银行",
+  "recommendation": "优先候选",
+  "reason": "一手规章与规范性文件不可由转载替代；需补齐定向政策入口，新闻RSS不能代表政策覆盖。",
+  "evidenceLevel": "身份、两个政策列表及既有采集样本已核实；政策自动采集待适配。"
+ },
+ {
+  "number": 2,
+  "name": "国家金融监督管理总局",
+  "recommendation": "优先候选",
+  "reason": "一手银行保险AI治理、数据与外包约束有增量；必须验证政策861入口，不能仅用915新闻频道。",
+  "evidenceLevel": "官方内容与既有新闻接口可核实；政策栏目自动采集未验证完成。"
+ },
+ {
+  "number": 3,
+  "name": "中国证监会",
+  "recommendation": "优先候选",
+  "reason": "证券业AI治理与监管文件的一手来源；短期大部分新闻不相关不影响其监控价值。",
+  "evidenceLevel": "官方身份、7条已采原文与JSON接口样本已核实。"
+ },
+ {
+  "number": 4,
+  "name": "中央网信办",
+  "recommendation": "优先候选",
+  "reason": "备案、算法、内容治理与AI安全的一手来源，具有其他媒体无法替代的核实价值。",
+  "evidenceLevel": "官方定向栏目20条列表、3篇具体公告内容已核实；自动适配待做。"
+ },
+ {
+  "number": 5,
+  "name": "工业和信息化部",
+  "recommendation": "优先候选",
+  "reason": "AI产业政策与标准的一手源，适合定向监控而非全站资讯灌入。",
+  "evidenceLevel": "科技司列表、标准政策及AI专题文件已核实；RSS及定向解析待验证。"
+ },
+ {
+  "number": 6,
+  "name": "国家发展改革委",
+  "recommendation": "优先候选",
+  "reason": "AI总体行动与产业/项目政策的一手源，原始解释比转载更值得监控。",
+  "evidenceLevel": "政策通知20项列表及AI有关具体政策内容已核实。"
+ },
+ {
+  "number": 7,
+  "name": "中国互联网金融协会",
+  "recommendation": "待接入或核实",
+  "reason": "有金融AI行业自律研究价值，但本次没有足够第一方近期样本与可用采集入口。",
+  "evidenceLevel": "机构身份有监管机关材料佐证；来源站访问受限、内容样本不足。"
+ },
+ {
+  "number": 8,
+  "name": "中投公司",
+  "recommendation": "不在当前范围",
+  "reason": "原表对应内部动态，当前产品暂不建设此模块；不是对机构质量的否定。",
+  "evidenceLevel": "第一方公司介绍已核实；近期资讯样本与自动入口未完成。"
+ },
+ {
+  "number": 9,
+  "name": "财政部",
+  "recommendation": "补充候选",
+  "reason": "财政、采购和会计数智化政策可能影响AI部署，适合低频定向补充。",
+  "evidenceLevel": "官方政策列表18项及AI有关具体发文已核实。"
+ },
+ {
+  "number": 10,
+  "name": "中国信息通信研究院（CAICT）",
+  "recommendation": "优先候选",
+  "reason": "白皮书、标准和评测的一手研究机构，独特价值高于一般转载媒体。",
+  "evidenceLevel": "机构第一方平台与历史报告可核实；近期完整报告列表不足。"
+ },
+ {
+  "number": 11,
+  "name": "腾讯研究院",
+  "recommendation": "待接入或核实",
+  "reason": "第一方研究与访谈有价值，但官网/RSS访问和近期样本不足，不能借第三方AI速递代替验证。",
+  "evidenceLevel": "腾讯第一方介绍和研究产品可核实；候选RSS本轮503。"
+ },
+ {
+  "number": 12,
+  "name": "腾讯研究院《AI速递》网页版",
+  "recommendation": "暂缓",
+  "reason": "是多作者AI聚合站，腾讯研究院官方运营关系未证实；易与原始来源重复。",
+  "evidenceLevel": "网页样本10项可读；官方归属未证实、RSS复测超时。"
+ },
+ {
+  "number": 13,
+  "name": "机器之心",
+  "recommendation": "优先候选",
+  "reason": "AI专业报道与研究解读有价值，但现有RSS仅标题材料及接入权益需先解决。",
+  "evidenceLevel": "第一方服务说明、20条现有RSS记录及约4天执行统计已核实。"
+ },
+ {
+  "number": 14,
+  "name": "量子位",
+  "recommendation": "补充候选",
+  "reason": "AI线索密度高，但当前RSS短摘要、时间滞后与多家同题报道需验证。",
+  "evidenceLevel": "10条本次RSS、20条既有记录与约4天执行统计已核实。"
+ },
+ {
+  "number": 15,
+  "name": "新智元",
+  "recommendation": "补充候选",
+  "reason": "可提供研究和产品线索，但标题情绪化、短摘要与非AI内容混入明显，需回原始材料核实。",
+  "evidenceLevel": "新找到官方网站、20条既有网页样本和约4天采集统计已核实。"
+ },
+ {
+  "number": 16,
+  "name": "AI科技评论（雷峰网）",
+  "recommendation": "优先候选",
+  "reason": "新发现可解析的官方域RSS及AI、银行AI专栏，有工程、产业采访增量；需排除综合早报与软性宣传。",
+  "evidenceLevel": "官方栏目、20条RSS材料与日期已核实；尚无连续运行统计。"
+ },
+ {
+  "number": 17,
+  "name": "InfoQ 中文",
+  "recommendation": "待接入或核实",
+  "reason": "工程经验有增量，但当前RSS20条全是导流摘要，不能直接送事实提取。",
+  "evidenceLevel": "20条RSS、官网列表及替代订阅线索已核实。"
+ },
+ {
+  "number": 18,
+  "name": "36氪",
+  "recommendation": "暂缓",
+  "reason": "AI频道混合大量已列媒体转载，全站入口还受安全验证；应先确认原创增量和可采接口。",
+  "evidenceLevel": "AI频道标题与来源标识可核实；RSS/安全验证未通过。"
+ },
+ {
+  "number": 19,
+  "name": "Founder Park",
+  "recommendation": "补充候选",
+  "reason": "第一方创业者访谈/产品观察有特色；已找到官方关联RSS，但付费Vault短导语不能当完整材料。",
+  "evidenceLevel": "官网归属、Substack说明及20条Feed样本已核实。"
+ },
+ {
+  "number": 20,
+  "name": "硅星人",
+  "recommendation": "待接入或核实",
+  "reason": "找到第一方网页身份，不应仅把它当无入口公众号；近期品牌样本与订阅仍不足。",
+  "evidenceLevel": "品玩官网导航及硅星人栏目可核实；近期内容样本不足。"
+ },
+ {
+  "number": 21,
+  "name": "赛博禅心",
+  "recommendation": "待接入或核实",
+  "reason": "账号身份、近期文章与可用采集渠道未形成完整证据链，不把第三方镜像当官方RSS。",
+  "evidenceLevel": "有自述GitHub和原文链接线索；公众号认证及近期样本不足。"
+ },
+ {
+  "number": 22,
+  "name": "虎嗅",
+  "recommendation": "补充候选",
+  "reason": "有具名商业与治理分析，但作者聚合和非AI内容多，适合定向而非全站接入。",
+  "evidenceLevel": "官网可读、官网页脚公开RSS入口已实测（rss.huxiu.com，20条）"
+ },
+ {
+  "number": 23,
+  "name": "金融时报",
+  "recommendation": "补充候选",
+  "reason": "金融AI政策、机构实践有具名采访增量；已找到客户端正式文章替代主页，但采集入口未通。",
+  "evidenceLevel": "正式客户端2篇AI相关文章全文可核实；近期批量样本不足。"
+ },
+ {
+  "number": 24,
+  "name": "中国银行保险报",
+  "recommendation": "补充候选",
+  "reason": "银行保险AI案例有专业覆盖，但近期样本普通金融和机构宣传多，应择取具实质事实的案例。",
+  "evidenceLevel": "官网主体、8条既有正文及约4天公开接口执行统计已核实。"
+ },
+ {
+  "number": 25,
+  "name": "21世纪经济报道",
+  "recommendation": "补充候选",
+  "reason": "可补原创产业与金融AI采访，但应只接AI/科技相关子集，不能据原表RSS标注直接启用。",
+  "evidenceLevel": "官网20标题与1篇完整AI相关文章可核实；RSS未确认。"
+ },
+ {
+  "number": 26,
+  "name": "证券时报",
+  "recommendation": "补充候选",
+  "reason": "上市公司与金融AI产业线索有价值，新闻与投资观点需区分；已有网页/第三方RSS路线但未证实原站RSS。",
+  "evidenceLevel": "正式新闻列表和具体文章内容可核实；自动订阅待适配。"
+ },
+ {
+  "number": 27,
+  "name": "中国证券报",
+  "recommendation": "补充候选",
+  "reason": "金融AI招聘、机构案例等原创调研可提供增量，但全站财经与行情噪声高。",
+  "evidenceLevel": "第一方网站、20条标题与1篇具名AI金融调研全文已核实。"
+ }
+]

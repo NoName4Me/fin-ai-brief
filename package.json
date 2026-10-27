@@ -21,7 +21,9 @@
     "test:browser": "playwright test",
     "format": "prettier --write src scripts tests *.ts *.json README.md docs/architecture.md",
     "data:import-20261022": "tsx --env-file-if-exists=.env scripts/import-reference.ts",
-    "sources:finance": "tsx --env-file-if-exists=.env scripts/setup-finance.ts"
+    "sources:finance": "tsx --env-file-if-exists=.env scripts/setup-finance.ts",
+    "sources:import": "tsx --env-file-if-exists=.env scripts/import-source-catalog.ts",
+    "sources:verify": "tsx --env-file-if-exists=.env scripts/verify-source-catalog.ts"
   },
   "dependencies": {
     "drizzle-orm": "0.45.4",

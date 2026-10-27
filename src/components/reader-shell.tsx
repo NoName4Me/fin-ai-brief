@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { listPublished } from '../server/publication.ts';
-import { kindNames, type Kind } from '../server/types.ts';
+import { type Kind } from '../server/types.ts';
 import { editionCalendar, groupIssues, weekday } from '../server/brief-presentation.ts';
 export async function ReaderShell({
   children,
@@ -16,7 +16,7 @@ export async function ReaderShell({
     <div className="shell">
       <aside className="sidebar" aria-label="简报归档">
         <nav className="editions" aria-label="简报类型">
-          {Object.entries(kindNames).map(([key, label]) => (
+          {Object.entries({ daily: '日报' }).map(([key, label]) => (
             <Link key={key} href={`/?kind=${key}`} aria-current={kind === key ? 'page' : undefined}>
               {label}
             </Link>
@@ -64,13 +64,13 @@ export async function ReaderShell({
           <p className="muted">{kind === 'monthly' ? '暂无正式月报' : '暂无正式出刊'}</p>
         )}
         <div className="side-footer">
-          <Link href="/archive">查看历史简报</Link>
+          <Link href="/archive">查看历史日报</Link>
           <Link href="/admin">管理端</Link>
         </div>
       </aside>
       <main className="main">
         <nav className="editions mobile-editions" aria-label="简报类型">
-          {Object.entries(kindNames).map(([key, label]) => (
+          {Object.entries({ daily: '日报' }).map(([key, label]) => (
             <Link key={key} href={`/?kind=${key}`} aria-current={kind === key ? 'page' : undefined}>
               {label}
             </Link>

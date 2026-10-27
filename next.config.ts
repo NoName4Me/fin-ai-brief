@@ -6,6 +6,7 @@ const localDevHosts = Object.values(networkInterfaces()).flatMap((addresses) =>
     .map((address) => address.address),
 );
 const config: NextConfig = {
+  distDir: process.env.NEXT_DIST_DIR ?? '.next',
   output: 'standalone',
   allowedDevOrigins: localDevHosts,
   poweredByHeader: false,

@@ -133,7 +133,7 @@ test('实际发送使用新版模板并带入已发布刊期元数据', async ()
     close: () => {},
   }));
   await deliver(deliveryId);
-  assert.equal(subject, `Fin&AI日报｜${fixtureContent().title}`);
+  assert.equal(subject, `AI日报｜${fixtureContent().title}`);
   assert.ok(html.includes('第005期'));
   assert.ok(html.includes('金融要情'));
   assert.ok(!html.includes('>总览<'));

@@ -1,0 +1,191 @@
+[
+  {
+    "number": 28,
+    "name": "银行科技研究社",
+    "recommendation": "补充候选",
+    "reason": "与移动支付网合并入口，选有原始证据的银行AI材料",
+    "evidenceLevel": "历史第一方正文2篇＋品牌关系"
+  },
+  {
+    "number": 29,
+    "name": "金融科技研究",
+    "recommendation": "待接入或核实",
+    "reason": "名称未能独立对应认证账号，须补微信号或原文",
+    "evidenceLevel": "身份受限，第一方近期样本0"
+  },
+  {
+    "number": 30,
+    "name": "中国电子银行网",
+    "recommendation": "优先候选",
+    "reason": "有银行AI研究与场景正文，需网页适配和事实归属",
+    "evidenceLevel": "一手列表＋正文2篇，不足10篇"
+  },
+  {
+    "number": 31,
+    "name": "零壹财经",
+    "recommendation": "补充候选",
+    "reason": "金融AI研究可补充，避免全站一般金融与重复快讯",
+    "evidenceLevel": "一手列表＋正文2篇，不足10篇"
+  },
+  {
+    "number": 32,
+    "name": "爱分析",
+    "recommendation": "补充候选",
+    "reason": "低频研究/访谈有增量，商业合作及推断需标归属",
+    "evidenceLevel": "研究列表6条＋正文2篇"
+  },
+  {
+    "number": 33,
+    "name": "移动支付网",
+    "recommendation": "补充候选",
+    "reason": "支付智能体与授权线索有用，与28及转载站去重",
+    "evidenceLevel": "近期列表约20条＋正文2篇，转换403"
+  },
+  {
+    "number": 34,
+    "name": "未央网",
+    "recommendation": "补充候选",
+    "reason": "有效RSS与AI标签可用，综合流需筛选及正文补证",
+    "evidenceLevel": "RSS20条＋正文抽查1篇"
+  },
+  {
+    "number": 35,
+    "name": "亿欧",
+    "recommendation": "补充候选",
+    "reason": "有原创分析亦有企业活动稿，需筛稿及稳定入口",
+    "evidenceLevel": "定向主题正文4篇，首页读取受限"
+  },
+  {
+    "number": 36,
+    "name": "读懂AI时代",
+    "recommendation": "暂缓",
+    "reason": "聚合再聚合且整期混事件，先验证拆解和原文回链",
+    "evidenceLevel": "官方订阅确认＋历史RSS与当前聚合网页，复测超时"
+  },
+  {
+    "number": 37,
+    "name": "财联社",
+    "recommendation": "补充候选",
+    "reason": "保留记者独有AI报道，需特定栏目及接口适配",
+    "evidenceLevel": "近期列表20条，完整正文样本不足"
+  },
+  {
+    "number": 38,
+    "name": "华尔街见闻",
+    "recommendation": "补充候选",
+    "reason": "硬AI分类可缩小噪声，第三方路由可用性待测",
+    "evidenceLevel": "近期列表20条＋第三方实现代码，转换403"
+  },
+  {
+    "number": 39,
+    "name": "中国东方资产管理",
+    "recommendation": "不在当前范围",
+    "reason": "原配置为内部动态，按当前范围排除；采购另评",
+    "evidenceLevel": "身份与首页3条，仅做范围核对"
+  },
+  {
+    "number": 40,
+    "name": "中国信达",
+    "recommendation": "补充候选",
+    "reason": "AMC一手来源有价值，WAP可替代桌面空白但列表待适配",
+    "evidenceLevel": "官方WAP混合列表＋历史AI采购原文"
+  },
+  {
+    "number": 41,
+    "name": "中国长城资产",
+    "recommendation": "补充候选",
+    "reason": "一手机构价值潜在，缺近期AI有效样本及列表适配",
+    "evidenceLevel": "官方首页3条，新闻列表读取受限"
+  },
+  {
+    "number": 42,
+    "name": "中国中信金融资产",
+    "recommendation": "补充候选",
+    "reason": "新正式域名可读20条新闻，一手AI项目宜低频补充",
+    "evidenceLevel": "官方新闻列表20条，标题级抽样"
+  },
+  {
+    "number": 43,
+    "name": "工商银行",
+    "recommendation": "补充候选",
+    "reason": "一手AI披露有价值，403及官网不同内容类型需分流",
+    "evidenceLevel": "官方披露2份，新闻直访403"
+  },
+  {
+    "number": 44,
+    "name": "建设银行",
+    "recommendation": "补充候选",
+    "reason": "有明确AI项目/治理材料，采集团与实验室具体栏目",
+    "evidenceLevel": "官方列表15条＋正文1篇＋实验室入口"
+  },
+  {
+    "number": 45,
+    "name": "招商银行",
+    "recommendation": "待接入或核实",
+    "reason": "主站与披露可核实，未找稳定近期AI新闻采集入口",
+    "evidenceLevel": "官方IR与招聘2类，近期新闻样本不足"
+  },
+  {
+    "number": 46,
+    "name": "中信证券",
+    "recommendation": "补充候选",
+    "reason": "公开AI采购比跳微信的新闻中心更易形成一手证据",
+    "evidenceLevel": "官方列表10条＋采购原文＋报告"
+  },
+  {
+    "number": 47,
+    "name": "清科创业（PEDATA）",
+    "recommendation": "待接入或核实",
+    "reason": "不能只看数据库根域，集团公开研究与数据库需分开核验",
+    "evidenceLevel": "第一方身份与历史列表20条，研究子域及数据库受限"
+  },
+  {
+    "number": 48,
+    "name": "投中网",
+    "recommendation": "优先候选",
+    "reason": "融资/投资人独有采访有增量，需筛AI与转载",
+    "evidenceLevel": "近期推荐20条＋正文3篇，转换403"
+  },
+  {
+    "number": 49,
+    "name": "IT桔子",
+    "recommendation": "待接入或核实",
+    "reason": "平台身份明确但主站412，需官方公开稿或授权出口",
+    "evidenceLevel": "第一方产品与手册，主站412，近期样本不足"
+  },
+  {
+    "number": 50,
+    "name": "资产界",
+    "recommendation": "暂缓",
+    "reason": "未证实常态AI增量，不全量采一般特殊资产内容",
+    "evidenceLevel": "身份与首页3条，AI近期正文不足"
+  },
+  {
+    "number": 51,
+    "name": "不良资产头条",
+    "recommendation": "暂缓",
+    "reason": "无可验证近期AI公众号正文，先补身份与正式入口",
+    "evidenceLevel": "品牌关系与产品说明，原始公众号近期样本不足"
+  },
+  {
+    "number": 52,
+    "name": "CVSource 投中数据",
+    "recommendation": "暂缓",
+    "reason": "数据库未实测样本与授权出口，不能凭品牌判通过",
+    "evidenceLevel": "正式入口及用户手册，无授权数据样本"
+  },
+  {
+    "number": 53,
+    "name": "同花顺/东方财富 AI板块",
+    "recommendation": "暂缓",
+    "reason": "两平台混成一项且偏行情与转载，需拆分具体AI频道",
+    "evidenceLevel": "同花顺标题20条＋官方产品/输入规范，AI频道正文不足"
+  },
+  {
+    "number": 54,
+    "name": "剑鱼标讯",
+    "recommendation": "补充候选",
+    "reason": "可作定向采购发现工具，需授权接口/订阅与原文回链验证",
+    "evidenceLevel": "官方产品/接口说明＋综合列表18条，未开通订阅"
+  }
+]

@@ -1,12 +1,11 @@
 import Link from 'next/link';
 import { requireAdmin } from '../../../server/auth.ts';
-import { db } from '../../../server/db.ts';
-import { industries } from '../../../server/schema.ts';
 import { articleAction } from '../../actions.ts';
 import { Notice, type Query } from '../../../components/notice.tsx';
 import { taskOverview } from '../../../server/admin-tasks.ts';
 import { taskTypes } from '../../../server/task-labels.ts';
 import { TaskRow } from '../../../components/task-row.tsx';
+import { Reprocessing } from '../../../components/reprocessing.tsx';
 export const metadata = { title: '任务管理' };
 export default async function Tasks({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
@@ -24,14 +23,12 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
     cancelled: '已取消',
   };
   const state = typeof query.state === 'string' && query.state in states ? query.state : '';
-  const [tasks, topics] = await Promise.all([
-    taskOverview(q, type, state),
-    db.select().from(industries).orderBy(industries.position),
-  ]);
+  const [tasks] = await Promise.all([taskOverview(q, type, state)]);
   const params = new URLSearchParams({ q, type, state });
   return (
     <>
       <Notice query={query} />
+      <Reprocessing selectedBatch={typeof query.batch === 'string' ? query.batch : undefined} />
       <details className="task-import">
         <summary>手工导入</summary>
         <form action={articleAction} className="stack-form">
@@ -47,16 +44,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
             来源名称
             <input name="sourceName" required maxLength={200} />
           </label>
-          <label>
-            行业
-            <select name="industryId">
-              {topics.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
+
           <label>
             发布时间（北京时间）
             <input type="datetime-local" name="publishedAt" required />

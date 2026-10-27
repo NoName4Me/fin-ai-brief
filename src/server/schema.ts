@@ -10,6 +10,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type { BriefContent, Settings, Provenance } from './types.ts';
+import type { Assessment } from './editorial.ts';
 const at = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' });
 export const industries = pgTable('industries', {
   id: text().primaryKey(),
@@ -21,8 +22,16 @@ export const industries = pgTable('industries', {
 export const sources = pgTable('sources', {
   id: uuid().defaultRandom().primaryKey(),
   name: text().notNull(),
-  url: text().notNull(),
+  url: text(),
   format: text().notNull(),
+  originAddress: text('origin_address').notNull().default(''),
+  sections: jsonb().$type<string[]>().notNull().default([]),
+  catalogKey: text('catalog_key').unique(),
+  priority: text().notNull().default('P1'),
+  verificationStatus: text('verification_status').notNull().default('pending'),
+  verificationNote: text('verification_note').notNull().default(''),
+  verifiedAt: at('verified_at'),
+  notes: text().notNull().default(''),
   intervalMinutes: integer('interval_minutes').notNull().default(30),
   autoInterval: boolean('auto_interval').notNull().default(false),
   minIntervalMinutes: integer('min_interval_minutes').notNull().default(30),
@@ -61,6 +70,7 @@ export const articles = pgTable(
     processingVersion: text('processing_version'),
     inputHash: text('input_hash'),
     facts: jsonb(),
+    assessment: jsonb().$type<Assessment>(),
     scoreReason: text('score_reason'),
     reviewNote: text('review_note'),
     createdAt: at('created_at').defaultNow().notNull(),
@@ -76,6 +86,8 @@ export const events = pgTable('events', {
   summary: text().notNull(),
   section: text().notNull(),
   score: integer().notNull(),
+  assessment: jsonb().$type<Assessment>(),
+  tags: jsonb().$type<string[]>().notNull().default([]),
   occurredAt: at('occurred_at').notNull(),
   updatedAt: at('updated_at').defaultNow().notNull(),
 });

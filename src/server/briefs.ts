@@ -1,3 +1,4 @@
+import { generateDaily, previewDaily } from './daily.ts';
 import { pool } from './db.ts';
 import { briefLengthRepair, applyBriefLengthRepair } from './brief-length.ts';
 import { and, desc, eq, gte, lt, inArray, sql } from 'drizzle-orm';
@@ -131,6 +132,9 @@ async function prepareBrief(kind: Kind, date: string) {
   return { config, range, selected, refs, topics, system, input, weekly };
 }
 export async function previewBrief(kind: Kind, date: string) {
+  return kind === 'daily' ? previewDaily(date) : previewLegacyBrief(kind, date);
+}
+export async function previewLegacyBrief(kind: Kind, date: string) {
   const prepared = await prepareBrief(kind, date);
   const request = await inspectModelRequest('brief', prepared.system, prepared.input, 12000);
   if (request.cached) {
@@ -147,6 +151,16 @@ export async function previewBrief(kind: Kind, date: string) {
   return { ...request, count: prepared.selected.length, range: prepared.range };
 }
 export async function generateBrief(
+  kind: Kind,
+  date: string,
+  expectedKey?: string,
+  options: { backfill?: boolean } = {},
+) {
+  return kind === 'daily'
+    ? generateDaily(date, expectedKey, options)
+    : generateLegacyBrief(kind, date, expectedKey, options);
+}
+export async function generateLegacyBrief(
   kind: Kind,
   date: string,
   expectedKey?: string,
@@ -246,6 +260,15 @@ export async function generateBrief(
       };
     }),
   });
+  return persistBrief(kind, date, content, autoPublish, options);
+}
+export async function persistBrief(
+  kind: Kind,
+  date: string,
+  content: import('./types.ts').BriefContent,
+  autoPublish: boolean,
+  options: { backfill?: boolean } = {},
+) {
   return db.transaction(async (tx) => {
     // Serialize initial publication and reissues even when the period has no row yet.
     await tx.execute(
@@ -281,7 +304,7 @@ export async function generateBrief(
     return (await tx.select().from(briefs).where(eq(briefs.id, saved.id)))[0];
   });
 }
-export async function publishBrief(id: string) {
+export async function publishBrief(id: string, options: { suppressMail?: boolean } = {}) {
   return db.transaction(async (tx) => {
     const [row] = await tx.select().from(briefs).where(eq(briefs.id, id)).for('update');
     if (!row?.draft) throw new Error('没有待发布的简报');
@@ -291,7 +314,12 @@ export async function publishBrief(id: string) {
       .set({ published: row.draft, draft: null, publishedAt: new Date() })
       .where(eq(briefs.id, id))
       .returning();
-    if (!row.published && row.autoMail) await createDeliveries(tx, saved.id, saved.kind);
+    if (!options.suppressMail && !row.published && row.autoMail)
+      await createDeliveries(tx, saved.id, saved.kind);
+    if (saved.kind === 'daily' && saved.published?.format === 'ai-daily-v1')
+      await tx.execute(
+        sql`UPDATE edition_runs SET status='published',executed_at=now() WHERE period_date=${saved.periodDate}::date AND status='ready'`,
+      );
     return (await tx.select().from(briefs).where(eq(briefs.id, saved.id)))[0];
   });
 }

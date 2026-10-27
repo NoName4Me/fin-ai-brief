@@ -3,9 +3,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { logoutAction } from '../app/actions.ts';
 const items = [
-  ['/', '简报中心'],
-  ['/archive', '历史简报'],
-  ['/news', '7×24资讯'],
+  ['/', '最新日报'],
+  ['/archive', '历史日报'],
 ] as const;
 export function Header() {
   const path = usePathname();
@@ -15,8 +14,7 @@ export function Header() {
       <header className={`app-header ${admin ? 'admin-header' : ''}`}>
         <Link href={admin ? '/admin' : '/'} className="brand">
           <div>
-            <div className="brand-name">{admin ? 'Fin&AI 管理台' : 'Fin&AI简报'}</div>
-            {!admin && <div className="brand-sub">金融与AI资讯简报</div>}
+            <div className="brand-name">{admin ? 'AI日报 管理台' : 'AI日报'}</div>
           </div>
         </Link>
         {!admin && (

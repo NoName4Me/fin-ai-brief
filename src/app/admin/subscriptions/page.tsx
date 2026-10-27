@@ -72,7 +72,7 @@ export default async function Subscriptions({ searchParams }: { searchParams: Pr
           </label>
           <fieldset>
             <legend>订阅类型</legend>
-            {Object.entries(kindNames).map(([kind, name]) => (
+            {Object.entries({ daily: 'AI日报' }).map(([kind, name]) => (
               <label key={kind} className="check">
                 <input
                   type="checkbox"

@@ -1,0 +1,191 @@
+[
+ {
+  "number": 55,
+  "name": "中国招标投标公共服务平台",
+  "recommendation": "待接入或核实",
+  "reason": "正式公告入口受限，未取得近期完整样本；社区RSS不是官方订阅",
+  "evidenceLevel": "入口受限"
+ },
+ {
+  "number": 56,
+  "name": "中国政府采购网",
+  "recommendation": "优先候选",
+  "reason": "一手采购公告有AI相关完整字段，但网页采集与连续稳定性仍需适配",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 57,
+  "name": "中国金融集中采购网",
+  "recommendation": "待接入或核实",
+  "reason": "银行官网可佐证其发布渠道身份，现站超时且近期样本不足",
+  "evidenceLevel": "入口受限"
+ },
+ {
+  "number": 58,
+  "name": "中国信达·采购公示",
+  "recommendation": "优先候选",
+  "reason": "信达官网及历史AI采购PDF可追溯，动态列表和近期样本待补",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 59,
+  "name": "中信金融资产·采购公告",
+  "recommendation": "优先候选",
+  "reason": "找到famc.citic正式公司通告替代，20标题和2正文可读，需过滤非AI采购",
+  "evidenceLevel": "样本较充分"
+ },
+ {
+  "number": 60,
+  "name": "中国东方·采购与处置公告",
+  "recommendation": "补充候选",
+  "reason": "官网20条标题与1正文可读，尚无明确AI样本且页面时效待核实",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 61,
+  "name": "千里马招标网",
+  "recommendation": "暂缓",
+  "reason": "泛采购聚合与会员限制，16标题不足验证AI独特增量",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 62,
+  "name": "各银行/AMC官网采购公告",
+  "recommendation": "待接入或核实",
+  "reason": "集合描述须拆成具体机构采购栏目，不能重复计算58—60",
+  "evidenceLevel": "集合项"
+ },
+ {
+  "number": 63,
+  "name": "企查查/天眼查（招标模块）",
+  "recommendation": "暂缓",
+  "reason": "企查查有正式授权JSON接口，未付费调用；天眼查须独立核验",
+  "evidenceLevel": "需授权"
+ },
+ {
+  "number": 64,
+  "name": "GitHub Trending",
+  "recommendation": "补充候选",
+  "reason": "官方趋势页14仓库可读，社区RSS非官方；需逐仓库核查版本和许可证",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 65,
+  "name": "Hugging Face",
+  "recommendation": "待接入或核实",
+  "reason": "Blog RSS20条解析摘要全为标题，Hub其他通道不能混同，需正文适配",
+  "evidenceLevel": "摘要证据不足"
+ },
+ {
+  "number": 66,
+  "name": "arXiv cs.AI / cs.CL",
+  "recommendation": "补充候选",
+  "reason": "两个第一方RSS各20条研究摘要可用，论文筛选、版本去重和量控待设",
+  "evidenceLevel": "样本较充分"
+ },
+ {
+  "number": 67,
+  "name": "Hugging Face Papers",
+  "recommendation": "补充候选",
+  "reason": "第一方API20条有完整论文元数据和摘要，需与arXiv按ID去重",
+  "evidenceLevel": "样本较充分"
+ },
+ {
+  "number": 68,
+  "name": "LMArena（原 Chatbot Arena）",
+  "recommendation": "补充候选",
+  "reason": "旧域重定向arena.ai，官方榜单更新与方法可读，动态采集待适配",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 69,
+  "name": "SuperCLUE",
+  "recommendation": "待接入或核实",
+  "reason": "项目身份和新官网有官方仓库交叉证据，榜单为JS壳缺当期样本",
+  "evidenceLevel": "入口/身份部分验证"
+ },
+ {
+  "number": 70,
+  "name": "OpenCompass",
+  "recommendation": "补充候选",
+  "reason": "榜单JS壳，官方仓库10条更新和方法可读，项目更新不等于榜单数据",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 71,
+  "name": "OpenAI",
+  "recommendation": "优先候选",
+  "reason": "第一方RSS20条短摘要可用，产品与客户效果需保留自述属性",
+  "evidenceLevel": "样本较充分"
+ },
+ {
+  "number": 72,
+  "name": "Anthropic",
+  "recommendation": "优先候选",
+  "reason": "官网新闻及2篇近期正文可读，检索到的是第三方转换RSS，需官方网页适配",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 73,
+  "name": "Google DeepMind",
+  "recommendation": "优先候选",
+  "reason": "第一方20条RSS中14条摘要等于标题，需补正文，不能仅凭官方身份启用",
+  "evidenceLevel": "摘要证据不足"
+ },
+ {
+  "number": 74,
+  "name": "MIT Technology Review",
+  "recommendation": "补充候选",
+  "reason": "AI专题RSS与The Download不同，既有9条摘要可查但本轮超时且仅短时运行",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 75,
+  "name": "TLDR AI",
+  "recommendation": "待接入或核实",
+  "reason": "聚合刊RSS摘要重复整期标题，需刊内事件拆解和原始出处核验",
+  "evidenceLevel": "摘要证据不足"
+ },
+ {
+  "number": 76,
+  "name": "Ben's Bites",
+  "recommendation": "补充候选",
+  "reason": "正式.com/feed20条可读，但多为短副标题；免费付费混合且现为周二/四",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 77,
+  "name": "The Information",
+  "recommendation": "暂缓",
+  "reason": "官网确有第一方Atom，实际解析超时且未验证授权正文",
+  "evidenceLevel": "需授权/入口受限"
+ },
+ {
+  "number": 78,
+  "name": "StrictlyVC",
+  "recommendation": "待接入或核实",
+  "reason": "旧RSS10条陈旧，不代表当前邮件刊停更；已找到新订阅和归档待验证",
+  "evidenceLevel": "旧入口已验证/新入口待核"
+ },
+ {
+  "number": 79,
+  "name": "CB Insights",
+  "recommendation": "暂缓",
+  "reason": "研究feed可解析但AI占比低，需筛选；付费数据库未授权，增量未证",
+  "evidenceLevel": "研究feed实测可解析（25条，含摘要）；付费数据库无授权样本"
+ },
+ {
+  "number": 80,
+  "name": "Stanford HAI",
+  "recommendation": "优先候选",
+  "reason": "大学官网10标题摘要及2全文可读，研究和政策增量好，RSS尚未证实",
+  "evidenceLevel": "部分样本"
+ },
+ {
+  "number": 81,
+  "name": "EU AI Act 官方/解读",
+  "recommendation": "补充候选",
+  "reason": "主体为FLI非欧盟官方，RSS请求尚未取得样本；可作解读不作法条终审",
+  "evidenceLevel": "身份已验证/样本受限"
+ }
+]

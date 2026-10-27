@@ -5,7 +5,7 @@ const items = [
   ['/admin', '简报工作台'],
   ['/admin/articles', '任务管理'],
   ['/admin/sources', '信源'],
-  ['/admin/industries', '行业与栏目'],
+  ['/admin/editorial', '栏目与选题'],
   ['/admin/settings', '出刊设置'],
   ['/admin/subscriptions', '订阅管理'],
   ['/admin/retention', '数据保留'],

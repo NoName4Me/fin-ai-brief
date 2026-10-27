@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, or } from 'drizzle-orm';
+import { and, eq, ilike, isNull, lt, not, or } from 'drizzle-orm';
 import { db, pool } from './server/db.ts';
 import {
   getQueue,
@@ -15,6 +15,7 @@ import { cleanupRetention } from './server/retention.ts';
 import { deliver } from './server/mail.ts';
 import { getSettings } from './server/settings.ts';
 import { duePeriods, rangeFor } from './server/periods.ts';
+import { dispatchReprocessingBatches } from './server/reprocessing.ts';
 import {
   dispatchGenerationRequests,
   runGeneration,
@@ -45,6 +46,14 @@ async function tick() {
         and(
           eq(sources.enabled, true),
           or(isNull(sources.nextFetchAt), lt(sources.nextFetchAt, new Date())),
+          // 机器之心免费RSS硬性要求两次请求间隔≥60分钟；未到冷却期不入队，
+          // 否则会每分钟产生一条无意义的失败任务。
+          or(
+            isNull(sources.url),
+            not(ilike(sources.url, '%mcp.applications.jiqizhixin.com/rss%')),
+            isNull(sources.lastFetchedAt),
+            lt(sources.lastFetchedAt, new Date(Date.now() - 60 * 60_000)),
+          ),
         ),
       );
     collecting = due.length > 0;
@@ -53,6 +62,7 @@ async function tick() {
   // 模型任务失败后由队列自动重试；达到每日次数上限则等待额度恢复。
   if (process.env.MODEL_CALLS_ENABLED === 'true') {
     await reconcileFailedArticles();
+    await dispatchReprocessingBatches();
     await dispatchGenerationRequests();
     await resumeBudgetWaiting();
     await enqueuePendingArticles();
@@ -60,6 +70,7 @@ async function tick() {
       "SELECT 1 FROM pgboss.job WHERE name='collect' AND state IN ('created','active','retry') LIMIT 1",
     );
     for (const period of duePeriods(new Date(), config)) {
+      if (period.kind !== 'daily') continue;
       if (collecting || activeCollection.rows.length) continue;
       const range = rangeFor(
         period.kind,
@@ -114,13 +125,14 @@ const dispatcher = setInterval(() => {
   if (dispatching || process.env.MODEL_CALLS_ENABLED !== 'true') return;
   dispatching = true;
   void reconcileFailedArticles()
+    .then(() => dispatchReprocessingBatches())
     .then(() => dispatchGenerationRequests())
     .catch((error) => console.error('出刊调度:', error.message))
     .finally(() => {
       dispatching = false;
     });
 }, 5000);
-console.log('Fin&AI简报 Worker 已启动；采集、模型与发信遵循本地开关。');
+console.log('AI日报 Worker 已启动；采集、模型与发信遵循本地开关。');
 let stopping = false;
 async function stop() {
   if (stopping) return;

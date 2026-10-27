@@ -11,6 +11,7 @@ import { db } from './db.ts';
 import { articles, sources } from './schema.ts';
 import { fetchSource, SourceHttpError, type SourceFetchOptions } from './fetch.ts';
 import { parseAihotItems, validateAihotUrl, isAihotItemsUrl } from './aihot.ts';
+import { structuredItems, structuredKind } from './structured-sources.ts';
 import { provenanceSchema, type Provenance } from './types.ts';
 export const articleInput = z.object({
   title: z.string().trim().min(1).max(500),
@@ -21,7 +22,7 @@ export const articleInput = z.object({
   excerpt: z.string().trim().min(1).max(16000),
   publishedAt: z.iso.datetime({ offset: true }),
   sourceName: z.string().trim().min(1).max(200),
-  industryId: z.string().min(1).max(80),
+  industryId: z.string().default('ai'),
   provenance: provenanceSchema.optional(),
   publishedPrecision: z.enum(['day', 'time']).default('time'),
 });
@@ -92,7 +93,7 @@ export function canonicalUrl(input: string) {
   return url.href;
 }
 export async function importArticle(input: unknown, sourceId?: string) {
-  const value = articleInput.parse(input);
+  const value = { ...articleInput.parse(input), industryId: 'ai' };
   return db
     .insert(articles)
     .values({
@@ -113,13 +114,20 @@ export async function collectSource(
   if (!(await getSettings()).collectionEnabled && !options.manual) throw new Error('采集尚未开启');
   const [source] = await db.select().from(sources).where(eq(sources.id, id));
   if (!source?.enabled) throw new Error('信源已停用或不存在');
+  if (!source.url || source.format === 'manual') throw new Error('信源尚无可用采集入口');
   validateSourceAccess(source);
   if (
     isJiqizhixinRss(source.url) &&
     source.lastFetchedAt &&
     now.getTime() - source.lastFetchedAt.getTime() < 60 * 60_000
-  )
-    throw new Error('机器之心每60分钟最多请求一次，请稍后再采集');
+  ) {
+    // 自动调度在冷却期内直接跳过，避免每分钟产生一条失败任务；
+    // 手动采集仍明确提示，但不推进下一次自动采集时间。
+    const nextFetchAt = new Date(source.lastFetchedAt.getTime() + 60 * 60_000);
+    await db.update(sources).set({ nextFetchAt }).where(eq(sources.id, id));
+    if (options.manual) throw new Error('机器之心每60分钟最多请求一次，请稍后再采集');
+    return { fetched: 0, inserted: 0, deferred: true };
+  }
   const {
     rows: [run],
   } = await pool.query(
@@ -197,6 +205,8 @@ export async function collectSource(
       items = parseAihotItems(text);
     } else if (source.format === 'html') {
       items = parseHtmlItems(text, source.url, cleanText);
+    } else if (structuredKind(source.url)) {
+      items = structuredItems(source.url, text);
     } else if (source.format === 'rss') {
       items = await parseRssItems(text);
     } else {
@@ -242,7 +252,7 @@ export async function collectSource(
       }
       inserted += (
         await importArticle(
-          { ...item, industryId: source.industryId, sourceName: item.sourceName ?? source.name },
+          { ...item, industryId: 'ai', sourceName: item.sourceName ?? source.name },
           source.id,
         )
       ).length;

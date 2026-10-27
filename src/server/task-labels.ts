@@ -5,6 +5,7 @@ export const stageNames: Record<string, string> = {
   analyze: '相关性、评分、事实、标题摘要及归组（共用一次调用）',
   review: '疑难归组与事实复核',
   save: '保存事件与新增事实',
+  edition: '栏目选题与出刊记录',
 };
 export const stateNames: Record<string, string> = {
   started: '请求已发送',

@@ -1,17 +1,16 @@
 import Link from 'next/link';
 import { listPublished } from '../../server/publication.ts';
-import { kindNames, kindSchema, type Kind } from '../../server/types.ts';
+import { kindNames, type Kind } from '../../server/types.ts';
 import { dateLabel } from '../../server/periods.ts';
 import { editionCalendar } from '../../server/brief-presentation.ts';
-export const metadata = { title: '历史简报' };
+export const metadata = { title: '历史日报' };
 export default async function Archive({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const q = await searchParams;
-  const kind = kindSchema.safeParse(q.kind);
-  const rows = await listPublished(kind.success ? kind.data : undefined);
+  const rows = await listPublished('daily');
   const filtered = rows.filter(
     (r) => (!q.from || r.periodDate >= q.from) && (!q.to || r.periodDate <= q.to),
   );
@@ -20,23 +19,12 @@ export default async function Archive({
       <section className="paper">
         <div className="view-header">
           <div>
-            <h1>历史简报</h1>
-            <p>按期查阅正式发布的金融与AI简报。</p>
+            <h1>历史日报</h1>
+            <p>按日期查阅已发布的AI日报。</p>
           </div>
           <span className="eyeline">共{filtered.length}期</span>
         </div>
         <form className="archive-tools">
-          <label>
-            类型
-            <select name="kind" defaultValue={q.kind ?? ''}>
-              <option value="">全部</option>
-              {Object.entries(kindNames).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </label>
           <label>
             从<input type="date" name="from" defaultValue={q.from} />
           </label>

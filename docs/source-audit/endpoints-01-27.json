@@ -1,0 +1,562 @@
+[
+  {
+    "number": 1,
+    "name": "中国人民银行",
+    "endpoints": [
+      {
+        "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/2986536/index.html",
+        "method": "RSS/Atom",
+        "status": "已实测可解析",
+        "evidence": "首页RSS订阅链接；本轮直接请求200，RSS解析6条，见endpoint-probe-01-27.json",
+        "limitation": "标题截断、部分原文链接缺协议；新闻流不覆盖全部规章"
+      },
+      {
+        "url": "https://www.pbc.gov.cn/tiaofasi/144941/144957/index.html",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "第三材料定向入口；本轮列表20条可读",
+        "limitation": "需补正文与附件适配"
+      },
+      {
+        "url": "https://www.pbc.gov.cn/tiaofasi/144941/3581332/index.html",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "第三材料定向入口；本轮规范性文件20条可读",
+        "limitation": "需补正文与附件适配"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 2,
+    "name": "国家金融监督管理总局",
+    "endpoints": [
+      {
+        "url": "https://www.nfra.gov.cn/cbircweb/DocInfo/SelectItemAndDocByItemUUId?pageSize=7&orderBy=item",
+        "method": "公开JSON API",
+        "status": "已实测可解析",
+        "evidence": "本轮直接GET200，JSON包含data、docInfoVOList；见endpoint-probe-01-27.json",
+        "limitation": "返回分组，不是所有政策；既有程序选915/917/926/951新闻组，不能算861已覆盖"
+      },
+      {
+        "url": "https://www.nfra.gov.cn/cn/view/pages/ItemList.html?itemPId=923&itemId=861",
+        "method": "动态网页/浏览器",
+        "status": "官方入口已确认、请求受限",
+        "evidence": "第三材料明确政策规章861，官方域内；本轮受限",
+        "limitation": "861对应接口及政策附件尚未实测"
+      }
+    ],
+    "missing": "政策861可解析接口待确认"
+  },
+  {
+    "number": 3,
+    "name": "中国证监会",
+    "endpoints": [
+      {
+        "url": "https://www.csrc.gov.cn/searchList/a1a078ee0bc54721ab6b148884c784a8?_isAgg=true&_isJson=true&_pageSize=30&_template=index&page=1",
+        "method": "公开JSON API",
+        "status": "已实测可解析",
+        "evidence": "本轮直接GET200解析data.results；既有7条原文佐证，见endpoint-probe-01-27.json",
+        "limitation": "需核政策子栏目覆盖；非RSS"
+      },
+      {
+        "url": "https://www.csrc.gov.cn/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮原始首页200，含政策/公告导航",
+        "limitation": "只作官方导航及正文备用"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 4,
+    "name": "中央网信办",
+    "endpoints": [
+      {
+        "url": "https://www.cac.gov.cn/wxzw/wxfb/A093702index_1.htm",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "第一方列表本轮可读，网信发布抽20条及具体公告核读",
+        "limitation": "附件含图片/PDF，需适配"
+      },
+      {
+        "url": "https://www.cac.gov.cn/wxzw/zcfg/A093703index_1.htm",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "第一方列表本轮可读，网信发布抽20条及具体公告核读",
+        "limitation": "附件含图片/PDF，需适配"
+      }
+    ],
+    "missing": "未确认第一方RSS"
+  },
+  {
+    "number": 5,
+    "name": "工业和信息化部",
+    "endpoints": [
+      {
+        "url": "https://www.miit.gov.cn/jgsj/kjs/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "科技司列表20项及标准文件可读",
+        "limitation": "含旧置顶项，需使用原文日期"
+      },
+      {
+        "url": "https://www.miit.gov.cn/zwgk/zcwj/index.html",
+        "method": "动态网页/浏览器",
+        "status": "页面可读、待适配",
+        "evidence": "官网导航“政策文件”正式链接；本轮200仅页面框架",
+        "limitation": "尚未解析动态政策列表，不能算列表验收"
+      }
+    ],
+    "missing": "未确认第一方RSS；动态政策列表需适配"
+  },
+  {
+    "number": 6,
+    "name": "国家发展改革委",
+    "endpoints": [
+      {
+        "url": "https://www.ndrc.gov.cn/xxgk/zcfb/tz/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮政策通知20项列表和AI相关政策原文可读",
+        "limitation": "大多数普通政策不涉AI；附件适配待做"
+      }
+    ],
+    "missing": "未确认第一方RSS"
+  },
+  {
+    "number": 7,
+    "name": "中国互联网金融协会",
+    "endpoints": [
+      {
+        "url": "https://www.nifa.org.cn/",
+        "method": "动态网页/浏览器",
+        "status": "官方入口已确认、请求受限",
+        "evidence": "材料官方域及搜索官网身份；本轮web403、直接请求失败",
+        "limitation": "未获得近期列表和正文，不代表不存在RSS"
+      }
+    ],
+    "missing": "正式栏目、RSS和近期样本待核"
+  },
+  {
+    "number": 8,
+    "name": "中投公司",
+    "endpoints": [
+      {
+        "url": "https://www.china-inv.cn/china_inv/gszl/digest.shtml",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "公司章程摘要/介绍第一方可读；主页本轮直接请求200",
+        "limitation": "身份介绍，不能充作资讯列表；本期内部动态范围排除"
+      }
+    ],
+    "missing": "近期AI新闻列表未验收；本期不接入"
+  },
+  {
+    "number": 9,
+    "name": "财政部",
+    "endpoints": [
+      {
+        "url": "https://www.mof.gov.cn/zhengwuxinxi/zhengcefabu/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮政策列表18项可读，另核会计数智化具体文件",
+        "limitation": "需按实际部门/附件解析，不是AI专栏"
+      }
+    ],
+    "missing": "未确认第一方RSS"
+  },
+  {
+    "number": 10,
+    "name": "中国信息通信研究院（CAICT）",
+    "endpoints": [
+      {
+        "url": "https://www.caict.ac.cn/kxyj/qwfb/bps/",
+        "method": "网页列表+正文",
+        "status": "官方入口已确认、请求受限",
+        "evidence": "官方白皮书目录；本轮HTTP412，见target-endpoints-01-27.json",
+        "limitation": "未取得近期报告列表"
+      },
+      {
+        "url": "https://aihub.caict.ac.cn/",
+        "method": "动态网页/浏览器",
+        "status": "页面可读、待适配",
+        "evidence": "鲸智社区页脚为中国信通院，第一方页面可读",
+        "limitation": "动态平台，混合转载与资源，不能代替自研报告目录"
+      }
+    ],
+    "missing": "报告索引及RSS未验收"
+  },
+  {
+    "number": 11,
+    "name": "腾讯研究院",
+    "endpoints": [
+      {
+        "url": "https://www.tisi.org/",
+        "method": "网页列表+正文",
+        "status": "官方入口已确认、请求受限",
+        "evidence": "研究院正式网站；有www、无www及/feed本轮均503",
+        "limitation": "首页页脚未能读取"
+      },
+      {
+        "url": "https://www.tisi.org/feed",
+        "method": "RSS/Atom",
+        "status": "候选未证实",
+        "evidence": "第三方历史订阅线索；本轮503未解析，见endpoint-probe-01-27.json",
+        "limitation": "未得到本轮第一方订阅页反向确认"
+      },
+      {
+        "url": "https://cloud.tencent.com/developer/user/1003142/activities",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "腾讯域内研究院活动主页能确认机构身份",
+        "limitation": "不是每日AI速递完整列表或RSS"
+      }
+    ],
+    "missing": "近期AI速递批量内容与有效订阅待核"
+  },
+  {
+    "number": 12,
+    "name": "腾讯研究院《AI速递》网页版",
+    "endpoints": [
+      {
+        "url": "https://www.aiexpress.news/feed",
+        "method": "RSS/Atom",
+        "status": "官方入口已确认、请求受限",
+        "evidence": "本轮首页HTML rel=alternate明确公告此Feed；再次请求fetch failed",
+        "limitation": "已确认AI Express自身订阅入口，腾讯运营归属仍未证实"
+      },
+      {
+        "url": "https://www.aiexpress.news/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮首页200、抽10项转载标题摘要",
+        "limitation": "多作者聚合，非已确认腾讯研究院官方站"
+      }
+    ],
+    "missing": "腾讯官方关联未证实；Feed当前未解析"
+  },
+  {
+    "number": 13,
+    "name": "机器之心",
+    "endpoints": [
+      {
+        "url": "https://www.jiqizhixin.com/rss",
+        "method": "官方邮件/需授权",
+        "status": "页面可读、待适配",
+        "evidence": "本轮首页反自动化提示明确链接此RSS产品入口；数据服务页公开RSS/MCP/Skills",
+        "limitation": "产品说明入口，非XML；须确认订阅权益及适用接入方式"
+      },
+      {
+        "url": "https://mcp.applications.jiqizhixin.com/rss",
+        "method": "RSS/Atom",
+        "status": "已实测可解析",
+        "evidence": "既有20条官方RSS取样及81/81执行记录；本轮未重新请求令牌接口",
+        "limitation": "需要访问令牌（不在文档展示）；样本摘录全部等于标题，不算正文材料验收"
+      }
+    ],
+    "missing": "自动处理适用权益、摘要/正文完整度待确认"
+  },
+  {
+    "number": 14,
+    "name": "量子位",
+    "endpoints": [
+      {
+        "url": "https://www.qbitai.com/feed",
+        "method": "RSS/Atom",
+        "status": "已实测可解析",
+        "evidence": "本轮解析10条；首页rel=alternate再次确认此正式链接",
+        "limitation": "仅10/22—23，较既有10/26文章滞后；摘要11—40字符"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 15,
+    "name": "新智元",
+    "endpoints": [
+      {
+        "url": "https://www.aiera.com.cn/asi-articles.html",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮列表40项及详情路径/asi-post.html?id=...可读；页脚运营主体核实",
+        "limitation": "仅日级日期；内容需筛选宣传与非AI"
+      }
+    ],
+    "missing": "未确认第一方RSS"
+  },
+  {
+    "number": 16,
+    "name": "AI科技评论（雷峰网）",
+    "endpoints": [
+      {
+        "url": "https://www.leiphone.com/feed",
+        "method": "RSS/Atom",
+        "status": "已实测可解析",
+        "evidence": "本轮解析20条，10/23—27，摘录194—8003字符，见samples-16-Leiphone.json",
+        "limitation": "全站流，需主题筛选并拆分多事件早报"
+      },
+      {
+        "url": "https://www.leiphone.com/category/ai",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "第三材料AI定向入口，本轮页面可读",
+        "limitation": "供AI限定列表及原文补全"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 17,
+    "name": "InfoQ 中文",
+    "endpoints": [
+      {
+        "url": "https://www.infoq.cn/feed",
+        "method": "RSS/Atom",
+        "status": "已实测可解析",
+        "evidence": "本轮解析20条，见samples-17-InfoQ.json",
+        "limitation": "每条摘录仅“点击查看原文”；两条发布时间晚于当次核查，需核时间标注"
+      },
+      {
+        "url": "https://feed.infoq.com/cn",
+        "method": "RSS/Atom",
+        "status": "候选未证实",
+        "evidence": "历史RSS线索；本轮HTTP406 JSON错误，非RSS",
+        "limitation": "旧替代域不能当当前可用入口"
+      },
+      {
+        "url": "https://www.infoq.cn/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "官网页脚核到每周精要、InfoQ/AI前线官方订阅矩阵",
+        "limitation": "公众号订阅不是开放RSS；正文需补获取"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 18,
+    "name": "36氪",
+    "endpoints": [
+      {
+        "url": "https://www.36kr.com/rss-center",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "首页图标页脚链接此正式RSS中心，页面明确公布四种Feed",
+        "limitation": "说明页，非XML"
+      },
+      {
+        "url": "https://36kr.com/feed",
+        "method": "RSS/Atom",
+        "status": "官方入口已确认、请求受限",
+        "evidence": "RSS中心第一方正式公布；本轮HTTP200实际为25258字符安全检测HTML，RSS解析失败",
+        "limitation": "状态码200不能算采集成功；见36kr-feed-verification.json及endpoint-probe-01-27.json"
+      },
+      {
+        "url": "https://36kr.com/feed-article",
+        "method": "RSS/Atom",
+        "status": "官方入口已确认、请求受限",
+        "evidence": "RSS中心第一方正式公布；本轮HTTP200实际为25258字符安全检测HTML，RSS解析失败",
+        "limitation": "状态码200不能算采集成功；见36kr-feed-verification.json及endpoint-probe-01-27.json"
+      },
+      {
+        "url": "https://36kr.com/feed-newsflash",
+        "method": "RSS/Atom",
+        "status": "官方入口已确认、请求受限",
+        "evidence": "RSS中心第一方正式公布；本轮HTTP200实际为25258字符安全检测HTML，RSS解析失败",
+        "limitation": "状态码200不能算采集成功；见36kr-feed-verification.json及endpoint-probe-01-27.json"
+      },
+      {
+        "url": "https://36kr.com/feed-moment",
+        "method": "RSS/Atom",
+        "status": "官方入口已确认、请求受限",
+        "evidence": "RSS中心第一方正式公布；本轮HTTP200实际为25258字符安全检测HTML，RSS解析失败",
+        "limitation": "状态码200不能算采集成功；见36kr-feed-verification.json及endpoint-probe-01-27.json"
+      },
+      {
+        "url": "https://www.36kr.com/information/AI/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮AI频道20项标题及来源可读",
+        "limitation": "混合多媒体转载，需保留来源、优选原创"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 19,
+    "name": "Founder Park",
+    "endpoints": [
+      {
+        "url": "https://fpfounderpark.substack.com/feed",
+        "method": "RSS/Atom",
+        "status": "已实测可解析",
+        "evidence": "本轮20条；官网和Substack关于页共享founderpark@geekpark.net联系方式确认关联",
+        "limitation": "27—185字符导语；付费Vault不能当免费全文；英文流不等于中文公众号全量"
+      },
+      {
+        "url": "https://www.founderpark.net/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "第一方官网及极客公园介绍确认社区归属",
+        "limitation": "栏目内容/付费访问需分别判断"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 20,
+    "name": "硅星人",
+    "endpoints": [
+      {
+        "url": "https://www.pingwest.com/tag/%E7%A1%85%E6%98%9F%E4%BA%BA",
+        "method": "动态网页/浏览器",
+        "status": "页面可读、待适配",
+        "evidence": "品玩官网导航链接，栏目自述822条更新，页脚主体明确",
+        "limitation": "本轮仅简介/动态容器，无近期文章列表；不等于公众号认证"
+      }
+    ],
+    "missing": "RSS、公众号唯一身份、近期完整列表待核"
+  },
+  {
+    "number": 21,
+    "name": "赛博禅心",
+    "endpoints": [
+      {
+        "url": null,
+        "method": "公众号待确认",
+        "status": "无已确认入口",
+        "evidence": "Excel仅名称；GitHub MiniMoss自述及历史微信原文为线索，未形成双向认证",
+        "limitation": "无法填写已确认官方采集URL；不使用第三方转换镜像代替"
+      }
+    ],
+    "missing": "公众号唯一标识、认证主体、官方入口未确认"
+  },
+  {
+    "number": 22,
+    "name": "虎嗅",
+    "endpoints": [
+      {
+        "url": "https://rss.huxiu.com/",
+        "method": "RSS/Atom",
+        "status": "已实测可解析",
+        "evidence": "用户指出官网页脚入口，根代理本轮直接解析20条；huxiu-correction.json及huxiu-official.xml",
+        "limitation": "全站混合内容需AI筛选；UTC10/27 04:03—06:00，摘录2193—11515字符；一次成功不等于长期稳定"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 23,
+    "name": "金融时报",
+    "endpoints": [
+      {
+        "url": "https://www.financialnews.com.cn/node_3012.html",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮从首页金融科技导航定位，直接请求200，10条含日期作者及摘要；target-endpoints-01-27.json",
+        "limitation": "最新列表10/14、覆盖至9/11；非AI独占，更新低频"
+      },
+      {
+        "url": "https://www.financialnews.com.cn/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮直接读取200、主页AI相关新闻可见，纠正此前web工具403",
+        "limitation": "工具环境表现不同；未确认第一方RSS"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 24,
+    "name": "中国银行保险报",
+    "endpoints": [
+      {
+        "url": "https://rm-api.cfmc.cn/web/home/news",
+        "method": "公开JSON API",
+        "status": "已实测可解析",
+        "evidence": "本轮POST200并解析data.list[].newsList[]；endpoint-probe-01-27.json。header tenantId:37，Content-Type:application/x-www-form-urlencoded；body字段data为频道参数数组JSON",
+        "limitation": "需频道参数：channel_id=27/28/30/275/34/3261，channel_type=4,page=1,page_size=10,needTop=true,needBanner=false,needOrdinary=true,needFirst=false,webOrg=2；不是RSS"
+      },
+      {
+        "url": "https://www.cbimc.cn/",
+        "method": "动态网页/浏览器",
+        "status": "页面可读、待适配",
+        "evidence": "官网页脚主体确认，既有8条/news/{id}正文和159/159执行记录",
+        "limitation": "首页JS框架；API与文章详情需分别保留"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 25,
+    "name": "21世纪经济报道",
+    "endpoints": [
+      {
+        "url": "https://www.21jingji.com/channel/finance",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮从首页“金融”导航确认，200并读取20条列表；target-endpoints-01-27.json",
+        "limitation": "普通金融内容多，需AI筛选与逐条原文精确日期"
+      },
+      {
+        "url": "https://www.21jingji.com/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮首页200及既有具体具名AI报道全文可读",
+        "limitation": "未确认第一方RSS；首页不是已验收RSS"
+      }
+    ],
+    "missing": ""
+  },
+  {
+    "number": 26,
+    "name": "证券时报",
+    "endpoints": [
+      {
+        "url": "https://www.stcn.com/public/site-map.html",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮首页页脚正式网站地图链接，200可读；明确公布金融/产经/公司栏目",
+        "limitation": "只作导航说明页，不是内容流"
+      },
+      {
+        "url": "https://www.stcn.com/article/list/finance.html",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "官方地图明确链接“金融”；前轮直接读取超时，本轮地图可读确认其正式身份",
+        "limitation": "本轮目标栏目未再次取样，解析验收待做"
+      },
+      {
+        "url": "https://www.stcn.com/article/index.html",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "前轮新闻版20项列表及具体AI内容可读；本轮主站200",
+        "limitation": "第三方RSSHub路线不是第一方RSS"
+      }
+    ],
+    "missing": "第一方RSS未确认；金融子列表解析待验收"
+  },
+  {
+    "number": 27,
+    "name": "中国证券报",
+    "endpoints": [
+      {
+        "url": "https://www.cs.com.cn/",
+        "method": "网页列表+正文",
+        "status": "页面可读、待适配",
+        "evidence": "本轮首页200、20标题及具体AI金融招聘原文已读",
+        "limitation": "综合财经混合，需AI筛选"
+      },
+      {
+        "url": "https://www.cs.com.cn/yinhang.html",
+        "method": "动态网页/浏览器",
+        "status": "页面可读、待适配",
+        "evidence": "首页“银行保险信托”正式链接，本轮200返回银行/保险/信托容器",
+        "limitation": "正文列表由动态部件加载；本轮未解析列表，不算完整采集验收"
+      }
+    ],
+    "missing": "未确认第一方RSS；子栏目动态数据待适配"
+  }
+]

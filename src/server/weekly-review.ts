@@ -3,6 +3,13 @@ import { db, pool } from './db.ts';
 import { articles, events } from './schema.ts';
 import { and, inArray, lt, asc, eq } from 'drizzle-orm';
 import { localDate } from './periods.ts';
+import {
+  ratingForEditorial,
+  resolveSection,
+  fixedSections,
+  type SectionRule,
+  type RatingRule,
+} from './editorial.ts';
 import type { BriefContent } from './types.ts';
 
 const factSchema = z.object({
@@ -40,6 +47,7 @@ export async function weeklyMaterials(
   range: { start: Date; end: Date },
   minScore: number,
   maxItems: number,
+  editorialConfig?: { sections: SectionRule[]; ratingRules: RatingRule[] },
 ) {
   // Select by period developments, never by the event's mutable latest occurrence time.
   const candidates = await pool.query<
@@ -51,22 +59,46 @@ export async function weeklyMaterials(
     FROM events e
     JOIN LATERAL (
       SELECT d.editorial,d.happened_at FROM event_developments d
-      JOIN articles a ON a.id=d.article_id AND a.state='processed'
+      JOIN articles a ON a.id=d.article_id AND a.event_id=d.event_id AND a.state='processed'
+      LEFT JOIN sources s ON s.id=a.source_id
       WHERE d.event_id=e.id AND d.happened_at >= $1 AND d.happened_at < $2
         AND a.published_at >= $1 AND a.published_at < $2
+        AND (s.id IS NULL OR s.sections='[]'::jsonb OR s.sections ? COALESCE($3::jsonb->>COALESCE(d.editorial->>'section',e.section),d.editorial->>'section',e.section))
       ORDER BY d.happened_at DESC,d.created_at DESC,d.id DESC LIMIT 1
     ) latest ON true`,
-    [range.start, range.end],
+    [
+      range.start,
+      range.end,
+      JSON.stringify(
+        Object.fromEntries(
+          (editorialConfig?.sections ?? []).flatMap((s) => s.aliases.map((a) => [a, s.name])),
+        ),
+      ),
+    ],
   );
-  const selected = candidates.rows
-    .map((event) => {
-      const snapshot = editorialSchema.safeParse(event.editorial);
-      return {
-        ...event,
-        ...(snapshot.success ? snapshot.data : {}),
-        occurredAt: event.last_report,
-      };
-    })
+  let unscored = 0;
+  const evaluated = candidates.rows.map((event) => {
+    const snapshot = editorialSchema.safeParse(event.editorial);
+    const original = {
+      ...event,
+      ...(snapshot.success ? snapshot.data : {}),
+      occurredAt: event.last_report,
+      missingRating: false,
+    };
+    if (!editorialConfig) return original;
+    const section = resolveSection(original.section, editorialConfig.sections);
+    const active = fixedSections(editorialConfig.sections).some((s) => s.name === section);
+    const rating = ratingForEditorial(event.editorial, editorialConfig.ratingRules);
+    if (active && original.score > 0 && rating === null) unscored++;
+    return {
+      ...original,
+      section,
+      missingRating: active && original.score > 0 && rating === null,
+      score: active && original.score > 0 && rating !== null ? rating * 20 : -1,
+    };
+  });
+  const unscoredEvents = evaluated.filter((event) => event.missingRating);
+  const selected = evaluated
     .filter((event) => event.score >= minScore)
     .sort(
       (a, b) =>
@@ -76,7 +108,14 @@ export async function weeklyMaterials(
     )
     .slice(0, maxItems);
   if (!selected.length)
-    return { selected, refs: [], developments: [] as Development[], inputEvents: [] };
+    return {
+      selected,
+      refs: [],
+      developments: [] as Development[],
+      inputEvents: [],
+      unscored,
+      unscoredEvents,
+    };
   const ids = selected.map((event) => event.id);
   const refs = await db
     .select()
@@ -92,7 +131,7 @@ export async function weeklyMaterials(
   const developments = (
     await pool.query<Development>(
       `
-    SELECT d.* FROM event_developments d JOIN articles a ON a.id=d.article_id
+    SELECT d.* FROM event_developments d JOIN articles a ON a.id=d.article_id AND a.event_id=d.event_id
     WHERE d.event_id=ANY($1::uuid[]) AND d.happened_at < $2 AND a.published_at < $2
       AND a.state='processed'
     ORDER BY d.happened_at,d.created_at,d.id`,
@@ -148,6 +187,8 @@ export async function weeklyMaterials(
     refs: refs.filter((a) => usedIds.has(a.id) || a.publishedAt >= range.start),
     developments,
     inputEvents,
+    unscored,
+    unscoredEvents,
   };
 }
 

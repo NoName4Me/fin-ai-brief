@@ -13,13 +13,16 @@ export function processingController(boss: PgBoss, run = processArticle) {
       const config = await getSettings();
       if (config.processingConcurrency === concurrency) return;
       if (concurrency) await boss.offWork('process', { wait: true });
-      await boss.work<{ id: string }>(
+      await boss.work<{ id: string; reprocessBatchId?: string }>(
         'process',
         {
           localConcurrency: config.processingConcurrency,
           pollingIntervalSeconds: 1,
         },
-        async ([job]) => executeTask('process', job.id, job.data, () => run(job.data.id)),
+        async ([job]) =>
+          executeTask('process', job.id, job.data, () =>
+            run(job.data.id, job.data.reprocessBatchId),
+          ),
       );
       concurrency = config.processingConcurrency;
     } finally {

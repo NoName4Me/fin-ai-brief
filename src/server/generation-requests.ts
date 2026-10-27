@@ -1,4 +1,4 @@
-import { generateBrief, PendingArticles } from './briefs.ts';
+import { generateBrief, PendingArticles, publishBrief } from './briefs.ts';
 import { pool } from './db.ts';
 import { getSettings } from './settings.ts';
 import { rangeFor } from './periods.ts';
@@ -24,6 +24,7 @@ export async function requestGeneration(
   date: string,
   options: { force?: boolean; expectedKey?: string } = {},
 ) {
+  if (kind !== 'daily') throw new Error('目前只生成AI日报');
   await reconcileFailedArticles();
   const { pending, range } = await generationStatus(kind, date);
   if (pending && !options.force) throw new Error('本期仍有资讯待处理，请重新预览并确认强制生成');
@@ -52,6 +53,13 @@ export async function dispatchGenerationRequests() {
     );
     const db = { executeSql: (sql: string, values?: unknown[]) => client.query(sql, values) };
     for (const request of requests.rows) {
+      if (request.kind !== 'daily') {
+        await client.query(
+          "UPDATE brief_requests SET state='failed',error='周月报已暂停',finished_at=now() WHERE id=$1",
+          [request.id],
+        );
+        continue;
+      }
       const pending = await client.query(
         "SELECT id FROM articles WHERE state='pending' AND published_at >= $1 AND published_at < $2 ORDER BY published_at DESC",
         [request.range_start, request.range_end],
@@ -115,10 +123,17 @@ export interface GenerationTask {
   expectedKey?: string;
   requestId?: string;
   backfill?: boolean;
+  publishWithoutMail?: boolean;
+  reprocessBatchId?: string;
 }
 export async function runGeneration(jobId: string, data: GenerationTask) {
+  if (data.kind !== 'daily') return { skipped: true, reason: '周月报已暂停' };
   try {
-    return await generateBrief(data.kind, data.date, data.expectedKey, { backfill: data.backfill });
+    const publishWithoutMail = data.publishWithoutMail && (await getSettings()).autoPublish;
+    const saved = await generateBrief(data.kind, data.date, data.expectedKey, {
+      backfill: data.backfill || data.publishWithoutMail,
+    });
+    return publishWithoutMail ? await publishBrief(saved.id, { suppressMail: true }) : saved;
   } catch (error) {
     if (!(error instanceof PendingArticles) || !data.requestId) throw error;
     // Collection can add another article between dispatch and generation. Return to dependency
@@ -128,5 +143,18 @@ export async function runGeneration(jobId: string, data: GenerationTask) {
       [data.requestId, jobId],
     );
     return { waitingArticles: true };
+  } finally {
+    if (/^[a-f0-9-]{36}$/.test(jobId)) {
+      const { rows } = await pool.query(
+        "SELECT section,status,candidate_count,selected_count,reason,details FROM edition_runs WHERE period_date=$1 AND executed_at >= coalesce((SELECT started_on FROM pgboss.job WHERE id=$2),now()-interval '15 minutes') ORDER BY executed_at,section",
+        [data.date, jobId],
+      );
+      await pool.query(
+        `INSERT INTO processing_steps(subject,run_key,stage,state,finished_at,result)
+        VALUES($1,$2,'edition','succeeded',now(),$3::jsonb)
+        ON CONFLICT(subject,run_key,stage) DO UPDATE SET result=excluded.result,finished_at=now()`,
+        [`brief:daily:${data.date}`, `job:${jobId}`, JSON.stringify(rows)],
+      );
+    }
   }
 }

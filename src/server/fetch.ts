@@ -2,11 +2,18 @@ import { pool } from './db.ts';
 import { reserveHost } from './source-rhythm.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import { sourceRequestUrl, sourceRequestOptions } from './source-access.ts';
+import { structuredRequestOptions } from './structured-sources.ts';
 import { lookup } from 'node:dns/promises';
 import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 import { isIP } from 'node:net';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { constants } from 'node:crypto';
+// 少数官方站点仍要求已废弃的 TLS 重协商；默认禁用，仅在该握手失败时重试一次。
+export function needsLegacyRenegotiation(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  return /unsafe legacy renegotiation|legacy renegotiation|EPROTO/i.test(message);
+}
 export function publicAddress(ip: string, allowFakeIp = false) {
   const v = ip.toLowerCase();
   if (v.includes(':')) return !(/^(::|fe[89ab]|f[cd]|ff)/.test(v) || v.includes('ffff:'));
@@ -67,7 +74,7 @@ export class SourceHttpError extends Error {
 }
 export async function fetchSource(input: string, options: SourceFetchOptions = {}) {
   let next = sourceRequestUrl(input);
-  const plan = sourceRequestOptions(input);
+  const plan = { ...structuredRequestOptions(input), ...sourceRequestOptions(input) };
   let method = options.method ?? plan.method ?? 'GET';
   let requestBody = options.body ?? plan.body;
   const origin = new URL(input).origin;
@@ -77,28 +84,36 @@ export async function fetchSource(input: string, options: SourceFetchOptions = {
     if (slot.blockedUntil) throw new SourceHttpError(429, slot.blockedUntil);
     if (slot.wait) await delay(slot.wait);
     // 连接固定使用刚刚校验过的地址，避免DNS在校验后改指向内网。
-    const response = await new Promise<IncomingMessage>((resolve, reject) => {
-      const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(
-        url,
-        {
-          agent: false,
-          method,
-          family: address.family,
-          lookup: (_host, _options, callback) => callback(null, address.address, address.family),
-          signal: AbortSignal.timeout(30_000),
-          headers: {
-            ...(url.origin === origin ? { ...plan.headers, ...options.headers } : {}),
-            'User-Agent': 'FinAiBrief/1.0',
-            'Accept-Encoding': 'gzip, br',
-            ...(options.etag ? { 'If-None-Match': options.etag } : {}),
-            Accept:
-              'application/rss+xml, application/atom+xml, application/json, application/xml, text/xml',
+    const send = (legacyRenegotiation: boolean) =>
+      new Promise<IncomingMessage>((resolve, reject) => {
+        const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(
+          url,
+          {
+            agent: false,
+            method,
+            family: address.family,
+            lookup: (_host, _options, callback) => callback(null, address.address, address.family),
+            signal: AbortSignal.timeout(30_000),
+            ...(legacyRenegotiation
+              ? { secureOptions: constants.SSL_OP_LEGACY_SERVER_CONNECT }
+              : {}),
+            headers: {
+              ...(url.origin === origin ? { ...plan.headers, ...options.headers } : {}),
+              'User-Agent': 'FinAiBrief/1.0',
+              'Accept-Encoding': 'gzip, br',
+              ...(options.etag ? { 'If-None-Match': options.etag } : {}),
+              Accept:
+                'application/rss+xml, application/atom+xml, application/json, application/xml, text/xml, text/html, */*;q=0.8',
+            },
           },
-        },
-        resolve,
-      );
-      request.on('error', reject);
-      request.end(requestBody);
+          resolve,
+        );
+        request.on('error', reject);
+        request.end(requestBody);
+      });
+    const response = await send(false).catch((error) => {
+      if (url.protocol !== 'https:' || !needsLegacyRenegotiation(error)) throw error;
+      return send(true);
     });
     const status = response.statusCode ?? 0;
     if ([301, 302, 303, 307, 308].includes(status)) {

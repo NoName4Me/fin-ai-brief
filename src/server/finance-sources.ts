@@ -23,7 +23,12 @@ export const financeSources = [
 export function financeKind(input: string) {
   const u = new URL(input);
   if (u.protocol !== 'https:') return null;
-  if (u.hostname === 'www.pbc.gov.cn' && u.pathname === '/goutongjiaoliu/113456/2986536/index.html')
+  if (
+    u.hostname === 'www.pbc.gov.cn' &&
+    ['/goutongjiaoliu/113456/2986536/index.html', '/goutongjiaoliu/113456/2986536/index.xml'].includes(
+      u.pathname,
+    )
+  )
     return 'pbc';
   if (
     u.hostname === 'www.nfra.gov.cn' &&

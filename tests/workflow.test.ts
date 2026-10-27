@@ -15,12 +15,18 @@ import {
 } from '../src/server/schema.ts';
 import { defaultSettings } from '../src/server/types.ts';
 import { getSettings, saveSettings } from '../src/server/settings.ts';
-import { generateBrief, publishBrief } from '../src/server/briefs.ts';
+import { generateLegacyBrief as generateBrief, publishBrief } from '../src/server/briefs.ts';
 import { listPublished, publishedBrief } from '../src/server/publication.ts';
 import { importArticle } from '../src/server/collect.ts';
 import { processArticle } from '../src/server/process.ts';
 import { subscribe, unsubscribe, unsubscribeToken } from '../src/server/subscriptions.ts';
 import { ids, fixtureContent } from './fixtures.ts';
+const testAssessment = Object.fromEntries(
+  ['relevance', 'impact', 'timeliness', 'actionability', 'novelty'].map((k) => [
+    k,
+    { score: 4, reason: '材料提供具体依据' },
+  ]),
+) as import('../src/server/editorial.ts').Assessment;
 const originalFetch = globalThis.fetch;
 const testUrl = process.env.DATABASE_URL;
 if (!testUrl || !/_test$/.test(new URL(testUrl).pathname))
@@ -42,6 +48,12 @@ beforeEach(async () => {
   );
   await saveSettings({
     ...defaultSettings,
+    sections: [...new Set(fixtureContent().items.map((i) => i.section))].map((name) => ({
+      name,
+      minItems: 0,
+      maxItems: 10,
+      budget: 3000,
+    })),
     autoPublish: false,
     dailyEnabled: false,
     weeklyEnabled: false,
@@ -58,6 +70,8 @@ beforeEach(async () => {
       summary: item.summary,
       section: item.section,
       score: 80,
+      assessment: testAssessment,
+      tags: [],
       occurredAt: new Date('2026-10-21T12:00:00Z'),
     });
     await db.insert(articles).values({
@@ -106,6 +120,12 @@ test('重新生成待审稿时原正式版保持可见', async () => {
   const row = await generateBrief('daily', '2026-10-22');
   await saveSettings({
     ...defaultSettings,
+    sections: [...new Set(fixtureContent().items.map((i) => i.section))].map((name) => ({
+      name,
+      minItems: 0,
+      maxItems: 10,
+      budget: 3000,
+    })),
     autoPublish: false,
     dailyEnabled: false,
     weeklyEnabled: false,
@@ -235,6 +255,8 @@ test('手工导入按规范化URL去重，模型归入已有事件', async () =>
                 summary: '保留前情和新进展',
                 section: 'AI 模型',
                 score: 82,
+                assessment: testAssessment,
+                tags: [],
                 facts: [
                   { statement: '摘要', evidence: input.excerpt, status: 'claim', entities: [] },
                 ],
@@ -293,15 +315,10 @@ test('关闭发信时发布的简报，之后重出也不会补发', async () =>
 });
 
 test('补刊任务忽略自动发布设置，审核发布及后续重出均不自动推送', async () => {
-  const { runGeneration } = await import('../src/server/generation-requests.ts');
   await saveSettings({ ...defaultSettings, autoPublish: true });
   process.env.MAIL_ENABLED = 'true';
   await subscribe({ email: 'one@example.com', kinds: ['daily'] });
-  const result = await runGeneration('test-backfill', {
-    kind: 'daily',
-    date: '2026-10-22',
-    backfill: true,
-  });
+  const result = await generateBrief('daily', '2026-10-22', undefined, { backfill: true });
   assert.ok('id' in result);
   const [row] = await db.select().from(briefs);
   assert.ok(row.draft);
@@ -427,6 +444,8 @@ test('事实必须引用真实摘要片段，拒绝证据外推并保留失败�
       summary: '试点计划',
       section: '行业监管',
       score: 80,
+      assessment: testAssessment,
+      tags: [],
       existingEventId: null,
       facts: [{ statement: '全面实施', evidence: '已全面实施', status: 'confirmed', entities: [] }],
     });
@@ -470,6 +489,8 @@ test('复核失败后仅重试复核，主处理结果复用；不同意合并�
       summary: '模型摘要',
       section: '行业监管',
       score: 85,
+      assessment: testAssessment,
+      tags: [],
       existingEventId: ids[0],
       facts: [{ statement: excerpt, evidence: excerpt, status: 'planned', entities: ['机构'] }],
       needsReview: true,
@@ -512,6 +533,8 @@ test('重复报道只挂接证据，不重写事件或制造实时新增提示',
       summary: '不应覆盖的摘要',
       section: '行业监管',
       score: 80,
+      assessment: testAssessment,
+      tags: [],
       existingEventId: ids[0],
       facts: [
         { statement: '同一公告。', evidence: '同一公告。', status: 'announced', entities: [] },
@@ -554,7 +577,7 @@ test('模型超时后无需人工放行，重试重新请求并计入次数', as
   assert.equal(log.rows[1].state, 'succeeded');
 });
 test('生成前预览不请求模型，资料变更后拒绝使用旧预览发起调用', async () => {
-  const { previewBrief } = await import('../src/server/briefs.ts');
+  const { previewLegacyBrief: previewBrief } = await import('../src/server/briefs.ts');
   let calls = 0;
   const response = globalThis.fetch;
   globalThis.fetch = async (...args) => {
@@ -660,6 +683,8 @@ test('并发分析相同事实的两条来源，只建立一个事件', async ()
       summary: input.excerpt,
       section: 'AI 模型',
       score: 80,
+      assessment: testAssessment,
+      tags: [],
       existingEventId: null,
       novelty: 'new',
       facts: [
@@ -712,6 +737,8 @@ test('并发更新同一事件时检测过期摘要，重试重新召回而不�
       summary: previous.summary + input.article.excerpt,
       section: 'AI 模型',
       score: 80,
+      assessment: testAssessment,
+      tags: [],
       existingEventId: ids[4],
       novelty: 'update',
       facts: [
@@ -851,7 +878,7 @@ test('压缩失败后重试复用初稿，修正成功前不落库或发布', as
   };
   await assert.rejects(generateBrief('daily', '2026-10-22'), /155.*154/);
   assert.equal((await db.select().from(briefs)).length, 0);
-  const { previewBrief } = await import('../src/server/briefs.ts');
+  const { previewLegacyBrief: previewBrief } = await import('../src/server/briefs.ts');
   assert.equal((await previewBrief('daily', '2026-10-22')).cached, false);
   assert.equal(calls, 2);
   const saved = await generateBrief('daily', '2026-10-22');
@@ -933,7 +960,7 @@ test('压缩响应不得遗漏、重复或改写未指定段落', async () => {
 });
 
 test('容差变化会使旧生成预览失效', async () => {
-  const { previewBrief } = await import('../src/server/briefs.ts');
+  const { previewLegacyBrief: previewBrief } = await import('../src/server/briefs.ts');
   const preview = await previewBrief('daily', '2026-10-22');
   await saveSettings({ ...(await getSettings()), briefLengthTolerancePercent: 20 });
   await assert.rejects(generateBrief('daily', '2026-10-22', preview.key), /重新预览/);

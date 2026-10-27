@@ -1,12 +1,21 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, pool } from './db.ts';
-import { articles, events, industries } from './schema.ts';
+import { articles, events, sources } from './schema.ts';
+import { allowedSourceSections } from './source-config.ts';
+import {
+  assessmentSchema,
+  ratingInstructionsFor,
+  assessmentFor,
+  fixedSections,
+  weightedRating,
+  keywordMatches,
+} from './editorial.ts';
 import { modelJSON } from './model.ts';
 import { getSettings } from './settings.ts';
 import { fingerprint, stage } from './processing-log.ts';
 class EventChanged extends Error {}
-export const PROCESS_VERSION = 'facts-v1';
+export const PROCESS_VERSION = 'ai-editorial-v5';
 const factSchema = z.object({
   statement: z.string().min(1).max(1000),
   evidence: z.string().min(1).max(2000),
@@ -18,7 +27,8 @@ const selectedDecisionSchema = z.object({
   title: z.string().min(1).max(200),
   summary: z.string().min(1).max(2000),
   section: z.string(),
-  score: z.number().int().min(0).max(100),
+  assessment: assessmentSchema,
+  tags: z.array(z.string().max(40)).max(12),
   scoreReason: z.string().max(1000).default(''),
   existingEventId: z.uuid().nullable(),
   facts: z.array(factSchema).max(12).default([]),
@@ -28,7 +38,10 @@ const selectedDecisionSchema = z.object({
 });
 const decisionSchema = z.discriminatedUnion('relevant', [
   selectedDecisionSchema,
-  z.object({ relevant: z.literal(false), reason: z.string().max(1000).default('不属于本行业') }),
+  z.object({
+    relevant: z.literal(false),
+    reason: z.string().max(1000).default('与AI没有实质关联'),
+  }),
 ]);
 export function recallScore(a: string, b: string) {
   const tokens = (s: string) =>
@@ -37,22 +50,37 @@ export function recallScore(a: string, b: string) {
     right = tokens(b);
   return [...left].filter((t) => right.has(t)).length;
 }
-export async function processArticle(id: string) {
+export async function processArticle(id: string, reprocessBatchId?: string) {
   const [article] = await db.select().from(articles).where(eq(articles.id, id));
   if (!article || article.state !== 'pending') return;
-  const [industry] = await db
-    .select()
-    .from(industries)
-    .where(eq(industries.id, article.industryId));
-  if (!industry) throw new Error('行业不存在');
   const config = await getSettings();
+  const [source] = article.sourceId
+    ? await db.select().from(sources).where(eq(sources.id, article.sourceId))
+    : [];
+  const industry = {
+    id: 'ai',
+    name: 'AI日报',
+    description: config.editorialPrompt,
+    sections: allowedSourceSections(
+      source?.sections ?? [],
+      fixedSections(config.sections).map((s) => s.name),
+    ),
+  };
+  const sectionRules = fixedSections(config.sections).filter((s) =>
+    industry.sections.includes(s.name),
+  );
   const subject = `article:${id}`;
   const runKey = fingerprint({
     version: PROCESS_VERSION,
+    reprocessBatchId,
     endpoint: process.env.LLM_BASE_URL?.trim().replace(/\/+$/, ''),
     title: article.title,
     excerpt: article.excerpt,
     industry,
+    sectionRules,
+    ratingRules: config.ratingRules,
+    keywords: config.keywords,
+    tags: config.tags,
     prompt: config.editorialPrompt,
     model: config.processingModel || process.env.LLM_MODEL,
     review: config.reviewEnabled,
@@ -65,7 +93,9 @@ export async function processArticle(id: string) {
       source: article.sourceName,
       excerpt: article.excerpt,
       publishedAt: article.publishedAt,
+      matchedKeywords: keywordMatches(article.title + ' ' + article.excerpt, config.keywords),
       version: PROCESS_VERSION,
+      ratingRules: config.ratingRules,
       endpoint: process.env.LLM_BASE_URL?.trim().replace(/\/+$/, ''),
     };
   });
@@ -75,7 +105,7 @@ export async function processArticle(id: string) {
       .from(events)
       .where(
         and(
-          eq(events.industryId, industry.id),
+          isNotNull(events.assessment),
           gte(events.updatedAt, new Date(Date.now() - 14 * 86400_000)),
         ),
       )
@@ -92,10 +122,16 @@ export async function processArticle(id: string) {
   const decision = await stage(subject, runKey, 'analyze', async () => {
     const value = await modelJSON(
       'article',
-      `你是金融与AI资讯编辑。一次完成相关性筛选、重要性评分、事实提取、中文标题摘要和候选事件归组。输入只有来源摘要，不得补写未提供的事实。${config.editorialPrompt}
-评分0—100考虑行业影响、事实新增量、来源可靠性、时效和相关性，并给出scoreReason。只使用给定栏目。媒体传闻、匿名消息、厂商自述保留归属和不确定性。existingEventId只能是给定候选ID，同公司不代表同事件。facts逐项给出statement、从article.excerpt逐字摘取的evidence、status(confirmed/announced/planned/claim/rumor)、entities。最多12条，相关资讯至少一条事实；事实不足不要编造。不相关输出{relevant:false,reason}。相关输出{relevant:true,title,summary,section,score,scoreReason,existingEventId,facts,novelty:new|update|duplicate,needsReview:boolean,conflict:boolean}。重复报道标duplicate；有冲突或归属不确定标needsReview。合并新进展时summary保留重要前情。`,
+      `你是AI日报编辑。一次完成AI实质关联筛选、可配置指标评分、事实提取、中文标题摘要、全局事件归组和多标签选择。输入只有来源摘要，不得补写未提供事实。${config.editorialPrompt}
+关键词仅用于召回线索，不能凭命中关键词收录，也不能漏掉不含这些词的重要AI内容。普通金融新闻和泛数字化不收。纯营销、没有实质事实、标题与材料不符或无法追溯来源的低质量材料输出relevant:false并给出具体原因；有真实新增事实的机构公告不因其机构自述身份直接淘汰。先检查来源与证据，再评分。${ratingInstructionsFor(config.ratingRules)} 给出scoreReason。只使用给定栏目，按sectionRules的description判断归属，它们是该信源允许参与的栏目；不属于任何允许栏目时输出relevant:false并说明“超出信源栏目范围”，不能强行归类。tags只从给定标签选择。媒体传闻、匿名消息、厂商自述保留归属和不确定性。existingEventId只能是给定候选ID，同公司不代表同事件。facts逐项给出statement、从article.excerpt逐字摘取的evidence、status(confirmed/announced/planned/claim/rumor)、entities。最多12条，相关资讯至少一条事实；事实不足不要编造。不相关输出{relevant:false,reason}。相关输出{relevant:true,title,summary,section,assessment,tags,scoreReason,existingEventId,facts,novelty:new|update|duplicate,needsReview:boolean,conflict:boolean}。重复报道标duplicate；有冲突或归属不确定标needsReview。合并新进展时summary保留重要前情。`,
       {
         industry,
+        sectionRules,
+        keywords: config.keywords,
+        tags: config.tags,
+        reportedAt: article.publishedAt,
+        matchedKeywords: keywordMatches(article.title + ' ' + article.excerpt, config.keywords),
+        evaluatedAt: new Date().toISOString(),
         article: {
           title: article.title,
           excerpt: article.excerpt,
@@ -107,8 +143,16 @@ export async function processArticle(id: string) {
       },
       decisionSchema.superRefine((value, ctx) => {
         if (!value.relevant) return;
+        const scoreCheck = assessmentFor(config.ratingRules).safeParse(value.assessment);
+        if (!scoreCheck.success)
+          ctx.addIssue({
+            code: 'custom',
+            message: scoreCheck.error.issues.map((i) => i.message).join('；'),
+          });
         if (!industry.sections.includes(value.section))
           ctx.addIssue({ code: 'custom', message: '模型返回了未配置栏目' });
+        if (value.tags.some((tag) => !config.tags.includes(tag)))
+          ctx.addIssue({ code: 'custom', message: '模型返回了未配置标签' });
         if (value.existingEventId && !candidates.some((e) => e.id === value.existingEventId))
           ctx.addIssue({ code: 'custom', message: '模型返回了无效事件引用' });
         for (const fact of value.facts)
@@ -147,7 +191,14 @@ export async function processArticle(id: string) {
         'review',
         '独立复核归组与事实边界。仅使用输入材料。重点检查同事件是否有事实依据、传闻是否被写成事实、摘要有无证据外推。返回{approved:boolean,reason:string}。不确定时approved=false，保留独立事件待人工核对。',
         {
-          article: { title: article.title, excerpt: article.excerpt },
+          article: {
+            title: article.title,
+            excerpt: article.excerpt,
+            source: article.sourceName,
+            url: article.url,
+            publishedAt: article.publishedAt,
+            publishedPrecision: article.publishedPrecision,
+          },
           decision,
           candidate: candidates.find((e) => e.id === target),
         },
@@ -177,6 +228,10 @@ export async function processArticle(id: string) {
               processingVersion: PROCESS_VERSION,
               inputHash: runKey,
               reviewNote: decision.reason,
+              eventId: null,
+              assessment: null,
+              facts: null,
+              scoreReason: null,
             })
             .where(eq(articles.id, id));
           return;
@@ -203,8 +258,7 @@ export async function processArticle(id: string) {
         let changed = true;
         if (!eventId && !reviewRejected) {
           const matching = await tx.execute<{ id: string }>(sql`
-          SELECT e.id FROM events e WHERE e.industry_id=${industry.id}
-          AND e.updated_at >= now()-interval '14 days'
+          SELECT e.id FROM events e WHERE e.assessment IS NOT NULL AND e.updated_at >= now()-interval '14 days'
           AND (e.title=${decision.title} OR EXISTS(
             SELECT 1 FROM event_developments d WHERE d.event_id=e.id AND d.fact_hash=${factHash}
           )) ORDER BY e.updated_at DESC LIMIT 1`);
@@ -218,7 +272,11 @@ export async function processArticle(id: string) {
               title: reviewRejected ? article.title : decision.title,
               summary: reviewRejected ? article.excerpt : decision.summary,
               section: decision.section,
-              score: reviewRejected ? 0 : decision.score,
+              score: reviewRejected
+                ? 0
+                : Math.round(weightedRating(decision.assessment, config.ratingRules) * 20),
+              assessment: decision.assessment,
+              tags: decision.tags,
               occurredAt: article.publishedAt,
             })
             .returning();
@@ -239,7 +297,10 @@ export async function processArticle(id: string) {
                 title: decision.title,
                 summary: decision.summary,
                 section: decision.section,
-                score: decision.score,
+                industryId: 'ai',
+                score: Math.round(weightedRating(decision.assessment, config.ratingRules) * 20),
+                assessment: decision.assessment,
+                tags: decision.tags,
                 occurredAt: new Date(
                   Math.max(new Date(old.occurredAt).getTime(), article.publishedAt.getTime()),
                 ),
@@ -257,10 +318,43 @@ export async function processArticle(id: string) {
             processingVersion: PROCESS_VERSION,
             inputHash: runKey,
             facts,
+            assessment: decision.assessment,
             scoreReason: decision.scoreReason,
             reviewNote,
           })
           .where(eq(articles.id, id));
+        if (reprocessBatchId && !reviewRejected && !changed) {
+          // A replay may change editorial judgement without adding a new factual development.
+          const editorial = {
+            title: decision.title,
+            summary: decision.summary,
+            section: decision.section,
+            score: Math.round(weightedRating(decision.assessment, config.ratingRules) * 20),
+            assessment: decision.assessment,
+            ratingRules: config.ratingRules,
+            tags: decision.tags,
+          };
+          const refreshed = await tx.execute(
+            sql`UPDATE event_developments SET editorial=${JSON.stringify(editorial)}::jsonb WHERE event_id=${eventId} AND article_id=${id}`,
+          );
+          const [current] = await tx.select().from(events).where(eq(events.id, eventId));
+          if (refreshed.rowCount && article.publishedAt.getTime() >= current.occurredAt.getTime()) {
+            await tx
+              .update(events)
+              .set({
+                title: editorial.title,
+                summary: editorial.summary,
+                section: editorial.section,
+                score: editorial.score,
+                assessment: editorial.assessment,
+                tags: editorial.tags,
+                industryId: 'ai',
+                updatedAt: new Date(),
+              })
+              .where(eq(events.id, eventId));
+            await tx.execute(sql`INSERT INTO news_changes(event_id) VALUES(${eventId})`);
+          }
+        }
         if (changed) {
           const [snapshot] = await tx.select().from(events).where(eq(events.id, eventId));
           const editorial = {
@@ -268,6 +362,9 @@ export async function processArticle(id: string) {
             summary: snapshot.summary,
             section: snapshot.section,
             score: snapshot.score,
+            assessment: snapshot.assessment,
+            ratingRules: config.ratingRules,
+            tags: snapshot.tags,
           };
           await tx.execute(
             sql`INSERT INTO event_developments(event_id,article_id,fact_hash,facts,happened_at,editorial) VALUES(${eventId},${id},${factHash},${JSON.stringify(facts)}::jsonb,${article.publishedAt.toISOString()}::timestamptz,${JSON.stringify(editorial)}::jsonb) ON CONFLICT DO NOTHING`,

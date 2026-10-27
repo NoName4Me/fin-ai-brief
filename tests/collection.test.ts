@@ -264,7 +264,21 @@ test('机器之心免费RSS限制一小时一次，手动触发也不重复请�
   await collectSource(source.id, rss);
   const [article] = await db.select().from(articles).where(eq(articles.sourceId, source.id));
   assert.equal(article.excerpt, '研究报道');
-  await assert.rejects(() => collectSource(source.id, rss), /60分钟/);
+  const before = await pool.query(
+    'SELECT next_fetch_at, (SELECT count(*)::int FROM collection_runs WHERE source_id=$1) runs FROM sources WHERE id=$1',
+    [source.id],
+  );
+  const deferred = await collectSource(source.id, rss);
+  assert.equal(deferred.deferred, true);
+  assert.equal(deferred.inserted, 0);
+  const after = await pool.query(
+    'SELECT next_fetch_at, (SELECT count(*)::int FROM collection_runs WHERE source_id=$1) runs FROM sources WHERE id=$1',
+    [source.id],
+  );
+  // 冷却期内跳过不新增采集记录，也不产生失败任务；下次采集时间被推到冷却结束。
+  assert.equal(after.rows[0].runs, before.rows[0].runs);
+  assert.ok(after.rows[0].next_fetch_at.getTime() > Date.now() + 50 * 60_000);
+  await assert.rejects(() => collectSource(source.id, rss, undefined, { manual: true }), /60分钟/);
   assert.equal(requests, 1);
 });
 

@@ -7,6 +7,7 @@ import { BriefContext } from './brief-context.tsx';
 import { SourceRow, Summary } from './brief-story.tsx';
 import { PrintButton } from './navigation.tsx';
 import { PeriodBrief } from './period-brief.tsx';
+import { DailyBrief } from './daily-brief.tsx';
 type Industry = { id: string; name: string; description: string; sections: string[] };
 function Story({
   item,
@@ -45,6 +46,8 @@ export function Brief({
   industries: Industry[];
   issueNumber?: number | null;
 }) {
+  if (content.format === 'ai-daily-v1')
+    return <DailyBrief content={content} date={date} issueNumber={issueNumber} />;
   if (kind !== 'daily') {
     return (
       <PeriodBrief

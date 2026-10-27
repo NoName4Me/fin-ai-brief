@@ -9,7 +9,7 @@ export default async function Subscribe({ searchParams }: { searchParams: Promis
       <div className="view-header">
         <div>
           <h1>邮箱订阅</h1>
-          <p>将金融与AI简报送达你的邮箱。</p>
+          <p>每日AI资讯，发送到你的邮箱。</p>
         </div>
       </div>
       <Notice query={q} />
@@ -36,24 +36,7 @@ export default async function Subscribe({ searchParams }: { searchParams: Promis
             邮箱地址
             <input name="email" type="email" autoComplete="email" maxLength={254} required />
           </label>
-          <fieldset>
-            <legend>订阅类型</legend>
-            {[
-              ['daily', '日报'],
-              ['weekly', '周报'],
-              ['monthly', '月报'],
-            ].map(([kind, label]) => (
-              <label className="check" key={kind}>
-                <input
-                  type="checkbox"
-                  name="kinds"
-                  value={kind}
-                  defaultChecked={kind === 'daily'}
-                />
-                {label}
-              </label>
-            ))}
-          </fieldset>
+          <input type="hidden" name="kinds" value="daily" />
           <label className="honey" aria-hidden="true">
             Website
             <input name="website" tabIndex={-1} autoComplete="off" />

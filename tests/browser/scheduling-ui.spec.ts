@@ -86,19 +86,9 @@ test('资讯详情最新阶段在前，生成前展示强制处理的二次确�
   }
 });
 
-test('7×24查询后紧接实时开关和刷新，手机无横向溢出', async ({ page }) => {
+test('7×24入口暂时隐藏，旧地址返回日报', async ({ page }) => {
   await page.goto('/news');
-  const toolbar = page.locator('.news-toolbar');
-  await expect(toolbar.getByRole('button', { name: '查询' })).toBeVisible();
-  await expect(toolbar.getByRole('button', { name: '刷新资讯' })).toBeVisible();
-  await expect(toolbar.getByRole('switch', { name: '实时更新' })).toBeChecked();
-  const query = await toolbar.getByRole('button', { name: '查询' }).boundingBox();
-  const refresh = await toolbar.getByRole('button', { name: '刷新资讯' }).boundingBox();
-  expect(refresh!.x).toBeGreaterThan(query!.x);
-  await toolbar.getByRole('switch', { name: '实时更新' }).uncheck();
-  await expect(page.getByText('自动更新已暂停')).toBeVisible();
-  await page.screenshot({ path: '.data/news-toolbar-desktop.png' });
-  await page.setViewportSize({ width: 375, height: 812 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
-  await page.screenshot({ path: '.data/news-toolbar-mobile.png' });
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('link', { name: '7×24资讯' })).toHaveCount(0);
+  await expect(page.getByRole('switch', { name: '实时更新' })).toHaveCount(0);
 });

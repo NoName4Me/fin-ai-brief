@@ -10,7 +10,9 @@ export function PublicationFooter({
   return (
     <>
       <footer className="publication-footer">
-        <strong className="publication-name">Fin&amp;AI简报·{kindNames[kind]}</strong>
+        <strong className="publication-name">
+          {kind === 'daily' ? 'AI日报' : `AI日报·${kindNames[kind]}`}
+        </strong>
         <span className="publication-finish">本期完</span>
         <span className="publication-colophon">
           <strong>数智化转型办公室·智创组</strong>　<span>编制</span>

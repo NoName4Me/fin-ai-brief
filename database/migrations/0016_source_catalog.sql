@@ -1,0 +1,13 @@
+ALTER TABLE sources ALTER COLUMN url DROP NOT NULL;
+ALTER TABLE sources DROP CONSTRAINT sources_format_check;
+ALTER TABLE sources ADD CONSTRAINT sources_format_check CHECK (format IN ('rss','json','html','manual'));
+ALTER TABLE sources ADD COLUMN origin_address text NOT NULL DEFAULT '';
+ALTER TABLE sources ADD COLUMN sections jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(sections)='array');
+ALTER TABLE sources ADD COLUMN catalog_key text UNIQUE;
+ALTER TABLE sources ADD COLUMN priority text NOT NULL DEFAULT 'P1' CHECK (priority IN ('P0','P1','P2'));
+ALTER TABLE sources ADD COLUMN verification_status text NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending','technical','approved','failed','held'));
+ALTER TABLE sources ADD COLUMN verification_note text NOT NULL DEFAULT '';
+ALTER TABLE sources ADD COLUMN verified_at timestamptz;
+ALTER TABLE sources ADD COLUMN notes text NOT NULL DEFAULT '';
+UPDATE sources SET origin_address=url;
+ALTER TABLE sources ADD CONSTRAINT sources_enabled_endpoint CHECK (NOT enabled OR (url IS NOT NULL AND format <> 'manual'));

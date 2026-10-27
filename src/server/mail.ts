@@ -9,7 +9,7 @@ import { publicIndustries, publishedBrief } from './publication.ts';
 import { unsubscribeToken } from './subscriptions.ts';
 export { escapeHtml, renderEmail } from './mail-template.ts';
 import { renderEmail } from './mail-template.ts';
-import { kindNames, type Kind } from './types.ts';
+import { type Kind } from './types.ts';
 export async function deliver(id: string) {
   requireMailConfig();
   const [row] = await db.select().from(deliveries).where(eq(deliveries.id, id));
@@ -40,7 +40,7 @@ export async function deliver(id: string) {
     await transport.sendMail({
       from: process.env.MAIL_FROM,
       to: recipient.email,
-      subject: `Fin&AI${kindNames[brief.kind as Kind]}｜${brief.content.title}`,
+      subject: `AI日报｜${brief.content.title}`,
       messageId: `<${row.id}.${randomUUID()}@${new URL(base).hostname}>`,
       html: renderEmail(brief.content, new URL(`/briefs/${brief.id}`, base).href, cancelUrl, {
         kind: brief.kind as Kind,
@@ -51,6 +51,10 @@ export async function deliver(id: string) {
       text: [
         brief.content.title,
         ...Object.values(brief.content.overview),
+        ...(brief.content.highlights ?? []).map((h) => h.text),
+        ...(brief.content.rotations ?? []).map(
+          (r) => `${r.name}\n${r.text}\n${r.sources.map((s) => s.url).join('\n')}`,
+        ),
         ...brief.content.items.map(
           (i) =>
             `${i.title}\n${i.summary}\n${(i.progress ?? []).map((p) => `${p.date}${p.endDate ? `—${p.endDate}` : ''} 报道：${p.text}\n${p.sourceUrls.join('\n')}`).join('\n')}\n${i.sources.map((s) => s.url).join('\n')}`,

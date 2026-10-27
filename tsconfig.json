@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["dom", "dom.iterable", "es2023"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "es2023"
+    ],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
@@ -29,7 +33,13 @@
     "scripts/**/*.ts",
     "tests/**/*.ts",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".data/next-browser/types/**/*.ts",
+    ".data/next-browser/dev/types/**/*.ts",
+    ".data/next-build/types/**/*.ts",
+    ".data/next-build/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }

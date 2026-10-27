@@ -39,7 +39,10 @@ export function rangeFor(kind: Kind, date: string, time: string, config: Schedul
 export function duePeriods(
   now: Date,
   setting:
-    string | (Pick<Settings, 'dailyTime' | 'weeklyTime' | 'monthlyTime' | 'startDate'> & Schedule),
+    | string
+    | (Pick<Settings, 'dailyTime' | 'weeklyTime' | 'monthlyTime' | 'startDate'> &
+        Schedule &
+        Partial<Pick<Settings, 'dailyEnabled' | 'weeklyEnabled' | 'monthlyEnabled'>>),
 ): { kind: Kind; date: string }[] {
   const date = localDate(now);
   const config =
@@ -49,6 +52,7 @@ export function duePeriods(
   if (date < config.startDate) return [];
   const due: { kind: Kind; date: string }[] = [];
   for (const kind of ['daily', 'weekly', 'monthly'] as const) {
+    if (typeof setting !== 'string' && setting[`${kind}Enabled`] === false) continue;
     const time =
       kind === 'daily'
         ? config.dailyTime

@@ -13,14 +13,14 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('管理台品牌、右上退出、菜单高亮及所有业务页无大块标题区', async ({ page }) => {
-  await expect(page.getByRole('banner').getByRole('link', { name: 'Fin&AI 管理台' })).toBeVisible();
+  await expect(page.getByRole('banner').getByRole('link', { name: 'AI日报 管理台' })).toBeVisible();
   await expect(page.getByRole('banner').getByRole('button', { name: '退出管理台' })).toBeVisible();
   await expect(page.getByRole('link', { name: '邮箱订阅', exact: true })).toHaveCount(0);
   await expect(page.locator('.sidebar-label')).toHaveCount(0);
   for (const [path, label] of [
     ['/admin/articles', '任务管理'],
     ['/admin/sources', '信源'],
-    ['/admin/industries', '行业与栏目'],
+    ['/admin/editorial', '栏目与选题'],
     ['/admin/settings', '出刊设置'],
     ['/admin', '简报工作台'],
   ]) {

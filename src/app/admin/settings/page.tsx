@@ -122,52 +122,12 @@ export default async function Settings({ searchParams }: { searchParams: Promise
               日报
             </label>
             <label>
-              日报出刊时间（北京时间）
-              <input type="time" name="dailyTime" defaultValue={c.dailyTime} required />
-            </label>
-          </div>
-          <div className="schedule-row">
-            <label className="check">
-              <input type="checkbox" name="weeklyEnabled" defaultChecked={c.weeklyEnabled} />
-              周报
-            </label>
-            <label>
-              周报出刊日
-              <select name="weeklyDay" defaultValue={c.weeklyDay}>
-                {['周日', '周一', '周二', '周三', '周四', '周五', '周六'].map((name, day) => (
-                  <option key={day} value={day}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              周报出刊时间（北京时间）
-              <input type="time" name="weeklyTime" defaultValue={c.weeklyTime} required />
-            </label>
-          </div>
-          <div className="schedule-row">
-            <label className="check">
-              <input type="checkbox" name="monthlyEnabled" defaultChecked={c.monthlyEnabled} />
-              月报
-            </label>
-            <label>
-              月报出刊日
-              <select name="monthlyDay" defaultValue={c.monthlyDay}>
-                {Array.from({ length: 31 }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    {i + 1}号
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              月报出刊时间（北京时间）
-              <input type="time" name="monthlyTime" defaultValue={c.monthlyTime} required />
+              截稿时间（北京时间）
+              <input type="time" name="dailyTime" value="08:00" readOnly />
             </label>
           </div>
           <p className="form-hint">
-            日期超过当月天数时，在该月最后一天出刊。周报覆盖前7天；月报覆盖上次计划出刊时刻至本次出刊时刻。Worker每分钟检查当期，不自动补跑历史。
+            每天出刊，含周末和节假日。北京时间08:00截稿，取前一日08:00至当日08:00，生成完成后发布。
           </p>
         </fieldset>
         <label>
@@ -182,42 +142,6 @@ export default async function Settings({ searchParams }: { searchParams: Promise
           />
           <span className="form-hint">含标点，适用于之后生成的简报；已有简报不截断、不重写。</span>
         </label>
-        <fieldset>
-          <legend>金融篇幅</legend>
-          <label>
-            摘要字数上限
-            <input
-              type="number"
-              name="financeSummaryMaxLength"
-              min={1}
-              max={1000}
-              defaultValue={c.financeSummaryMaxLength}
-              required
-            />
-          </label>
-          <label>
-            概览字数上限
-            <input
-              type="number"
-              name="financeOverviewMaxLength"
-              min={1}
-              max={1000}
-              defaultValue={c.financeOverviewMaxLength}
-              required
-            />
-          </label>
-          <label>
-            字数容差（%）
-            <input
-              type="number"
-              name="briefLengthTolerancePercent"
-              min={0}
-              max={50}
-              defaultValue={c.briefLengthTolerancePercent}
-              required
-            />
-          </label>
-        </fieldset>
         <label>
           每期最多事件数
           <input
@@ -229,27 +153,6 @@ export default async function Settings({ searchParams }: { searchParams: Promise
             required
           />
         </label>
-        <label>
-          入选最低分
-          <input
-            type="number"
-            name="minScore"
-            defaultValue={c.minScore}
-            min={0}
-            max={100}
-            required
-          />
-        </label>
-        <label>
-          选题与写作要求
-          <textarea
-            name="editorialPrompt"
-            defaultValue={c.editorialPrompt}
-            rows={7}
-            maxLength={6000}
-          />
-        </label>
-
         <button className="solid-button">保存设置</button>
       </form>
       <section className="admin-section">
@@ -260,8 +163,6 @@ export default async function Settings({ searchParams }: { searchParams: Promise
             类型
             <select name="kind">
               <option value="daily">日报</option>
-              <option value="weekly">周报</option>
-              <option value="monthly">月报</option>
             </select>
           </label>
           <label>
