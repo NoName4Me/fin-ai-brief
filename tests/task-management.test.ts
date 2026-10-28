@@ -69,7 +69,7 @@ test('三个任务类型在同一列表中，类型、状态和任务名在合�
   assert.equal(taskStamp('2026-10-23T15:33:17Z'), '2026-10-23 23:33:17');
 });
 
-test('自动重试保留一行，最终失败后手动重试新建任务并保留原记录', async () => {
+test('自动重试保留一行，手动重试后仍按资讯合并，并保留每次处理记录', async () => {
   const id = await article();
   const jobId = await enqueue('process', { id }, id);
   await pool.query('UPDATE pgboss.job SET retry_delay=0,retry_backoff=false WHERE id=$1', [jobId]);
@@ -88,9 +88,30 @@ test('自动重试保留一行，最终失败后手动重试新建任务并保�
   const newId = await retryManagedTask(`job:${jobId}`);
   assert.notEqual(newId, jobId);
   const tasks = await taskOverview('', 'process');
-  assert.equal(tasks.length, 2);
-  assert.equal(tasks.filter((t) => t.state === 'failed').length, 1);
-  assert.equal(tasks.filter((t) => t.state === 'created').length, 1);
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].job_id, newId);
+  assert.equal(tasks[0].attempt_count, 2);
+  assert.equal(tasks[0].state, 'created');
+  const detail = await taskDetail(tasks[0].id);
+  assert.equal(detail?.attemptsForArticle.length, 2);
+  assert.equal(detail?.attemptsForArticle[0].id, newId);
+  assert.equal(detail?.attemptsForArticle[1].id, jobId);
+  assert.equal((await taskDetail(`job:${jobId}`))?.task.id, `job:${jobId}`);
+  assert.equal((await taskDetail(`job:${jobId}`))?.attemptsForArticle.length, 2);
+});
+
+test('重试成功后不再把较早失败标为当前失败', async () => {
+  const id = await article();
+  const jobId = await enqueue('process', { id }, id);
+  await pool.query(
+    `INSERT INTO processing_steps(subject,run_key,stage,state,started_at,finished_at,error) VALUES
+    ($1,$2,'analyze','failed',now()-interval '2 minutes',now()-interval '1 minute','模型分析失败：超时'),
+    ($1,$2,'save','succeeded',now()-interval '1 minute',now(),NULL)`,
+    [`article:${id}`, `job:${jobId}`],
+  );
+  await pool.query("UPDATE pgboss.job SET state='completed' WHERE id=$1", [jobId]);
+  await pool.query("UPDATE articles SET state='processed' WHERE id=$1", [id]);
+  assert.equal((await taskDetail(`job:${jobId}`))?.failure, null);
 });
 
 test('手动出刊请求从等待资讯到进入队列只显示一行，保留手动标签', async () => {

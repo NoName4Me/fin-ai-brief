@@ -96,26 +96,56 @@ test('复核收到已采集的来源与发布时间，避免将漏传元数据�
     publishedAt: '2026-10-21T12:00:00Z',
     publishedPrecision: 'time',
   });
-  let reviewInput: { article: { source?: string; url?: string; publishedAt?: string; publishedPrecision?: string } } | undefined;
+  let reviewInput:
+    | {
+        article: {
+          source?: string;
+          url?: string;
+          publishedAt?: string;
+          publishedPrecision?: string;
+        };
+      }
+    | undefined;
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     if (body.messages[0].content.includes('独立复核')) {
       reviewInput = JSON.parse(body.messages[1].content);
-      const complete = reviewInput?.article.source === '工具官方博客'
-        && reviewInput.article.publishedAt === '2026-10-21T12:00:00.000Z'
-        && reviewInput.article.url === 'https://example.invalid/metadata-review';
-      return reply({ approved: complete, reason: complete ? '已有来源与报道时间，事实限定正确' : '没有来源与报道时间，无法批准' });
+      const complete =
+        reviewInput?.article.source === '工具官方博客' &&
+        reviewInput.article.publishedAt === '2026-10-21T12:00:00.000Z' &&
+        reviewInput.article.url === 'https://example.invalid/metadata-review';
+      return reply({
+        approved: complete,
+        reason: complete ? '已有来源与报道时间，事实限定正确' : '没有来源与报道时间，无法批准',
+      });
     }
-    return reply({ relevant: true, title: '官方公布AI工具更新', summary: '官方发布AI工具并开放代码。',
-      section: '工具与开源', assessment: topAssessment, tags: [], existingEventId: null,
-      facts: [{ statement: '发布AI工具并开放代码', evidence: '发布AI工具并开放代码', status: 'announced', entities: [] }],
-      novelty: 'new', needsReview: true,
+    return reply({
+      relevant: true,
+      title: '官方公布AI工具更新',
+      summary: '官方发布AI工具并开放代码。',
+      section: '工具与开源',
+      assessment: topAssessment,
+      tags: [],
+      existingEventId: null,
+      facts: [
+        {
+          statement: '发布AI工具并开放代码',
+          evidence: '发布AI工具并开放代码',
+          status: 'announced',
+          entities: [],
+        },
+      ],
+      novelty: 'new',
+      needsReview: true,
     });
   };
   await processArticle(article.id);
-  const saved = await pool.query('SELECT e.score,a.review_note FROM articles a JOIN events e ON e.id=a.event_id WHERE a.id=$1',[article.id]);
-  assert.equal(saved.rows[0].score,86,'已有来源和时间不应因复核请求漏传而被归零');
-  assert.equal(reviewInput?.article.publishedPrecision,'time');
+  const saved = await pool.query(
+    'SELECT e.score,a.review_note FROM articles a JOIN events e ON e.id=a.event_id WHERE a.id=$1',
+    [article.id],
+  );
+  assert.equal(saved.rows[0].score, 86, '已有来源和时间不应因复核请求漏传而被归零');
+  assert.equal(reviewInput?.article.publishedPrecision, 'time');
 });
 async function seed(
   date = '2026-10-21T12:00:00Z',
@@ -196,14 +226,14 @@ test('每天08:00连续覆盖，含周末且不再安排周月报', () => {
   }
 });
 test('隔周排期按基准所在周计算，关键词命中只作线索', () => {
-  assert.equal(rotationRules('2026-10-28', '2026-10-30')[1].scheduled, true);
+  assert.equal(rotationRules('2026-10-28', '2026-10-30')[1].scheduled, false);
   assert.equal(rotationRules('2026-11-04', '2026-10-30')[1].scheduled, false);
   assert.deepEqual(keywordMatches('银行大模型公布MCP方案', '技术：大模型；MCP\n资本：AI融资'), [
     '大模型',
     'MCP',
   ]);
 });
-test('不同旧行业来源共享事件归组，保存五维分数与标签', async () => {
+test('不同旧行业来源共享事件归组，保存五维分数并忽略旧标签', async () => {
   const existing = await seed('2026-10-21T12:00:00Z', assessment, '政策与监管', 'finance');
   const [article] = await importArticle({
     title: 'AI监管进展',
@@ -243,7 +273,7 @@ test('不同旧行业来源共享事件归组，保存五维分数与标签', as
   ]);
   assert.equal(event.rows[0].score, 86);
   assert.equal(event.rows[0].industry_id, 'ai');
-  assert.deepEqual(event.rows[0].tags, ['金融']);
+  assert.deepEqual(event.rows[0].tags, []);
 });
 test('普通金融资讯可被AI关联检查淘汰，不产生事件', async () => {
   const [article] = await importArticle({
@@ -493,7 +523,7 @@ test('不满栏目下限仍出短刊，网页邮件共享星级、要览和来�
     'https://example.invalid/unsubscribe',
   );
   assert.match(html, /今日要览/);
-  assert.match(html, /4.5\/5/);
+  assert.doesNotMatch(html, /4.5\/5/);
   assert.match(html, /工具与开源/);
   assert.ok(!html.includes('金融要情'));
   assert.ok(!html.includes('AI要情'));
@@ -510,7 +540,7 @@ test('预览只读，规则变化使生成确认失效', async () => {
   await assert.rejects(generateBrief('daily', '2026-10-22', preview.key), /重新预览/);
 });
 test('暂停周月报的新请求与已排队生成', async () => {
-  await assert.rejects(requestGeneration('weekly', '2026-10-26'), /只生成AI日报/);
+  await assert.rejects(requestGeneration('weekly', '2026-10-26'), /只生成数智参阅/);
   assert.deepEqual(await runGeneration(randomUUID(), { kind: 'monthly', date: '2026-11-01' }), {
     skipped: true,
     reason: '周月报已暂停',

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from './db.ts';
 import { settings } from './schema.ts';
-import { defaultSettings, settingsSchema } from './types.ts';
+import { defaultSettings, settingsSchema, type Settings } from './types.ts';
 export async function getSettings() {
   const [row] = await db.select().from(settings).where(eq(settings.id, 1));
   const value = settingsSchema.parse(row?.value ?? defaultSettings);
@@ -19,14 +19,42 @@ export async function saveSettings(input: unknown) {
     .onConflictDoUpdate({ target: settings.id, set: { value } });
 }
 
+export async function saveSettingsPatch(patch: Partial<Settings>) {
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(settings).where(eq(settings.id, 1)).for('update');
+    const value = settingsSchema.parse({
+      ...settingsSchema.parse(row?.value ?? defaultSettings),
+      ...patch,
+    });
+    await tx
+      .insert(settings)
+      .values({ id: 1, value })
+      .onConflictDoUpdate({ target: settings.id, set: { value } });
+    return value;
+  });
+}
+
 export async function saveEditorialConfig(input: {
-  sections: unknown;
-  ratingRules: unknown;
-  candidateRating: number;
-  highlightRating: number;
-  tags: string[];
-  keywords: string;
-  editorialPrompt: string;
+  sections?: unknown;
+  ratingRules?: unknown;
+  candidateRating?: number;
+  highlightRating?: number;
+  ratingRelaxationEnabled?: boolean;
+  ratingRelaxationMaxDrop?: number;
+  budgetTolerancePercent?: number;
+  highlightsName?: string;
+  highlightsDeleted?: boolean;
+  highlightsMinItems?: number;
+  highlightsEnabled?: boolean;
+  highlightsMaxItems?: number;
+  highlightsBudget?: number;
+  highlightsPrompt?: string;
+  tags?: string[];
+  keywords?: string;
+  editorialPrompt?: string;
+  reviewEnabled?: boolean;
+  maxItems?: number;
+  briefTitleMaxLength?: number;
 }) {
   const { sql } = await import('drizzle-orm');
   const { sources } = await import('./schema.ts');
@@ -36,7 +64,7 @@ export async function saveEditorialConfig(input: {
     const current = settingsSchema.parse(row?.value ?? defaultSettings);
     const incoming = sectionRuleSchema
       .array()
-      .parse(input.sections)
+      .parse(input.sections ?? current.sections)
       .map((section) => {
         const previous = current.sections.find((s) => s.id === section.id);
         return {
@@ -49,11 +77,43 @@ export async function saveEditorialConfig(input: {
           ].filter((name) => name !== section.name),
         };
       });
+    const keys = [
+      'ratingRules',
+      'candidateRating',
+      'highlightRating',
+      'ratingRelaxationEnabled',
+      'ratingRelaxationMaxDrop',
+      'budgetTolerancePercent',
+      'highlightsName',
+      'highlightsDeleted',
+      'highlightsMinItems',
+      'highlightsEnabled',
+      'highlightsMaxItems',
+      'highlightsBudget',
+      'highlightsPrompt',
+      'tags',
+      'keywords',
+      'editorialPrompt',
+      'reviewEnabled',
+      'maxItems',
+      'briefTitleMaxLength',
+    ] as const;
+    const patch = Object.fromEntries(
+      keys.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]),
+    );
     const value = settingsSchema.parse({
       ...current,
-      ...input,
+      ...patch,
       sections: incoming,
-      rotationsEnabled: true,
+      ...(input.sections !== undefined &&
+      incoming.some(
+        (s) =>
+          s.kind === 'rotation' &&
+          s.enabled &&
+          !current.sections.some((old) => old.id === s.id && old.enabled),
+      )
+        ? { rotationsEnabled: true }
+        : {}),
     });
     for (const previous of current.sections) {
       const next = value.sections.find((s) => s.id === previous.id);

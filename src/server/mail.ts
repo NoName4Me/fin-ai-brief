@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createMailTransport } from './mail-transport.ts';
 import { mailFailure } from './mail-errors.ts';
 import { requireMailConfig } from './mail-config.ts';
+import { getSettings } from './settings.ts';
 import { and, eq } from 'drizzle-orm';
 import { db } from './db.ts';
 import { deliveries, subscriptions } from './schema.ts';
@@ -11,6 +12,7 @@ export { escapeHtml, renderEmail } from './mail-template.ts';
 import { renderEmail } from './mail-template.ts';
 import { type Kind } from './types.ts';
 export async function deliver(id: string) {
+  if (!(await getSettings()).deliveryEnabled) return;
   requireMailConfig();
   const [row] = await db.select().from(deliveries).where(eq(deliveries.id, id));
   if (!row || row.state !== 'pending') return;
@@ -35,12 +37,19 @@ export async function deliver(id: string) {
     .where(and(eq(deliveries.id, id), eq(deliveries.state, 'pending')))
     .returning();
   if (!claimed.length) return;
+  if (!(await getSettings()).deliveryEnabled) {
+    await db
+      .update(deliveries)
+      .set({ state: 'pending' })
+      .where(and(eq(deliveries.id, id), eq(deliveries.state, 'sending')));
+    return;
+  }
   const transport = createMailTransport();
   try {
     await transport.sendMail({
       from: process.env.MAIL_FROM,
       to: recipient.email,
-      subject: `AI日报｜${brief.content.title}`,
+      subject: `《数智参阅》${brief.issueNumber ? `第${String(brief.issueNumber).padStart(3, '0')}期` : ''}｜${brief.content.title}`,
       messageId: `<${row.id}.${randomUUID()}@${new URL(base).hostname}>`,
       html: renderEmail(brief.content, new URL(`/briefs/${brief.id}`, base).href, cancelUrl, {
         kind: brief.kind as Kind,

@@ -9,6 +9,7 @@ import { financeItems, financeKind } from './finance-sources.ts';
 import { parseHtmlItems } from './html-source.ts';
 import { isAihotItemsUrl, parseAihotItems } from './aihot.ts';
 import { structuredItems, structuredKind } from './structured-sources.ts';
+import { getSettings } from './settings.ts';
 
 export function advertisedFeeds(html: string, base: string) {
   return [...html.matchAll(/<link\b[^>]*>/gi)]
@@ -46,6 +47,7 @@ export async function verifySource(id: string, fetcher = fetchSource) {
   let status = source.verificationStatus;
   let note = '';
   try {
+    const config = await getSettings();
     if (
       isJiqizhixinRss(endpoint) &&
       Math.max(source.lastFetchedAt?.getTime() ?? 0, source.verifiedAt?.getTime() ?? 0) >
@@ -69,7 +71,9 @@ export async function verifySource(id: string, fetcher = fetchSource) {
       }
     }
     if (endpoint && format !== 'manual') {
-      const body = await fetcher(endpoint);
+      const body = await fetcher(endpoint, {
+        structuredContext: { now: new Date(), dailyTime: config.dailyTime },
+      });
       if (!body) throw new Error('未取得可验证的内容');
       const items = structuredKind(endpoint)
         ? structuredItems(endpoint, body)

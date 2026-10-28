@@ -1,187 +1,227 @@
-import { requireAdmin } from '../../server/auth.ts';
 import Link from 'next/link';
-import { desc } from 'drizzle-orm';
-import { db } from '../../server/db.ts';
-import { briefs } from '../../server/schema.ts';
-import { getSettings } from '../../server/settings.ts';
-import { localDate, dateLabel } from '../../server/periods.ts';
-import { kindNames, type Kind } from '../../server/types.ts';
-import { generateAction, publishAction, previewGenerateAction } from '../actions.ts';
-import { generationStatus } from '../../server/generation-requests.ts';
-import { previewBrief } from '../../server/briefs.ts';
-import { kindSchema } from '../../server/types.ts';
+import { DashboardCharts } from '../../components/dashboard-charts.tsx';
+import { dashboardCharts } from '../../server/dashboard-charts.ts';
+import { redirect } from 'next/navigation';
+import { requireAdmin } from '../../server/auth.ts';
+import { adminOverview } from '../../server/admin-overview.ts';
+import { taskStamp } from '../../server/task-labels.ts';
 import { Notice, type Query } from '../../components/notice.tsx';
+
 export default async function Dashboard({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
   const query = await searchParams;
-  let preview: Awaited<ReturnType<typeof previewBrief>> | undefined,
-    previewError = '';
-  let pendingStatus: Awaited<ReturnType<typeof generationStatus>> | undefined;
-  const previewKind = kindSchema.safeParse(query.kind);
-  if (query.preview === '1' && previewKind.success && typeof query.date === 'string')
-    try {
-      pendingStatus = await generationStatus(previewKind.data, query.date);
-      if (!pendingStatus.pending && query.reprocess !== '1')
-        preview = await previewBrief(previewKind.data, query.date);
-    } catch (e) {
-      previewError = e instanceof Error ? e.message : '预览失败';
-    }
-  const [rows, config] = await Promise.all([
-    db.select().from(briefs).orderBy(desc(briefs.periodDate)).limit(50),
-    getSettings(),
-  ]);
+  if (query.preview === '1' || query.reprocess === '1') {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query))
+      if (typeof value === 'string') params.set(key, value);
+    redirect(`/admin/publications?${params}`);
+  }
+  const [data, charts] = await Promise.all([adminOverview(), dashboardCharts()]);
+  const healthy = data.sources.filter((source) => source.state === 'healthy').length;
+  const abnormal = data.sources.filter((source) =>
+    ['failed', 'overdue'].includes(source.state),
+  ).length;
+  const otherSourceStates = [
+    { state: 'new', label: '待首采' },
+    { state: 'retry', label: '重试中' },
+    { state: 'paused', label: '采集暂停' },
+  ]
+    .map((item) => ({
+      ...item,
+      count: data.sources.filter((source) => source.state === item.state).length,
+    }))
+    .filter((item) => item.count > 0);
+  const latestDate = data.sections[0]?.period_date;
   return (
-    <>
-      <Notice query={await searchParams} />
-      <form action={previewGenerateAction} className="inline-form">
-        <label>
-          类型
-          <select name="kind">
-            {Object.entries({ daily: '日报' }).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          出刊日期
-          <input type="date" name="date" defaultValue={localDate()} required />
-        </label>
-        <button className="solid-button">生成前检查</button>
-      </form>
-      <p className="form-hint">
-        每天北京时间08:00截稿，覆盖前一日08:00至当日08:00。生成完成后按发布设置发布。
-      </p>
-      <p>
-        <Link href="/admin/articles?type=generate">出刊任务与记录</Link>
-      </p>
-      {previewError && <p className="notice error">{previewError}</p>}
-      {query.reprocess === '1' && previewKind.success && (
-        <section className="admin-section">
-          <h2>重新处理后生成</h2>
-          <p>
-            系统将重新处理本期时间范围内的全部资讯，完成后更新日报；原正式版保持可读，不发送邮件。
-          </p>
-          <form action={generateAction}>
-            <input type="hidden" name="kind" value={previewKind.data} />
-            <input type="hidden" name="date" value={String(query.date)} />
-            <label className="check">
-              <input type="checkbox" name="reprocess" defaultChecked />
-              先重新处理资讯
-            </label>
-            <button className="solid-button">确认重新处理并生成</button>
-          </form>
-        </section>
-      )}
-      {pendingStatus && pendingStatus.pending > 0 && query.reprocess !== '1' && (
-        <section className="admin-section" aria-labelledby="force-title">
-          <h2 id="force-title">
-            确认强制生成{previewKind.success ? kindNames[previewKind.data] : '简报'}
-          </h2>
-          <p>
-            本期仍有 {pendingStatus.pending}{' '}
-            篇资讯未完成。确认后会优先处理这些资讯，完成后自动生成本期简报。
-          </p>
-          <p>
-            仍然失败且重试次数耗尽的资讯会被跳过并保留记录，不再阻塞出刊；模型调用计入每日额度，额度不足时等待恢复。
-          </p>
-          <p>发布方式：{config.autoPublish ? '生成成功直接发布' : '先保存待审稿'}。</p>
-          <form action={generateAction} className="stack-form">
-            <input type="hidden" name="kind" value={String(query.kind)} />
-            <input type="hidden" name="date" value={String(query.date)} />
-            <input type="hidden" name="force" value="true" />
-            <label className="check">
-              <input type="checkbox" name="confirmed" required />
-              确认优先处理本期未完成资讯后强制生成
-            </label>
-            <button className="solid-button">确认强制生成</button>
-          </form>
-        </section>
-      )}
-      {preview && (
-        <section className="admin-section">
-          <h2>生成前确认</h2>
-          <p>
-            已选 {preview.count} 个事件 · 模型 {preview.model}。
-            {pendingStatus?.failed
-              ? `另有 ${pendingStatus.failed} 篇已达重试上限，跳过并保留失败记录。`
-              : ''}
-          </p>
-          <p>
-            {preview.cached
-              ? '输入与已有成功结果一致，将复用缓存，不新增模型请求。'
-              : '预计新增1—2次成稿请求，超长栏目按需压缩；失败请求也占用次数。'}
-          </p>
-          <p>发布方式：{config.autoPublish ? '生成成功直接发布' : '先保存待审稿'}。</p>
-          <form action={generateAction}>
-            <input type="hidden" name="kind" value={String(query.kind)} />
-            <input type="hidden" name="date" value={String(query.date)} />
-            <input type="hidden" name="expectedKey" value={preview.key} />
-            <label className="check">
-              <input type="checkbox" name="reprocess" />
-              先重新处理资讯
-            </label>
-            <button className="solid-button">确认生成</button>
-          </form>
-        </section>
-      )}
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>日期 / 类型</th>
-              <th>简报</th>
-              <th>状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.id}>
-                <td>
-                  {dateLabel(row.periodDate)}
-                  <br />
-                  <span className="muted">{kindNames[row.kind as Kind]}</span>
-                </td>
-                <td>{(row.draft ?? row.published)?.title}</td>
-                <td>
-                  {row.draft ? '待审核' : row.published ? '已发布' : '待生成'}
-                  {row.draft && row.published && <small>原正式版仍可阅读</small>}
-                </td>
-                <td>
-                  <div className="row-actions">
-                    {row.draft && (
-                      <>
-                        <Link href={`/admin/briefs/${row.id}`}>阅读待审稿</Link>
-                        <form action={publishAction}>
-                          <input type="hidden" name="id" value={row.id} />
-                          <button className="solid-button">审核并发布</button>
-                        </form>
-                      </>
-                    )}
-                    {row.published && <Link href={`/briefs/${row.id}`}>正式版</Link>}
-                    {row.kind === 'daily' && (
-                      <form action={previewGenerateAction}>
-                        <input type="hidden" name="kind" value={row.kind} />
-                        <input type="hidden" name="date" value={row.periodDate} />
-                        <label className="check">
-                          <input type="checkbox" name="reprocess" />
-                          先重新处理资讯
-                        </label>
-                        <button className="quiet-button">重新生成</button>
-                      </form>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="admin-overview">
+      <Notice query={query} />
+      <div className="overview-heading">
+        <span>{data.date} · 北京时间</span>
       </div>
-      {!rows.length && (
-        <p className="empty-state">尚无简报。先配置栏目和信源，采集或导入资讯，再生成。</p>
-      )}
-    </>
+      <dl className="overview-totals">
+        <div>
+          <dt>累计已发日报</dt>
+          <dd>
+            <Link href="/admin/publications">
+              <span className="overview-number">{data.counts.published}</span>
+              <small>期</small>
+            </Link>
+          </dd>
+        </div>
+        <div>
+          <dt>今日新增入库</dt>
+          <dd>
+            <Link href="/admin/articles">
+              <span className="overview-number">{data.counts.incoming}</span>
+              <small>篇</small>
+            </Link>
+            <span className="overview-card-detail">
+              <span>有效 {data.counts.incoming_relevant}</span>
+              <span>淘汰 {data.counts.incoming_ignored}</span>
+              <span>待处理 {data.counts.incoming_pending}</span>
+              {data.counts.incoming_failed > 0 && (
+                <span className="overview-problem">失败 {data.counts.incoming_failed}</span>
+              )}
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt>启用信源 {data.sources.length}</dt>
+          <dd>
+            <Link href="/admin/sources/monitor" className="overview-source-numbers">
+              <span>
+                <span className="overview-number overview-healthy-number">{healthy}</span>
+                <small>正常</small>
+              </span>
+              <span>
+                <span className={`overview-number${abnormal > 0 ? ' overview-problem' : ''}`}>
+                  {abnormal}
+                </span>
+                <small>异常</small>
+              </span>
+            </Link>
+            {otherSourceStates.length > 0 && (
+              <span className="overview-card-detail">
+                {otherSourceStates.map((item) => (
+                  <span key={item.state}>
+                    {item.label} {item.count}
+                  </span>
+                ))}
+              </span>
+            )}
+          </dd>
+        </div>
+      </dl>
+      <div className="overview-columns">
+        <section className="overview-section" aria-labelledby="today-title">
+          <div className="overview-section-heading">
+            <h2 id="today-title">今日出刊</h2>
+            <Link href="/admin/publications">出刊管理</Link>
+          </div>
+          <p className="overview-edition-state">{data.status}</p>
+          {data.today?.title && <p>{data.today.title}</p>}
+          {data.today?.is_published && (
+            <p className="form-hint">发布时间 {taskStamp(data.today.published_at)}</p>
+          )}
+          {data.generationError && <p className="overview-problem">{data.generationError}</p>}
+          <div className="row-actions">
+            {data.today?.has_draft && (
+              <Link href={`/admin/briefs/${data.today.id}`}>审核待审稿</Link>
+            )}
+            {data.today?.is_published && <Link href={`/briefs/${data.today.id}`}>阅读正式版</Link>}
+            <Link href="/admin/articles?type=generate">查看出刊任务</Link>
+          </div>
+          <p className="form-hint">
+            08:00 截稿 · {data.config.dailyEnabled ? '自动出刊已开启' : '自动出刊已暂停'} ·{' '}
+            {data.config.autoPublish ? '自动发布' : '人工审核后发布'}
+          </p>
+        </section>
+        <section className="overview-section" aria-labelledby="pending-title">
+          <div className="overview-section-heading">
+            <h2 id="pending-title">
+              待处理<small>全部积压</small>
+            </h2>
+            <Link href="/admin/articles">任务管理</Link>
+          </div>
+          <dl className="overview-list">
+            <div>
+              <dt>
+                <Link href="/admin/articles?type=process&state=created">待处理资讯</Link>
+              </dt>
+              <dd>{data.counts.pending} 篇</dd>
+            </div>
+            <div>
+              <dt>
+                <Link href="/admin/articles?type=process&state=failed">处理失败资讯</Link>
+              </dt>
+              <dd className={data.counts.failed ? 'overview-problem' : undefined}>
+                {data.counts.failed} 篇
+              </dd>
+            </div>
+            <div>
+              <dt>
+                <Link href="/admin/sources/monitor">采集失败信源</Link>
+              </dt>
+              <dd
+                className={data.sources.some((s) => s.last_error) ? 'overview-problem' : undefined}
+              >
+                {data.sources.filter((s) => s.last_error).length} 个
+              </dd>
+            </div>
+            <div>
+              <dt>
+                <Link href="/admin/publications">待审核日报</Link>
+              </dt>
+              <dd>{data.counts.drafts} 期</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+      <DashboardCharts data={charts} />
+      <section className="overview-section" aria-labelledby="coverage-title">
+        <div className="overview-section-heading">
+          <h2 id="coverage-title">最近一期栏目{latestDate && <small>{latestDate}</small>}</h2>
+          <Link href={data.editionTask?.href ?? '/admin/articles?type=generate'}>选题明细</Link>
+        </div>
+        {data.editionTask && (
+          <p className="form-hint edition-result-origin">
+            {data.editionTask.label} · {taskStamp(data.editionTask.at)}
+          </p>
+        )}
+        {data.sections.length ? (
+          <>
+            <div className="overview-health">
+              <span>
+                有内容{' '}
+                <strong>
+                  {data.sections.filter((section) => section.selected_count > 0).length}
+                </strong>
+              </span>
+              <span>
+                正常留空{' '}
+                <strong>
+                  {data.sections.filter((section) => section.status === 'skipped').length}
+                </strong>
+              </span>
+              <span>
+                未排期{' '}
+                <strong>
+                  {data.sections.filter((section) => section.status === 'unscheduled').length}
+                </strong>
+              </span>
+              {data.sections.some((section) => section.status === 'error') && (
+                <span className="overview-problem">
+                  异常{' '}
+                  <strong>
+                    {data.sections.filter((section) => section.status === 'error').length}
+                  </strong>
+                </span>
+              )}
+            </div>
+            {data.sections.some((section) => section.status === 'error') && (
+              <ul className="overview-alerts">
+                {data.sections
+                  .filter((section) => section.status === 'error')
+                  .slice(0, 3)
+                  .map((section) => (
+                    <li key={section.section}>
+                      <span>{section.section}</span>
+                      <span className="overview-problem">{section.reason}</span>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <p className="muted">暂无出刊记录。</p>
+        )}
+      </section>
+      <div className="overview-runtime">
+        <span>
+          模型调用：今日 {data.usage.used} / {data.usage.limit} 次，剩余 {data.usage.remaining} 次
+        </span>
+        <Link href="/admin/settings">系统设置</Link>
+      </div>
+    </div>
   );
 }

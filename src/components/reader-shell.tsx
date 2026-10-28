@@ -13,15 +13,8 @@ export async function ReaderShell({
 }) {
   const groups = groupIssues(await listPublished(kind), kind);
   return (
-    <div className="shell">
+    <div className="shell reader-shell">
       <aside className="sidebar" aria-label="简报归档">
-        <nav className="editions" aria-label="简报类型">
-          {Object.entries({ daily: '日报' }).map(([key, label]) => (
-            <Link key={key} href={`/?kind=${key}`} aria-current={kind === key ? 'page' : undefined}>
-              {label}
-            </Link>
-          ))}
-        </nav>
         <div className="issue-groups">
           {groups.map((group) => (
             <details className="issue-group" key={group.key} open={group.open}>
@@ -68,16 +61,7 @@ export async function ReaderShell({
           <Link href="/admin">管理端</Link>
         </div>
       </aside>
-      <main className="main">
-        <nav className="editions mobile-editions" aria-label="简报类型">
-          {Object.entries({ daily: '日报' }).map(([key, label]) => (
-            <Link key={key} href={`/?kind=${key}`} aria-current={kind === key ? 'page' : undefined}>
-              {label}
-            </Link>
-          ))}
-        </nav>
-        {children}
-      </main>
+      <main className="main">{children}</main>
     </div>
   );
 }

@@ -29,7 +29,6 @@ export function SourceFilters({
   return (
     <div className="source-filters" role="search" aria-label="信源筛选">
       <label>
-        启用状态
         <select
           aria-label="启用状态筛选"
           value={enabled}
@@ -42,7 +41,6 @@ export function SourceFilters({
         </select>
       </label>
       <label>
-        归属栏目
         <select
           aria-label="栏目筛选"
           value={section}
@@ -59,7 +57,6 @@ export function SourceFilters({
         </select>
       </label>
       <label>
-        采集方式
         <select
           aria-label="采集方式筛选"
           value={format}

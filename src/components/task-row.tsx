@@ -1,7 +1,14 @@
 'use client';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ManagedTask, taskDetail } from '../server/admin-tasks.ts';
-import { stageNames, stateNames, taskTypes, taskStamp } from '../server/task-labels.ts';
+import {
+  failureExplanation,
+  stageDescription,
+  stageLabel,
+  stateNames,
+  taskTypes,
+  taskStamp,
+} from '../server/admin-task-labels.ts';
 import { retryManagedTaskAction } from '../app/actions.ts';
 import { assessmentSchema, ratingFor, defaultRatingRules } from '../server/editorial.ts';
 type Detail = NonNullable<Awaited<ReturnType<typeof taskDetail>>>;
@@ -52,6 +59,43 @@ export function TaskRow({ task }: { task: ManagedTask }) {
           ),
         )
       : null;
+  const failure = detail?.failure;
+  const failedStage = failure?.stage ?? 'task';
+  const failureText = failure?.error ?? current.error;
+  const failureDetail = failureExplanation(failureText);
+  const timelineSteps =
+    detail?.steps.filter(
+      (step) => step.stage !== 'edition' && (step.stage !== 'task' || current.queue !== 'process'),
+    ) ?? [];
+  const attemptGroups =
+    current.queue === 'process'
+      ? detail?.attemptsForArticle.length
+        ? detail.attemptsForArticle
+        : [
+            {
+              id: current.id,
+              created_on: current.created_on,
+              started_on: current.started_on,
+              completed_on: current.completed_on,
+              trigger: current.data.trigger,
+              state: current.state,
+              error: current.error,
+              steps: timelineSteps,
+            },
+          ]
+      : [];
+  const isLatestAttempt = detail?.attemptsForArticle
+    ? detail.attemptsForArticle[0]?.id === current.job_id
+    : true;
+  const canRetry =
+    current.queue === 'process'
+      ? detail
+        ? detail.article?.state === 'failed' &&
+          !detail.attemptsForArticle.some((attempt) =>
+            ['created', 'active', 'retry'].includes(attempt.state),
+          )
+        : task.state === 'failed'
+      : current.state === 'failed';
   return (
     <tr
       className="article-task-row"
@@ -65,7 +109,9 @@ export function TaskRow({ task }: { task: ManagedTask }) {
       <td>
         <span className="task-type">{taskTypes[task.queue]}</span>
       </td>
-      <td className="task-name">{task.name}</td>
+      <td className="task-name">
+        <span title={task.name}>{task.name}</span>
+      </td>
       <td className="task-time">{taskStamp(task.started_on)}</td>
       <td>
         <span className={'state-' + task.state}>{stateNames[task.state] ?? task.state}</span>
@@ -86,7 +132,7 @@ export function TaskRow({ task }: { task: ManagedTask }) {
           >
             详情
           </button>
-          {task.state === 'failed' && (
+          {canRetry && (
             <form action={retryManagedTaskAction}>
               <input type="hidden" name="taskId" value={task.id} />
               <button className="quiet-button">重试</button>
@@ -183,9 +229,24 @@ export function TaskRow({ task }: { task: ManagedTask }) {
                   </div>
                 </dl>
                 <p className="form-hint">任务ID：{current.id}</p>
-                {current.error && <p className="notice error">{current.error}</p>}
-                {current.state === 'failed' && current.queue === 'process' && (
-                  <p>本条已停止自动处理，不再阻塞出刊；可在列表中重试。</p>
+                {(failure || failureText) && (
+                  <div className="notice error">
+                    <p>
+                      失败阶段：{stageLabel(failedStage, current.queue)}
+                      {stageDescription(failedStage, current.queue)
+                        ? `（${stageDescription(failedStage, current.queue)}）`
+                        : ''}
+                    </p>
+                    {failureText && <p>{failureText}</p>}
+                    <p>{failureDetail || (!failureText ? '该阶段未记录具体错误。' : '')}</p>
+                  </div>
+                )}
+                {detail.article?.state === 'failed' && current.queue === 'process' && (
+                  <p>
+                    {isLatestAttempt
+                      ? '本条已停止自动处理，不再阻塞出刊；可在列表中重试。'
+                      : '这是较早一次处理记录，当前状态以最新一次处理为准。'}
+                  </p>
                 )}
                 {detail.source && (
                   <p>
@@ -240,7 +301,8 @@ export function TaskRow({ task }: { task: ManagedTask }) {
                 )}
                 {!!detail.edition.length && (
                   <section aria-label="栏目选题与出刊结果">
-                    <h3>栏目选题与出刊结果</h3>
+                    <h3>本次任务的栏目结果</h3>
+                    <p className="form-hint">{taskStamp(current.completed_on)}</p>
                     {detail.edition.map((section) => (
                       <details className="task-stage" key={section.section}>
                         <summary>
@@ -285,65 +347,105 @@ export function TaskRow({ task }: { task: ManagedTask }) {
                     ))}
                   </section>
                 )}
-                <h3>
-                  {current.queue === 'process'
-                    ? '处理步骤与历史（最新在前）'
-                    : '任务时间线（最新在前）'}
-                </h3>
-                <div className="task-timeline">
-                  {detail.steps
-                    .filter((step) => step.stage !== 'edition')
-                    .map((step) => (
-                      <section className="task-stage" key={step.id}>
-                        <h3>
-                          {stageNames[step.stage] ?? step.stage}{' '}
-                          <span className={'state-' + step.state}>
-                            {stateNames[step.state] ?? step.state}
+                <h3>{current.queue === 'process' ? '处理历史' : '任务时间线'}</h3>
+                {current.queue === 'process' ? (
+                  <div className="task-attempts">
+                    {attemptGroups.map((attempt, index) => (
+                      <details className="task-attempt" key={attempt.id} open={index === 0}>
+                        <summary>
+                          <span className="task-attempt-title">
+                            第 {attemptGroups.length - index} 轮
                           </span>
-                        </h3>
-                        <p>
-                          开始：{taskStamp(step.started_at)} · 完成：
-                          {step.finished_at ? taskStamp(step.finished_at) : '未完成'}
-                        </p>
-                        {step.error && <p className="notice error">{step.error}</p>}
-                        {step.result != null && (
-                          <details>
-                            <summary>查看结果</summary>
-                            <pre className="model-result">
-                              {JSON.stringify(step.result, null, 2)}
-                            </pre>
-                          </details>
-                        )}
-                        {step.call_id && (
-                          <details>
-                            <summary>模型调用详情</summary>
-                            <p>
-                              {step.model} · 输入 {step.input_tokens ?? '未记录'} / 输出{' '}
-                              {step.output_tokens ?? '未记录'} token
+                          <span className={'state-' + attempt.state}>
+                            {stateNames[attempt.state] ?? attempt.state}
+                          </span>
+                          <span className="task-tag">
+                            {attempt.trigger === 'manual' ? '手动' : '自动'}
+                          </span>
+                          <small>
+                            入队：{taskStamp(attempt.created_on)} · 开始：
+                            {taskStamp(attempt.started_on)} · 完成：
+                            {attempt.completed_on ? taskStamp(attempt.completed_on) : '未完成'}
+                          </small>
+                        </summary>
+                        <div className="task-attempt-body">
+                          {attempt.error && (
+                            <p className="task-attempt-error">
+                              {failureExplanation(attempt.error) || attempt.error}
                             </p>
-                            <details>
-                              <summary>输入与提示词</summary>
-                              <pre className="model-result">
-                                {JSON.stringify(step.input_summary, null, 2)}
-                              </pre>
-                            </details>
-                            <details>
-                              <summary>模型结果</summary>
-                              <pre className="model-result">
-                                {JSON.stringify(step.response, null, 2)}
-                              </pre>
-                            </details>
-                          </details>
-                        )}
-                      </section>
+                          )}
+                          {attempt.steps.length ? (
+                            <Timeline steps={attempt.steps} queue={current.queue} />
+                          ) : (
+                            <p className="muted">暂无已记录的处理步骤。</p>
+                          )}
+                        </div>
+                      </details>
                     ))}
-                </div>
-                {!detail.steps.length && <p className="muted">暂无已记录的处理步骤。</p>}
+                  </div>
+                ) : timelineSteps.length ? (
+                  <Timeline steps={timelineSteps} queue={current.queue} />
+                ) : (
+                  <p className="muted">暂无已记录的处理步骤。</p>
+                )}
               </>
             )}
           </div>
         </dialog>
       </td>
     </tr>
+  );
+}
+
+function Timeline({ steps, queue }: { steps: Detail['steps']; queue: ManagedTask['queue'] }) {
+  return (
+    <div className="task-timeline">
+      {steps.map((step) => (
+        <section className={'task-stage stage-' + step.state} key={step.id}>
+          <h3>
+            {stageLabel(step.stage, queue)}
+            {step.stage === 'retry' && step.run_key.match(/:retry:(\d+)$/)?.[1]
+              ? ` ${step.run_key.match(/:retry:(\d+)$/)?.[1]}`
+              : ''}{' '}
+            <span className={'state-' + step.state}>{stateNames[step.state] ?? step.state}</span>
+          </h3>
+          {stageDescription(step.stage, queue) && (
+            <p className="task-stage-description">{stageDescription(step.stage, queue)}</p>
+          )}
+          <p>
+            开始：{taskStamp(step.started_at)} · 完成：
+            {step.finished_at ? taskStamp(step.finished_at) : '未完成'}
+          </p>
+          {step.error && (
+            <div className="notice error">
+              <p>{step.error}</p>
+            </div>
+          )}
+          {step.result != null && (
+            <details>
+              <summary>查看结果</summary>
+              <pre className="model-result">{JSON.stringify(step.result, null, 2)}</pre>
+            </details>
+          )}
+          {step.call_id && (
+            <details>
+              <summary>模型调用详情</summary>
+              <p>
+                {step.model} · 输入 {step.input_tokens ?? '未记录'} / 输出{' '}
+                {step.output_tokens ?? '未记录'} token
+              </p>
+              <details>
+                <summary>输入与提示词</summary>
+                <pre className="model-result">{JSON.stringify(step.input_summary, null, 2)}</pre>
+              </details>
+              <details>
+                <summary>模型结果</summary>
+                <pre className="model-result">{JSON.stringify(step.response, null, 2)}</pre>
+              </details>
+            </details>
+          )}
+        </section>
+      ))}
+    </div>
   );
 }

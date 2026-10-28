@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Header } from '../components/navigation.tsx';
 export const metadata: Metadata = {
-  title: { default: 'AI日报', template: '%s · AI日报' },
+  title: { default: '数智参阅', template: '%s · 数智参阅' },
   description: 'AI发展、治理与产业资讯',
 };
 export const dynamic = 'force-dynamic';

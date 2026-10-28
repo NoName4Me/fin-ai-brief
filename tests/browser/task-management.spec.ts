@@ -13,16 +13,26 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('管理台品牌、右上退出、菜单高亮及所有业务页无大块标题区', async ({ page }) => {
-  await expect(page.getByRole('banner').getByRole('link', { name: 'AI日报 管理台' })).toBeVisible();
+  await expect(
+    page.getByRole('banner').getByRole('link', { name: '数智参阅 管理台' }),
+  ).toBeVisible();
   await expect(page.getByRole('banner').getByRole('button', { name: '退出管理台' })).toBeVisible();
   await expect(page.getByRole('link', { name: '邮箱订阅', exact: true })).toHaveCount(0);
   await expect(page.locator('.sidebar-label')).toHaveCount(0);
   for (const [path, label] of [
     ['/admin/articles', '任务管理'],
-    ['/admin/sources', '信源'],
-    ['/admin/editorial', '栏目与选题'],
-    ['/admin/settings', '出刊设置'],
-    ['/admin', '简报工作台'],
+    ['/admin/sources', '信源管理'],
+    ['/admin/editorial', '栏目与篇幅'],
+    ['/admin/editorial/ratings', '评分规则'],
+    ['/admin/editorial/content', '收录与写作'],
+    ['/admin/sources/import', '任务管理'],
+    ['/admin/sources/monitor', '信源监控'],
+    ['/admin/settings/runtime', '任务管理'],
+    ['/admin/retention', '系统设置'],
+    ['/admin/subscriptions/history', '订阅与推送'],
+    ['/admin/settings', '系统设置'],
+    ['/admin', '数据总览'],
+    ['/admin/publications', '出刊管理'],
   ]) {
     await page.goto(path);
     await expect(page.locator('.admin-main > .view-header')).toHaveCount(0);
@@ -42,7 +52,7 @@ test('管理台品牌、右上退出、菜单高亮及所有业务页无大块�
   expect(response.status()).toBe(401);
   await page.goto('/news');
   await expect(
-    page.getByRole('banner').getByRole('link', { name: '邮箱订阅', exact: true }),
+    page.getByRole('banner').getByRole('button', { name: '邮箱订阅', exact: true }),
   ).toBeVisible();
 });
 
@@ -72,7 +82,22 @@ test('统一任务表支持筛选、详情和失败重试，刷新保留筛选�
       { retryLimit: 0 },
     );
     jobs.push(collect!);
-    jobs.push((await boss.send('process', { id: articleId, articleTitle: tag + '资讯' }))!);
+    const failedProcess = (await boss.send('process', {
+      id: articleId,
+      articleTitle: tag + '资讯',
+    }))!;
+    jobs.push(failedProcess);
+    await db.query("UPDATE pgboss.job SET state='failed',output=$2 WHERE id=$1", [
+      failedProcess,
+      JSON.stringify({ message: 'The operation was aborted due to timeout' }),
+    ]);
+    await db.query(
+      `INSERT INTO processing_steps(subject,run_key,stage,state,error) VALUES
+      ($1,$2,'validate','succeeded',NULL),
+      ($1,$2,'analyze','failed','模型分析失败：The operation was aborted due to timeout')`,
+      [`article:${articleId}`, `job:${failedProcess}`],
+    );
+    await db.query("UPDATE articles SET state='failed' WHERE id=$1", [articleId]);
     jobs.push(
       (await boss.send('generate', { kind: 'daily', date: '2026-10-20', trigger: 'auto' }))!,
     );
@@ -95,9 +120,7 @@ test('统一任务表支持筛选、详情和失败重试，刷新保留筛选�
       '操作',
     ]);
     await expect(page.getByText('采集与出刊任务', { exact: true })).toHaveCount(0);
-    const manual = await page.getByText('手工导入', { exact: true }).boundingBox();
-    const filter = await page.getByRole('form', { name: '任务筛选' }).boundingBox();
-    expect(manual!.y).toBeLessThan(filter!.y);
+    await expect(page.locator('.task-import form[action] input[name="title"]')).toHaveCount(0);
     await expect(
       table.getByRole('row').filter({ hasText: '日报 2026-10-21（手动）' }),
     ).toContainText('等待资讯处理');
@@ -145,6 +168,13 @@ test('统一任务表支持筛选、详情和失败重试，刷新保留筛选�
       .getByRole('button', { name: '详情', exact: true })
       .click();
     await expect(dialog.getByText('原始摘要', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('失败阶段：模型分析', { exact: false })).toBeVisible();
+    await expect(dialog.getByText('第 1 轮', { exact: false })).toBeVisible();
+    await expect(
+      dialog
+        .locator('.task-timeline')
+        .getByText('模型分析失败：The operation was aborted due to timeout'),
+    ).toBeVisible();
     await dialog.getByText('原始摘要', { exact: true }).click();
     await expect(dialog.getByText('界面原始材料', { exact: true })).toBeVisible();
     await page.screenshot({ path: '.data/task-management-mobile-detail.png' });

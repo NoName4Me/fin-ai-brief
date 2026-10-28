@@ -1,4 +1,5 @@
 'use server';
+import { requestSubscription } from '../server/subscription-confirmation.ts';
 import { cleanupRetention } from '../server/retention.ts';
 import { requestManualDelivery } from '../server/manual-delivery.ts';
 import { requireModelConfig } from '../server/model.ts';
@@ -10,7 +11,7 @@ import { db, pool } from '../server/db.ts';
 import { sources } from '../server/schema.ts';
 import { login, logout, requireAdmin } from '../server/auth.ts';
 import { subscribe, unsubscribe, removeSubscription } from '../server/subscriptions.ts';
-import { getSettings, saveSettings, saveEditorialConfig } from '../server/settings.ts';
+import { saveSettingsPatch, saveEditorialConfig } from '../server/settings.ts';
 import { enqueue } from '../server/queue.ts';
 import { requestGeneration } from '../server/generation-requests.ts';
 import { publishBrief } from '../server/briefs.ts';
@@ -141,55 +142,94 @@ export async function industryRemoveAction(_form: FormData) {
   throw new Error('请使用栏目与选题配置');
 }
 export async function editorialAction(form: FormData) {
-  await perform('/admin/editorial', async () => {
+  const section = z
+    .enum(['columns', 'ratings', 'content', 'all'])
+    .parse(text(form, 'editorialSection') || 'all');
+  const path = `/admin/editorial/${section === 'all' ? 'columns' : section}`;
+  await perform(path, async () => {
     await saveEditorialConfig({
-      sections: JSON.parse(text(form, 'sections')),
-      ratingRules: JSON.parse(text(form, 'ratingRules')),
-      candidateRating: Number(text(form, 'candidateRating')),
-      highlightRating: Number(text(form, 'highlightRating')),
-      tags: text(form, 'tags')
-        .split(/[\n,，、]/)
-        .map((s) => s.trim())
-        .filter(Boolean),
-      keywords: text(form, 'keywords'),
-      editorialPrompt: text(form, 'editorialPrompt'),
+      ...(['columns', 'all'].includes(section)
+        ? {
+            sections: JSON.parse(text(form, 'sections')),
+            ...(form.has('highlightsConfig')
+              ? {
+                  highlightsDeleted: text(form, 'highlightsDeleted') === 'true',
+                  ...(text(form, 'highlightsDeleted') === 'true'
+                    ? { highlightsEnabled: false }
+                    : {
+                        highlightsName: text(form, 'highlightsName'),
+                        highlightsMinItems: Number(text(form, 'highlightsMinItems')),
+                        highlightsEnabled: form.has('highlightsEnabled'),
+                        highlightsMaxItems: Number(text(form, 'highlightsMaxItems')),
+                        highlightsBudget: Number(text(form, 'highlightsBudget')),
+                        highlightsPrompt: text(form, 'highlightsPrompt'),
+                      }),
+                }
+              : {}),
+            ...(form.has('budgetTolerancePercent')
+              ? { budgetTolerancePercent: Number(text(form, 'budgetTolerancePercent')) }
+              : {}),
+            ...(form.has('maxItems') ? { maxItems: Number(text(form, 'maxItems')) } : {}),
+            ...(form.has('briefTitleMaxLength')
+              ? { briefTitleMaxLength: Number(text(form, 'briefTitleMaxLength')) }
+              : {}),
+          }
+        : {}),
+      ...(['ratings', 'all'].includes(section)
+        ? {
+            ratingRules: JSON.parse(text(form, 'ratingRules')),
+            ratingRelaxationEnabled: form.has('ratingRelaxationEnabled'),
+            ratingRelaxationMaxDrop: Number(text(form, 'ratingRelaxationMaxDrop')),
+            candidateRating: Number(text(form, 'candidateRating')),
+            highlightRating: Number(text(form, 'highlightRating')),
+          }
+        : {}),
+      ...(['content', 'all'].includes(section)
+        ? {
+            editorialPrompt: text(form, 'editorialPrompt'),
+            ...(section === 'content' ? { reviewEnabled: form.has('reviewEnabled') } : {}),
+          }
+        : {}),
     });
   });
 }
-export async function settingsAction(form: FormData) {
-  await perform('/admin/settings', async () =>
-    saveSettings({
-      ...(await getSettings()),
-      taskRetryLimit: Number(text(form, 'taskRetryLimit') || 0),
-      processingConcurrency: Number(text(form, 'processingConcurrency') || 3),
+export async function publicationSettingsAction(form: FormData) {
+  await perform('/admin/publications', () =>
+    saveSettingsPatch({
       autoPublish: form.has('autoPublish'),
-      collectionEnabled: form.has('collectionEnabled'),
-      briefTitleMaxLength: Number(text(form, 'briefTitleMaxLength') || 36),
-      financeSummaryMaxLength: Number(text(form, 'financeSummaryMaxLength') || 140),
-      financeOverviewMaxLength: Number(text(form, 'financeOverviewMaxLength') || 120),
-      briefLengthTolerancePercent: Number(text(form, 'briefLengthTolerancePercent') || 10),
-      weeklyDay: Number(text(form, 'weeklyDay') || 1),
-      monthlyDay: Number(text(form, 'monthlyDay') || 1),
-      startDate: text(form, 'startDate'),
-      weeklyTime: '08:00',
-      monthlyTime: '08:00',
-      reviewEnabled: form.has('reviewEnabled'),
-      processingModel: text(form, 'processingModel'),
-      reviewModel: text(form, 'reviewModel'),
-      briefModel: text(form, 'briefModel'),
-      modelDailyLimit: Number(text(form, 'modelDailyLimit')),
-      dailyTime: '08:00',
       dailyEnabled: form.has('dailyEnabled'),
-      weeklyEnabled: false,
-      monthlyEnabled: false,
-      maxItems: Number(text(form, 'maxItems')),
+      startDate: text(form, 'startDate'),
     }),
   );
 }
+export async function taskSettingsAction(form: FormData) {
+  await perform('/admin/articles', () =>
+    saveSettingsPatch({
+      taskRetryLimit: Number(text(form, 'taskRetryLimit')),
+      processingConcurrency: Number(text(form, 'processingConcurrency')),
+    }),
+  );
+}
+export async function systemSettingsAction(form: FormData) {
+  await perform('/admin/settings', () =>
+    saveSettingsPatch({ modelDailyLimit: Number(text(form, 'modelDailyLimit')) }),
+  );
+}
+export async function globalSwitchAction(_previous: { error: string } | null, form: FormData) {
+  await requireAdmin();
+  try {
+    const setting = z.enum(['collectionEnabled', 'deliveryEnabled']).parse(text(form, 'setting'));
+    await saveSettingsPatch({ [setting]: text(form, 'enabled') === 'true' });
+    revalidatePath('/', 'layout');
+    return null;
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : '保存失败' };
+  }
+}
 export async function generateAction(form: FormData) {
-  await perform('/admin', async () => {
+  await perform('/admin/publications', async () => {
     const kind = kindSchema.parse(text(form, 'kind'));
-    if (kind !== 'daily') throw new Error('目前只生成AI日报');
+    if (kind !== 'daily') throw new Error('目前只生成数智参阅');
     const date = text(form, 'date');
     if (!validDate(date)) throw new Error('日期格式有误');
     const { getSettings } = await import('../server/settings.ts');
@@ -217,7 +257,7 @@ export async function generateAction(form: FormData) {
   });
 }
 export async function publishAction(form: FormData) {
-  await perform('/admin', async () => {
+  await perform('/admin/publications', async () => {
     await publishBrief(z.uuid().parse(text(form, 'id')));
   });
 }
@@ -242,25 +282,32 @@ export async function retryAction(form: FormData) {
     await retryJob(queue, id);
   });
 }
+export async function requestSubscriptionAction(
+  _previous: { status: 'sent' | 'error'; message?: string } | null,
+  form: FormData,
+): Promise<{ status: 'sent' | 'error'; message?: string }> {
+  if (text(form, 'website')) return { status: 'sent' };
+  try {
+    await requestSubscription({ email: text(form, 'email'), kinds: ['daily'] });
+    return { status: 'sent' };
+  } catch (error) {
+    return {
+      status: 'error',
+      message:
+        error instanceof z.ZodError ? '请输入有效邮箱' : '确认邮件暂时无法发送，请稍后重试。',
+    };
+  }
+}
 export async function subscribeAction(form: FormData) {
   if (text(form, 'website')) redirect('/subscribe?registered=1');
-  let token: string | null = null;
   let error = '';
   try {
-    token = await subscribe({ email: text(form, 'email'), kinds: form.getAll('kinds') });
+    await requestSubscription({ email: text(form, 'email'), kinds: ['daily'] });
   } catch (e) {
     error =
-      e instanceof z.ZodError
-        ? '请输入有效邮箱，并选择至少一种简报'
-        : e instanceof Error
-          ? e.message
-          : '登记失败';
+      e instanceof z.ZodError ? '请输入有效邮箱' : e instanceof Error ? e.message : '登记失败';
   }
-  redirect(
-    error
-      ? `/subscribe?error=${encodeURIComponent(error)}`
-      : `/subscribe?registered=1${token ? `&token=${encodeURIComponent(token)}` : ''}`,
-  );
+  redirect(error ? `/subscribe?error=${encodeURIComponent(error)}` : '/subscribe?registered=1');
 }
 export async function unsubscribeAction(form: FormData) {
   await perform('/unsubscribe', async () => unsubscribe(text(form, 'token')), false);
@@ -275,13 +322,13 @@ export async function retryArticleAction(form: FormData) {
   await perform('/admin/articles', () => retryArticle(text(form, 'id')));
 }
 export async function backfillAction(form: FormData) {
-  await perform('/admin/settings', async () => {
+  await perform('/admin/backfill', async () => {
     const { getSettings } = await import('../server/settings.ts');
     const config = await getSettings();
     const kind = kindSchema.parse(text(form, 'kind')),
       from = text(form, 'from'),
       to = text(form, 'to');
-    if (kind !== 'daily') throw new Error('目前只补刊AI日报');
+    if (kind !== 'daily') throw new Error('目前只补刊数智参阅');
     if (!form.has('confirmed')) throw new Error('请先确认补刊期数和潜在调用量');
     if (from < config.startDate || to > localDate())
       throw new Error('补刊范围须在起刊日期与今天之间');
@@ -308,9 +355,9 @@ export async function previewGenerateAction(form: FormData) {
   const kind = kindSchema.safeParse(text(form, 'kind')),
     date = text(form, 'date');
   if (!kind.success || !validDate(date))
-    redirect('/admin?error=' + encodeURIComponent('类型或日期无效'));
+    redirect('/admin/publications?error=' + encodeURIComponent('类型或日期无效'));
   redirect(
-    '/admin?' +
+    '/admin/publications?' +
       new URLSearchParams({
         preview: '1',
         kind: kind.data,
@@ -357,9 +404,8 @@ export async function addSubscriberAction(form: FormData) {
 }
 
 export async function retentionSettingsAction(form: FormData) {
-  await perform('/admin/retention', async () =>
-    saveSettings({
-      ...(await getSettings()),
+  await perform('/admin/settings', async () =>
+    saveSettingsPatch({
       retentionEnabled: form.has('retentionEnabled'),
       newsRetentionDays: Number(text(form, 'newsRetentionDays')),
       taskRetentionDays: Number(text(form, 'taskRetentionDays')),
@@ -382,6 +428,6 @@ export async function cleanupRetentionAction() {
     notice = error instanceof Error ? error.message : '清理失败';
   }
   redirect(
-    `/admin/retention?${failed ? 'error' : 'notice'}=${encodeURIComponent(notice)}&event=${crypto.randomUUID()}`,
+    `/admin/settings?${failed ? 'error' : 'notice'}=${encodeURIComponent(notice)}&event=${crypto.randomUUID()}`,
   );
 }

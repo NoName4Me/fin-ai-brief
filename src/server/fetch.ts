@@ -2,7 +2,7 @@ import { pool } from './db.ts';
 import { reserveHost } from './source-rhythm.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import { sourceRequestUrl, sourceRequestOptions } from './source-access.ts';
-import { structuredRequestOptions } from './structured-sources.ts';
+import { structuredRequestOptions, type StructuredRequestContext } from './structured-sources.ts';
 import { lookup } from 'node:dns/promises';
 import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 import { isIP } from 'node:net';
@@ -63,6 +63,7 @@ export type SourceFetchOptions = {
   headers?: Record<string, string>;
   etag?: string | null;
   onHeaders?: (headers: SourceHeaders) => void;
+  structuredContext?: StructuredRequestContext;
 };
 export class SourceHttpError extends Error {
   constructor(
@@ -74,7 +75,10 @@ export class SourceHttpError extends Error {
 }
 export async function fetchSource(input: string, options: SourceFetchOptions = {}) {
   let next = sourceRequestUrl(input);
-  const plan = { ...structuredRequestOptions(input), ...sourceRequestOptions(input) };
+  const plan = {
+    ...structuredRequestOptions(input, options.structuredContext),
+    ...sourceRequestOptions(input),
+  };
   let method = options.method ?? plan.method ?? 'GET';
   let requestBody = options.body ?? plan.body;
   const origin = new URL(input).origin;
@@ -98,8 +102,8 @@ export async function fetchSource(input: string, options: SourceFetchOptions = {
               ? { secureOptions: constants.SSL_OP_LEGACY_SERVER_CONNECT }
               : {}),
             headers: {
-              ...(url.origin === origin ? { ...plan.headers, ...options.headers } : {}),
               'User-Agent': 'FinAiBrief/1.0',
+              ...(url.origin === origin ? { ...plan.headers, ...options.headers } : {}),
               'Accept-Encoding': 'gzip, br',
               ...(options.etag ? { 'If-None-Match': options.etag } : {}),
               Accept:

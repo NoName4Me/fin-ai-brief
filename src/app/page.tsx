@@ -23,7 +23,7 @@ export default async function Home({
         />
       ) : (
         <Empty>
-          <h1>AI日报</h1>
+          <h1>数智参阅</h1>
           <p>本类型尚无正式简报。发布后会在这里展示。</p>
         </Empty>
       )}

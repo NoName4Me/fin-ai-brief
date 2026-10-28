@@ -20,7 +20,7 @@ export default async function Archive({
         <div className="view-header">
           <div>
             <h1>历史日报</h1>
-            <p>按日期查阅已发布的AI日报。</p>
+            <p>按日期查阅已发布的数智参阅。</p>
           </div>
           <span className="eyeline">共{filtered.length}期</span>
         </div>

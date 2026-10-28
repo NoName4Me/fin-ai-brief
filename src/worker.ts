@@ -103,7 +103,7 @@ async function tick() {
         await enqueue('generate', period, `${period.kind}:${period.date}`);
     }
   }
-  if (process.env.MAIL_ENABLED === 'true') {
+  if (process.env.MAIL_ENABLED === 'true' && config.deliveryEnabled) {
     const pending = await db
       .select()
       .from(deliveries)
@@ -132,7 +132,7 @@ const dispatcher = setInterval(() => {
       dispatching = false;
     });
 }, 5000);
-console.log('AI日报 Worker 已启动；采集、模型与发信遵循本地开关。');
+console.log('数智参阅 Worker 已启动；采集、模型与发信遵循本地开关。');
 let stopping = false;
 async function stop() {
   if (stopping) return;

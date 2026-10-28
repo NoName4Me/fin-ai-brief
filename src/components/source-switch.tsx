@@ -22,6 +22,7 @@ export function SourceSwitch({
         role="switch"
         aria-checked={enabled}
         aria-label={`启用${name}`}
+        aria-busy={pending}
         disabled={pending || (!enabled && !canEnable)}
         className="source-switch"
         title={
@@ -34,9 +35,6 @@ export function SourceSwitch({
       >
         <span />
       </button>
-      <span className="source-toggle-label">
-        {pending ? '保存中' : enabled ? '已启用' : '已关闭'}
-      </span>
       {result?.error && (
         <p role="alert" className="source-toggle-error">
           {result.error}

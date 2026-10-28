@@ -148,7 +148,7 @@ export function PeriodBrief({
               </ol>
             </section>
           )}
-          <PublicationFooter kind={kind} content={content} />
+          <PublicationFooter />
         </article>
       </div>
       <BriefContext content={content} industries={industries} />

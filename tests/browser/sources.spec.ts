@@ -22,6 +22,7 @@ test('候选无入口也可新增，多栏目可编辑为通用，新来源默�
     await page.screenshot({ path: '.data/source-add-dialog-mobile.png' });
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
+    await expect(page).not.toHaveURL(/add=1/);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole('link', { name: '添加信源', exact: true }).click();
     await expect(dialog).toBeVisible();

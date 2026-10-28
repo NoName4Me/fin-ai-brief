@@ -100,10 +100,35 @@ export async function executeTask<T>(
         : name === 'generate'
           ? `brief:${data.kind}:${data.date}`
           : `delivery:${data.id}`;
+  const job = await pool.query<{ retry_count: number; retry_limit: number }>(
+    'SELECT retry_count,retry_limit FROM pgboss.job WHERE id=$1',
+    [id],
+  );
+  const retryCount = job.rows[0]?.retry_count ?? 0;
+  const retryKey = retryCount > 0 ? `job:${id}:retry:${retryCount}` : null;
+  if (retryKey)
+    await pool.query(
+      `INSERT INTO processing_steps(subject,run_key,stage,state)
+      VALUES($1,$2,'retry','running')
+      ON CONFLICT(subject,run_key,stage) DO UPDATE
+      SET state='running',started_at=now(),finished_at=NULL,error=NULL`,
+      [subject, retryKey],
+    );
   try {
-    return await stage(subject, `job:${id}`, 'task', run);
+    const result = await stage(subject, `job:${id}`, 'task', run);
+    if (retryKey)
+      await pool.query(
+        "UPDATE processing_steps SET state='succeeded',finished_at=now() WHERE subject=$1 AND run_key=$2 AND stage='retry'",
+        [subject, retryKey],
+      );
+    return result;
   } catch (error) {
     if (error instanceof BudgetWait) {
+      if (retryKey)
+        await pool.query(
+          "UPDATE processing_steps SET state='waiting',finished_at=now() WHERE subject=$1 AND run_key=$2 AND stage='retry'",
+          [subject, retryKey],
+        );
       await pool.query("UPDATE processing_steps SET result=$2 WHERE run_key=$1 AND stage='task'", [
         `job:${id}`,
         JSON.stringify({ budgetKey: await budgetKey() }),
@@ -111,14 +136,18 @@ export async function executeTask<T>(
       return { waitingBudget: true };
     }
     if (name === 'process') {
-      const job = await pool.query('SELECT retry_count,retry_limit FROM pgboss.job WHERE id=$1', [
-        id,
-      ]);
       if (job.rows.length && job.rows[0].retry_count >= job.rows[0].retry_limit)
         await pool.query("UPDATE articles SET state='failed' WHERE id=$1 AND state='pending'", [
           data.id,
         ]);
     }
+    const failureMessage =
+      error instanceof Error ? error.message.slice(0, 1000) : '自动重试失败';
+    if (retryKey)
+      await pool.query(
+        "UPDATE processing_steps SET state='failed',finished_at=now(),error=$3 WHERE subject=$1 AND run_key=$2 AND stage='retry'",
+        [subject, retryKey, failureMessage],
+      );
     throw error;
   }
 }

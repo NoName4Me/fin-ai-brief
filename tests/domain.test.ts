@@ -144,6 +144,62 @@ test('按配置调用 OpenAI 兼容接口，校验JSON及截断结果', async ()
     /HTTP 429/,
   );
 });
+test('结构校验失败时把具体错误反馈给模型，只自动修复一次并累计两次用量', async () => {
+  const config = {
+    baseUrl: 'http://127.0.0.1:3425/v1',
+    apiKey: 'different-key',
+    model: 'provider/custom-model',
+  };
+  const schema = z
+    .object({
+      assessment: z.record(z.string(), z.object({ score: z.number(), reason: z.string() })),
+      scoreReason: z.string(),
+    })
+    .strict();
+  const requests: {
+    messages: { role: string; content: string }[];
+  }[] = [];
+  const captures: number[] = [];
+  const fake: typeof fetch = async (_url, init) => {
+    requests.push(JSON.parse(String(init?.body)));
+    const content =
+      requests.length === 1
+        ? {
+            assessment: {
+              relevance: { score: 5, reason: '直接涉及AI' },
+              scoreReason: '评分字段嵌套错误',
+            },
+          }
+        : {
+            assessment: { relevance: { score: 5, reason: '直接涉及AI' } },
+            scoreReason: '评分字段嵌套错误',
+          };
+    return new Response(
+      JSON.stringify({
+        choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+    );
+  };
+  assert.deepEqual(
+    await requestModel('test', {}, schema, config, fake, 12000, async (_input, _output, _, n) => {
+      captures.push(n);
+    }),
+    {
+      value: {
+        assessment: { relevance: { score: 5, reason: '直接涉及AI' } },
+        scoreReason: '评分字段嵌套错误',
+      },
+      inputTokens: 20,
+      outputTokens: 10,
+    },
+  );
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].messages.length, 2);
+  assert.equal(requests[1].messages.length, 4);
+  assert.match(requests[1].messages[3].content, /assessment\.scoreReason/);
+  assert.deepEqual(captures, [1, 2]);
+});
 test('模型配置完全来自环境变量，缺失或不合法时拒绝调用', () => {
   const keys = ['LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL'] as const;
   const old = Object.fromEntries(keys.map((key) => [key, process.env[key]]));

@@ -1,7 +1,7 @@
 import { kindNames, type BriefContent, type Kind } from './types.ts';
-import { dateLabel, localDate, timeLabel } from './periods.ts';
+import { dateLabel, localDate } from './periods.ts';
 import { orderedSources, sourceName } from './source-presentation.ts';
-import { editionCalendar, sectionGroups, weekday } from './brief-presentation.ts';
+import { editionCalendar, sectionGroups, dailySections, weekday } from './brief-presentation.ts';
 import { displayRating } from './editorial.ts';
 function stars(value: number) {
   const rating = displayRating(value);
@@ -9,7 +9,7 @@ function stars(value: number) {
     const fill = Math.max(0, Math.min(1, rating - i));
     return `<span style="display:inline-block;position:relative;width:14px;color:#233c53;">☆<span style="position:absolute;left:0;top:0;display:inline-block;overflow:hidden;white-space:nowrap;width:${fill * 100}%;">★</span></span>`;
   }).join('');
-  return `<span aria-label="${rating}分，满分5分" style="font-size:13px;white-space:nowrap;">${icons} <span style="font-size:11px;color:#626967;">${rating}/5</span></span>`;
+  return `<span aria-label="${rating}分，满分5分" style="font-size:13px;white-space:nowrap;">${icons}</span>`;
 }
 export const escapeHtml = (value: string) =>
   value.replace(
@@ -57,8 +57,6 @@ export function renderEmail(
   const monthly = kind === 'monthly';
   const review = kind === 'weekly' && content.format === 'weekly-review-v1';
   const date = edition.date ?? localDate(new Date(content.rangeEnd));
-  const start = localDate(new Date(content.rangeStart));
-  const end = localDate(new Date(content.rangeEnd));
   const accent = '#233c53';
   const mark = editionCalendar(kind, date, content);
   const known = edition.industries ?? [];
@@ -84,13 +82,18 @@ export function renderEmail(
       (i) => content.overview[i.id] || content.items.some((item) => item.industryId === i.id),
     );
   const issue = edition.issueNumber ? `第${String(edition.issueNumber).padStart(3, '0')}期` : '';
-  const label = daily ? 'AI日报' : `AI日报·${kindNames[kind]}`;
+  const label = daily ? '数智参阅' : `数智参阅·${kindNames[kind]}`;
   const title = `<h1 class="email-title" style="margin:0;font:700 32px/1.55 ${font};color:${accent};letter-spacing:.5px">${escapeHtml(content.title)}</h1>`;
   const calendar = `${paragraph(mark.top, 'font-size:12px;')}${paragraph(mark.number, `font:900 56px/1.1 'Arial Black','Helvetica Neue',Arial,sans-serif;color:${accent};`)}${mark.detail ? paragraph(mark.detail, 'font-size:13px;margin-top:6px;') : ''}`;
-  const masthead = table(
-    `<tr><td class="email-heading" valign="middle" style="padding:12px 24px 24px 0;">${title}</td><td class="email-calendar" width="130" align="center" valign="middle" style="width:130px;padding:12px 0 24px;color:${muted}">${calendar}${paragraph(issue, 'font-size:13px;margin-top:6px;')}</td></tr>`,
-    `border-bottom:3px double ${accent};`,
-  );
+  const masthead = daily
+    ? table(
+        `<tr><td colspan="3" style="padding:12px 0 22px;">${title}</td></tr><tr><td width="33%" align="left" valign="middle" style="padding:0 8px 20px 0;font-size:12px;color:${muted};">${escapeHtml(dateLabel(date))}　${weekday(date).replace('周', '星期')}</td><td width="34%" align="center" valign="middle" style="padding:0 4px 20px;font-size:12px;color:${muted};">《${escapeHtml(label)}》${issue}</td><td width="33%" align="right" valign="middle" style="padding:0 0 20px 8px;font-size:12px;color:${muted};">主办：数智化转型办公室 AI工作组</td></tr>`,
+        `border-bottom:3px double ${accent};`,
+      )
+    : table(
+        `<tr><td class="email-heading" valign="middle" style="padding:12px 24px 24px 0;">${title}</td><td class="email-calendar" width="130" align="center" valign="middle" style="width:130px;padding:12px 0 24px;color:${muted}">${calendar}${paragraph(`《${escapeHtml(label)}》${issue}`, 'font-size:13px;margin-top:6px;')}</td></tr>`,
+        `border-bottom:3px double ${accent};`,
+      );
   const overviews = domains.filter((i) => content.overview[i.id]);
   const overviewCells = overviews.map(
     (industry) =>
@@ -98,7 +101,7 @@ export function renderEmail(
   );
   const overview = aiDaily
     ? (content.highlights?.length
-        ? `<div style="background:#eeece5;padding:20px;margin:22px 0 28px;"><h2 style="margin:0 0 12px;font-size:18px;color:${accent}">今日要览</h2>${content.highlights.map((h) => paragraph(`${escapeHtml(h.text)}　${stars(h.rating)}`, 'margin:8px 0;')).join('')}</div>`
+        ? `<div style="background:#eeede6;padding:22px 24px;margin:28px 0 40px;"><h2 style="margin:0 0 12px;font-size:15px;color:${accent}">${escapeHtml(content.highlightsTitle ?? '今日要览')}</h2>${table(content.highlights.map((h) => `<tr><td valign="top" style="padding:5px 12px 5px 0;font-size:14px;line-height:1.8;">${escapeHtml(h.text)}</td><td width="76" align="right" valign="top" style="width:76px;padding:5px 0;">${stars(h.rating)}</td></tr>`).join(''))}</div>`
         : '') + (content.note ? paragraph(escapeHtml(content.note), 'margin:24px 0;') : '')
     : `<div style="background:#eeece5;padding:20px 10px 10px;margin:22px 0 28px;">${table(monthly ? overviewCells.map((cell) => `<tr>${cell}</tr>`).join('') : `<tr>${overviewCells.join('')}</tr>`)}</div>`;
   function story(item: BriefContent['items'][number], lead: boolean) {
@@ -112,7 +115,14 @@ export function renderEmail(
       review && item.progress?.length
         ? `<div style="margin:18px 0 0;"><p style="margin:0 0 8px;font-size:13px;font-weight:700;color:${accent};">本周进展</p>${table(item.progress.map((node) => `<tr><td width="64" valign="top" style="width:64px;padding:7px 12px 7px 0;color:${muted};font-size:12px;">${escapeHtml(node.date.slice(5).replace('-', '.'))}${node.endDate ? `<br>—${escapeHtml(node.endDate.slice(5).replace('-', '.'))}` : ''}<br>报道</td><td valign="top" style="padding:7px 0;font-size:14px;line-height:1.9;color:#4b5053;">${escapeHtml(node.text)}${paragraph(node.sourceUrls.map((url, i) => `<a href="${escapeHtml(url)}" style="color:${accent};font-size:12px;">依据${i + 1}</a>`).join('　'), 'margin-top:3px;')}</td></tr>`).join(''))}</div>`
         : '';
-    return `<div style="padding:${lead ? '18px 0 22px' : '18px 0'};"><h3 style="margin:0 0 10px;font:700 ${lead ? '23' : '19'}px/1.7 ${font};color:${lead ? accent : '#2b3033'};">${escapeHtml(item.title)}</h3>${item.rating !== undefined ? stars(item.rating) : ''}${paragraph(summary(item), 'font-size:15px;line-height:2;color:#4b5053;')}${progress}${paragraph(sources, `font-size:12px;line-height:1.8;color:${muted};margin-top:12px;`)}</div>`;
+    const heading = `<h3 style="margin:0;font:600 ${aiDaily ? '21' : lead ? '23' : '19'}px/1.6 ${font};color:${aiDaily ? '#2b3033' : lead ? accent : '#2b3033'};">${escapeHtml(item.title)}</h3>`;
+    const rating = item.rating !== undefined ? stars(item.rating) : '';
+    const storyHeading = aiDaily
+      ? table(
+          `<tr><td class="email-story-heading" valign="top" style="padding-right:12px;">${heading}</td>${rating ? `<td class="email-story-rating" width="76" valign="top" align="right" style="width:76px;padding-top:3px;">${rating}</td>` : ''}</tr>`,
+        )
+      : heading + rating;
+    return `<div style="padding:24px 0;">${storyHeading}${paragraph(summary(item), 'margin-top:10px;font-size:15px;line-height:1.95;color:#4b5053;')}${progress}${paragraph(sources, `font-size:12px;line-height:1.8;color:${muted};margin-top:12px;`)}</div>`;
   }
   function pair(items: BriefContent['items']) {
     return table(
@@ -120,46 +130,45 @@ export function renderEmail(
       'border-top:1px solid #d7d6cf;',
     );
   }
+  const renderGroup = (group: { name: string; items: BriefContent['items'] }) => {
+    const entries = group.items;
+    let body = story(entries[0], true);
+    if (aiDaily) {
+      body += entries
+        .slice(1)
+        .map((item) => `<div style="border-top:1px solid #d7d6cf;">${story(item, false)}</div>`)
+        .join('');
+    } else if (daily) {
+      if (entries.length > 1) body += pair(entries.slice(1, 3));
+      body += entries
+        .slice(3)
+        .map((item) => `<div style="border-top:1px solid #d7d6cf;">${story(item, false)}</div>`)
+        .join('');
+    } else if (monthly) {
+      for (let i = 1; i < entries.length; i += 2) body += pair(entries.slice(i, i + 2));
+    } else
+      body += entries
+        .slice(1)
+        .map((item) => `<div style="border-top:1px solid #d7d6cf;">${story(item, false)}</div>`)
+        .join('');
+    return `<div style="margin-top:40px;">${paragraph(escapeHtml(group.name), `font-size:17px;font-weight:600;color:${accent};padding-bottom:12px;border-bottom:1px solid #d7d6cf;`)}${body}</div>`;
+  };
   const chapters = domains
     .map((industry) => {
       const items = content.items.filter((i) => i.industryId === industry.id);
       if (!items.length) return '';
-      const stories = sectionGroups(items, industry.sections)
-        .map((group) => {
-          const entries = group.items;
-          let body = story(entries[0], true);
-          if (daily) {
-            if (entries.length > 1) body += pair(entries.slice(1, 3));
-            body += entries
-              .slice(3)
-              .map(
-                (item) => `<div style="border-top:1px solid #d7d6cf;">${story(item, false)}</div>`,
-              )
-              .join('');
-          } else if (monthly) {
-            for (let i = 1; i < entries.length; i += 2) body += pair(entries.slice(i, i + 2));
-          } else
-            body += entries
-              .slice(1)
-              .map(
-                (item) => `<div style="border-top:1px solid #d7d6cf;">${story(item, false)}</div>`,
-              )
-              .join('');
-          return `<div style="margin-top:22px;">${paragraph(escapeHtml(group.name), `font-size:16px;font-weight:700;color:${accent};`)}${body}</div>`;
-        })
-        .join('');
+      const stories = sectionGroups(items, industry.sections).map(renderGroup).join('');
       return `<div style="margin:30px 0;">${aiDaily ? '' : table(`<tr><td style="padding-bottom:14px;"><h2 style="margin:0;color:${accent};font-size:22px;line-height:1.5;">${escapeHtml(industry.name)}要情</h2>${paragraph(escapeHtml(industry.sections.join(' / ')), `font-size:12px;color:${muted};margin-top:5px;`)}</td><td width="65" align="right" style="width:65px;color:${muted};font-size:12px;">${daily ? '本版' : ''}${items.length}条</td></tr>`, `border-bottom:1px solid ${accent};`)}${stories}</div>`;
     })
     .join('');
-  const rotationMarkup = (content.rotations ?? [])
-    .map(
-      (r) =>
-        `<div style="margin:30px 0;"><h2 style="font-size:20px;color:${accent};">${escapeHtml(r.name)}</h2>${paragraph(escapeHtml(r.text).replace(/\n/g, '<br>'), 'line-height:2;')}${paragraph(r.sources.map((source) => `<a href="${escapeHtml(source.url)}" style="color:${accent}">${escapeHtml(source.name)}</a>`).join(' / '), 'margin-top:12px;font-size:12px;')}</div>`,
-    )
-    .join('');
-  const range = daily
-    ? `${dateLabel(content.rangeStart)} ${timeLabel(content.rangeStart)}—${dateLabel(content.rangeEnd)} ${timeLabel(content.rangeEnd)}（北京时间）`
-    : `${dateLabel(start)} — ${dateLabel(end)}`;
+  const renderRotation = (r: NonNullable<BriefContent['rotations']>[number]) =>
+    `<div style="margin:30px 0;"><h2 style="font-size:20px;color:${accent};">${escapeHtml(r.name)}</h2>${paragraph(escapeHtml(r.text).replace(/\n/g, '<br>'), 'line-height:2;')}${paragraph(r.sources.map((source) => `<a href="${escapeHtml(source.url)}" style="color:${accent}">${escapeHtml(source.name)}</a>`).join(' / '), 'margin-top:12px;font-size:12px;')}</div>`;
+  const rotationMarkup = (content.rotations ?? []).map(renderRotation).join('');
+  const bodySections = aiDaily
+    ? dailySections(content)
+        .map((group) => (group.kind === 'fixed' ? renderGroup(group) : renderRotation(group)))
+        .join('')
+    : chapters + rotationMarkup;
   const timeline =
     daily || review
       ? ''
@@ -181,8 +190,8 @@ export function renderEmail(
             .join(''),
         )}</div>`;
   const footer = table(
-    `<tr><td width="31%" style="width:31%;padding:14px 0;font-size:13px;font-weight:700;color:${accent};white-space:nowrap;">${escapeHtml(label)}</td><td width="10%" align="center" style="width:10%;padding:14px 0;font-size:12px;color:${muted};white-space:nowrap;">本期完</td><td width="59%" align="right" style="width:59%;padding:14px 0;font-size:13px;color:${accent};white-space:nowrap;"><strong style="font-weight:600;">数智化转型办公室·智创组</strong>　<span style="color:${muted};">编制</span></td></tr>`,
-    `border-top:1px solid #d7d6cf;border-bottom:3px double ${accent};`,
+    `<tr><td align="center" style="padding:20px 0;color:${muted};font-size:12px;">本期完</td></tr>`,
+    `border-top:3px double ${accent};`,
   ).replace('<table ', '<table class="email-footer" ');
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(content.title)}</title><style>@media(max-width:600px){.email-footer td{font-size:10px!important;padding:12px 0!important}.email-paper{padding:20px 12px!important}.email-title{font-size:26px!important}.email-heading{display:block!important;width:100%!important;padding-right:0!important}.email-calendar{display:none!important}.email-date-compact{display:block!important}.email-stack{display:block!important;width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}}</style></head><body style="margin:0;padding:0;background:#f7f5ef;color:#2b3033;font:15px/1.9 ${font};">${table(`<tr><td align="center"><table role="presentation" align="center" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:1040px;margin:0 auto;border-collapse:collapse;table-layout:fixed;"><tr><td class="email-paper" style="padding:28px 28px;overflow-wrap:break-word;word-wrap:break-word;">${masthead}<div class="email-date-compact" style="display:none;padding:12px 0;color:${muted};font-size:12px;">${escapeHtml(daily ? `${dateLabel(date)}　${weekday(date).replace('周', '星期')}　${issue}` : `${range}　${issue}`)}</div>${overview}${chapters}${rotationMarkup}${timeline}${paragraph(`<a href="${escapeHtml(issueUrl)}" style="color:${accent};text-decoration:underline;">网页阅读</a>　<a href="${escapeHtml(cancelUrl)}" style="color:${accent};text-decoration:underline;">取消订阅</a>`, 'margin:24px 0 18px;font-size:12px;')}${footer}${paragraph(`统计范围：${escapeHtml(dateLabel(content.rangeStart))} ${escapeHtml(timeLabel(content.rangeStart))}—${escapeHtml(dateLabel(content.rangeEnd))} ${escapeHtml(timeLabel(content.rangeEnd))}（北京时间）。正文为来源摘要，原始资料与事实边界以所附来源为准。`, 'margin-top:10px;text-align:right;color:#74797b;font-size:11px;line-height:1.7;')}</td></tr></table></td></tr>`)}</body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(content.title)}</title><style>@media(max-width:600px){.email-story-heading,.email-story-rating{display:block!important;width:100%!important;padding-right:0!important;text-align:left!important}.email-story-rating{padding-top:6px!important}.email-footer td{font-size:10px!important;padding:12px 0!important}.email-paper{padding:20px 12px!important}.email-title{font-size:26px!important}.email-heading{display:block!important;width:100%!important;padding-right:0!important}.email-calendar{display:none!important}.email-date-compact{display:block!important}.email-stack{display:block!important;width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}}</style></head><body style="margin:0;padding:0;background:#f7f5ef;color:#2b3033;font:15px/1.9 ${font};">${table(`<tr><td align="center"><table role="presentation" align="center" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:960px;margin:0 auto;border-collapse:collapse;table-layout:fixed;"><tr><td class="email-paper" style="padding:28px 28px;overflow-wrap:break-word;word-wrap:break-word;">${masthead}${overview}${bodySections}${timeline}${paragraph(`<a href="${escapeHtml(issueUrl)}" style="color:${accent};text-decoration:underline;">网页阅读</a>　<a href="${escapeHtml(cancelUrl)}" style="color:${accent};text-decoration:underline;">取消订阅</a>`, 'margin:24px 0 18px;font-size:12px;')}${footer}</td></tr></table></td></tr>`)}</body></html>`;
 }

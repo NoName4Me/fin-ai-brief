@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from './db.ts';
-import { briefs, deliveries, subscriptions } from './schema.ts';
+import { briefs, deliveries, subscriptions, settings } from './schema.ts';
 import { requireMailConfig } from './mail-config.ts';
 
 const inputSchema = z.object({
@@ -15,6 +15,8 @@ export async function requestManualDelivery(input: unknown) {
   requireMailConfig();
   const ids = [...new Set(value.subscriptionIds)];
   return db.transaction(async (tx) => {
+    const [config] = await tx.select().from(settings).where(eq(settings.id, 1)).for('share');
+    if (config?.value.deliveryEnabled === false) throw new Error('推送已暂停，请先开启推送');
     const [brief] = await tx
       .select({ id: briefs.id })
       .from(briefs)

@@ -37,7 +37,11 @@
     ".data/next-browser/types/**/*.ts",
     ".data/next-browser/dev/types/**/*.ts",
     ".data/next-build/types/**/*.ts",
-    ".data/next-build/dev/types/**/*.ts"
+    ".data/next-build/dev/types/**/*.ts",
+    ".data/next-editorial-build/types/**/*.ts",
+    ".data/next-editorial-build/dev/types/**/*.ts",
+    ".data/next-subscribe-check/types/**/*.ts",
+    ".data/next-subscribe-check/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

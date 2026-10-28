@@ -1,14 +1,10 @@
+import { redirect } from 'next/navigation';
 import { requireAdmin } from '../../../server/auth.ts';
-import { getSettings } from '../../../server/settings.ts';
-import { Notice, type Query } from '../../../components/notice.tsx';
-import { EditorialForm } from '../../../components/editorial-form.tsx';
-export default async function Editorial({ searchParams }: { searchParams: Promise<Query> }) {
+import type { Query } from '../../../components/notice.tsx';
+export default async function Page({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
-  const config = await getSettings();
-  return (
-    <>
-      <Notice query={await searchParams} />
-      <EditorialForm config={config} />
-    </>
-  );
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(await searchParams))
+    if (typeof value === 'string') query.set(key, value);
+  redirect(`/admin/editorial/columns${query.size ? `?${query}` : ''}`);
 }

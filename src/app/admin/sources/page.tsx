@@ -14,6 +14,7 @@ import { Notice, type Query } from '../../../components/notice.tsx';
 import { SourceSwitch } from '../../../components/source-switch.tsx';
 import { SourceFilters } from '../../../components/source-filters.tsx';
 import { SourceManagementDialog } from '../../../components/source-management-dialog.tsx';
+import { GlobalSwitch } from '../../../components/global-switch.tsx';
 import { getSettings } from '../../../server/settings.ts';
 import { verificationLabels } from '../../../server/source-config.ts';
 const formatLabels: Record<string, string> = {
@@ -148,7 +149,8 @@ function Fields({
 export default async function Sources({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
   const query = await searchParams;
-  const sections = (await getSettings()).sections.filter((s) => s.kind === 'fixed');
+  const config = await getSettings();
+  const sections = config.sections.filter((s) => s.kind === 'fixed');
   const rows = await db.select().from(sources).orderBy(asc(sources.createdAt), asc(sources.id));
   const selected = rows.find((row) => row.id === query.detail);
   const enabledFilter = query.enabled === 'true' || query.enabled === 'false' ? query.enabled : '';
@@ -185,13 +187,27 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
     <>
       <Notice query={query} />
       <div className="source-toolbar">
-        <Link
-          className="solid-button"
-          scroll={false}
-          href={`${listHref}${listQuery.size ? '&' : '?'}add=1`}
-        >
-          添加信源
-        </Link>
+        <SourceFilters
+          enabled={enabledFilter}
+          section={sectionFilter}
+          format={formatFilter}
+          sections={sections.map((s) => s.name)}
+          formats={formatLabels}
+        />
+        <div className="source-toolbar-actions">
+          <GlobalSwitch
+            setting="collectionEnabled"
+            label="自动采集"
+            enabled={config.collectionEnabled}
+          />
+          <Link
+            className="solid-button"
+            scroll={false}
+            href={`${listHref}${listQuery.size ? '&' : '?'}add=1`}
+          >
+            添加信源
+          </Link>
+        </div>
       </div>
       {query.add === '1' && !selected && (
         <SourceManagementDialog key="add" title="添加信源" closeHref={listHref}>
@@ -221,7 +237,7 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
             </p>
             {metric && (
               <p className="form-hint">
-                近30天采入{metric.total}篇，关联性淘汰{metric.ignored}篇，涉及跨源重复事件
+                近30天采入{metric.total}篇，关联性淘汰{metric.ignored}篇，涉及跨源共同报道事件
                 {metric.repeated}篇。
               </p>
             )}
@@ -264,13 +280,6 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
           </footer>
         </SourceManagementDialog>
       )}
-      <SourceFilters
-        enabled={enabledFilter}
-        section={sectionFilter}
-        format={formatFilter}
-        sections={sections.map((s) => s.name)}
-        formats={formatLabels}
-      />
       <p className="form-hint">
         {rows.length}个信源 · {rows.filter((s) => s.enabled).length}个启用
       </p>

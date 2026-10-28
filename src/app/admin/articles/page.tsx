@@ -1,11 +1,15 @@
 import Link from 'next/link';
+import { getSettings } from '../../../server/settings.ts';
+import { TaskSettingsForm } from '../../../components/settings-forms.tsx';
+import { SourceManagementDialog } from '../../../components/source-management-dialog.tsx';
 import { requireAdmin } from '../../../server/auth.ts';
-import { articleAction } from '../../actions.ts';
 import { Notice, type Query } from '../../../components/notice.tsx';
 import { taskOverview } from '../../../server/admin-tasks.ts';
-import { taskTypes } from '../../../server/task-labels.ts';
+import { taskTypes } from '../../../server/admin-task-labels.ts';
+import { BatchTaskRow } from '../../../components/batch-task-row.tsx';
 import { TaskRow } from '../../../components/task-row.tsx';
 import { Reprocessing } from '../../../components/reprocessing.tsx';
+import { ManualImport } from '../../../components/manual-import.tsx';
 export const metadata = { title: '任务管理' };
 export default async function Tasks({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
@@ -21,42 +25,53 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
     succeeded: '成功',
     failed: '失败',
     cancelled: '已取消',
+    generating: '生成日报中',
+    completed_with_errors: '完成，有失败项',
   };
   const state = typeof query.state === 'string' && query.state in states ? query.state : '';
-  const [tasks] = await Promise.all([taskOverview(q, type, state)]);
+  const [tasks, config] = await Promise.all([taskOverview(q, type, state), getSettings()]);
   const params = new URLSearchParams({ q, type, state });
   return (
     <>
       <Notice query={query} />
-      <Reprocessing selectedBatch={typeof query.batch === 'string' ? query.batch : undefined} />
-      <details className="task-import">
-        <summary>手工导入</summary>
-        <form action={articleAction} className="stack-form">
-          <label>
-            标题
-            <input name="title" required maxLength={500} />
-          </label>
-          <label>
-            原文链接
-            <input type="url" name="url" required />
-          </label>
-          <label>
-            来源名称
-            <input name="sourceName" required maxLength={200} />
-          </label>
-
-          <label>
-            发布时间（北京时间）
-            <input type="datetime-local" name="publishedAt" required />
-          </label>
-          <label>
-            摘要
-            <textarea name="excerpt" required maxLength={16000} rows={6} />
-          </label>
-          <button className="solid-button">导入资讯</button>
-        </form>
-      </details>
-
+      <div className="admin-page-actions task-management-actions">
+        <Link
+          className="outline-button"
+          href={`/admin/articles?${params}&configure=import`}
+          scroll={false}
+        >
+          手工录入资讯
+        </Link>
+        <Link
+          className="solid-button"
+          href={`/admin/articles?${params}&configure=reprocess`}
+          scroll={false}
+        >
+          批量重新处理
+        </Link>
+        <Link
+          className="outline-button"
+          href={`/admin/articles?${params}&configure=tasks`}
+          scroll={false}
+        >
+          任务处理配置
+        </Link>
+      </div>
+      {query.configure === 'import' && (
+        <SourceManagementDialog title="手工录入资讯" closeHref={`/admin/articles?${params}`}>
+          <ManualImport />
+        </SourceManagementDialog>
+      )}
+      {query.configure === 'tasks' && (
+        <SourceManagementDialog title="任务处理配置" closeHref={`/admin/articles?${params}`}>
+          <TaskSettingsForm config={config} />
+        </SourceManagementDialog>
+      )}
+      {query.configure === 'reprocess' && (
+        <SourceManagementDialog title="批量重新处理" closeHref={`/admin/articles?${params}`}>
+          <Reprocessing />
+        </SourceManagementDialog>
+      )}
       <form className="inline-form task-filters" aria-label="任务筛选">
         <label>
           任务类型
@@ -96,7 +111,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
         </Link>
       </form>
       <p className="form-hint">
-        最近100个匹配任务，按入队时间倒序排列。时间为北京时间，未执行的任务显示“未开始”。
+        最多100个匹配任务，进行中的批次置顶，其余最近任务在前。时间为北京时间。
       </p>
       <div className="table-wrap">
         <table className="managed-task-table" aria-label="任务列表">
@@ -110,9 +125,17 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
             </tr>
           </thead>
           <tbody>
-            {tasks.map((task) => (
-              <TaskRow key={task.id} task={task} />
-            ))}
+            {tasks.map((task) =>
+              task.queue === 'reprocess' ? (
+                <BatchTaskRow
+                  key={task.id}
+                  task={task}
+                  initiallyOpen={query.batch === task.target_id}
+                />
+              ) : (
+                <TaskRow key={task.id} task={task} />
+              ),
+            )}
           </tbody>
         </table>
       </div>

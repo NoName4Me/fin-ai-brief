@@ -49,15 +49,20 @@ export async function parseRssItems(text: string) {
     },
   }).parseString(text);
   return feed.items.slice(0, 100).flatMap((item) => {
-    const date = item.rawPubDate ?? item.rawPublished ?? item.rawUpdated ?? item.rawDate;
-    if (
-      !item.title ||
-      !item.link ||
-      !date ||
-      !/(Z|[+-]\d{2}:?\d{2}|GMT|UTC)$/i.test(date) ||
-      Number.isNaN(Date.parse(date))
-    )
-      return [];
+    const rawDate = (
+      item.rawPubDate ??
+      item.rawPublished ??
+      item.rawUpdated ??
+      item.rawDate
+    )?.trim();
+    if (!item.title || !item.link || !rawDate) return [];
+    // 未标注时区的来源时间统一按北京时间解释，与服务器所在时区无关。
+    const date = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/.test(rawDate)
+      ? `${rawDate.length === 10 ? `${rawDate}T00:00:00` : rawDate.replace(' ', 'T')}+08:00`
+      : /(?:Z|[+-]\d{2}:?\d{2}|[A-Z]{2,5})(?:\s*\([^)]*\))?$/i.test(rawDate)
+        ? rawDate
+        : `${rawDate} GMT+0800`;
+    if (Number.isNaN(Date.parse(date))) return [];
     return [
       {
         title: cleanText(item.title).slice(0, 500),
@@ -111,7 +116,8 @@ export async function collectSource(
   now = new Date(),
   options: { manual?: boolean } = {},
 ) {
-  if (!(await getSettings()).collectionEnabled && !options.manual) throw new Error('采集尚未开启');
+  const config = await getSettings();
+  if (!config.collectionEnabled && !options.manual) throw new Error('采集尚未开启');
   const [source] = await db.select().from(sources).where(eq(sources.id, id));
   if (!source?.enabled) throw new Error('信源已停用或不存在');
   if (!source.url || source.format === 'manual') throw new Error('信源尚无可用采集入口');
@@ -159,6 +165,7 @@ export async function collectSource(
     let etag: string | null = source.etag;
     const text = await fetcher(source.url, {
       etag: source.etag,
+      structuredContext: { now, dailyTime: config.dailyTime },
       onHeaders: (headers) => {
         etag = headers.etag;
       },

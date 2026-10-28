@@ -1,9 +1,15 @@
 import { z } from 'zod';
+import { isJianyuSearch, jianyuItems, jianyuRequestOptions, jianyuSearchUrl } from './jianyu.ts';
 export const cindaProcurementUrl =
   'https://www.cinda.com.cn/api/searcher/wtdf/json/searcher/acquisitionInfo';
 export const hfDailyPapersUrl = 'https://huggingface.co/api/daily_papers?limit=20';
+export { jianyuSearchUrl };
 // 这些入口是官方公开接口，但不是标准 RSS，也不是通用 JSON 数组，需要各自的字段映射。
-export function structuredKind(input: string): 'cinda-procurement' | 'hf-daily-papers' | null {
+export type StructuredRequestContext = { now: Date; dailyTime: string };
+export function structuredKind(
+  input: string,
+): 'cinda-procurement' | 'hf-daily-papers' | 'jianyu-search' | null {
+  if (isJianyuSearch(input)) return 'jianyu-search';
   let url: URL;
   try {
     url = new URL(input);
@@ -16,7 +22,9 @@ export function structuredKind(input: string): 'cinda-procurement' | 'hf-daily-p
     return 'hf-daily-papers';
   return null;
 }
-export function structuredRequestOptions(input: string) {
+export function structuredRequestOptions(input: string, context?: StructuredRequestContext) {
+  if (structuredKind(input) === 'jianyu-search')
+    return jianyuRequestOptions(context?.now ?? new Date(), context?.dailyTime ?? '08:00');
   if (structuredKind(input) !== 'cinda-procurement') return {};
   return {
     method: 'POST' as const,
@@ -42,6 +50,7 @@ type Item = {
 };
 export function structuredItems(input: string, text: string): Item[] {
   const kind = structuredKind(input);
+  if (kind === 'jianyu-search') return jianyuItems(text);
   if (kind === 'cinda-procurement') {
     const body = z
       .object({

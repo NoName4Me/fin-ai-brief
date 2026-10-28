@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cleanBriefTitle } from './brief-title.ts';
 import {
   aiScope,
   defaultKeywords,
@@ -69,20 +70,27 @@ export const briefItemSchema = z.object({
 });
 export const briefTitleSchema = z
   .string()
-  .trim()
-  .min(1)
-  .refine((value) => [...value].length <= 200, '本期标题不能超过200字');
+  .transform(cleanBriefTitle)
+  .pipe(
+    z
+      .string()
+      .trim()
+      .min(1)
+      .refine((value) => [...value].length <= 200, '本期标题不能超过200字'),
+  );
 export const briefContentSchema = z.object({
   format: z.enum(['weekly-review-v1', 'ai-daily-v1']).optional(),
+  sectionOrder: z.array(z.string().max(40)).max(30).optional(),
+  highlightsTitle: z.string().trim().min(1).max(40).optional(),
   highlights: z
     .array(
       z.object({
         eventId: z.uuid(),
-        text: z.string().min(1).max(30),
+        text: z.string().min(1).max(3000),
         rating: z.number().min(1).max(5),
       }),
     )
-    .max(5)
+    .max(10)
     .optional(),
   rotations: z
     .array(
@@ -99,10 +107,20 @@ export const briefContentSchema = z.object({
 });
 export type BriefContent = z.infer<typeof briefContentSchema>;
 export const settingsSchema = z.preprocess(
-  migrateEditorialSettings,
+  (input) => {
+    const migrated = migrateEditorialSettings(input);
+    if (!migrated || typeof migrated !== 'object') return migrated;
+    const value = migrated as Record<string, unknown>;
+    return {
+      ...value,
+      highlightsMinItems:
+        value.highlightsMinItems ?? Math.min(3, Number(value.highlightsMaxItems ?? 5)),
+    };
+  },
   z
     .object({
       editorialConfigVersion: z.literal(1).default(1),
+      internalColumnInitialized: z.boolean().default(true),
       ratingRules: z
         .array(ratingRuleSchema)
         .min(1)
@@ -113,6 +131,21 @@ export const settingsSchema = z.preprocess(
         .refine((v) => new Set(v.map((r) => r.name)).size === v.length, '评分指标名称不能重复'),
       candidateRating: z.number().min(1).max(5).default(3.5),
       highlightRating: z.number().min(1).max(5).default(4.3),
+      ratingRelaxationEnabled: z.boolean().default(false),
+      ratingRelaxationMaxDrop: z.number().min(0.1).max(1).default(0.3),
+      budgetTolerancePercent: z.number().int().min(0).max(50).default(10),
+      highlightsName: z.string().trim().min(1).max(40).default('今日要览'),
+      highlightsDeleted: z.boolean().default(false),
+      highlightsMinItems: z.number().int().min(0).max(10).default(3),
+      highlightsEnabled: z.boolean().default(true),
+      highlightsMaxItems: z.number().int().min(1).max(10).default(5),
+      highlightsBudget: z.number().int().min(1).max(2000).default(150),
+      highlightsPrompt: z
+        .string()
+        .max(2000)
+        .default(
+          '30秒读完今天最值得知道的事项，突出事实、影响与必要条件，不重复栏目标题，不增加材料之外的信息。',
+        ),
       sections: z
         .array(sectionRuleSchema)
         .min(1)
@@ -133,21 +166,8 @@ export const settingsSchema = z.preprocess(
             ),
           '栏目名称与历史名称冲突',
         ),
-      tags: z
-        .array(z.string().trim().min(1).max(40))
-        .max(100)
-        .default([
-          '金融',
-          'AMC',
-          '银行',
-          '保险',
-          '证券',
-          '智能体',
-          '大模型',
-          '数据安全',
-          '采购',
-          '开源',
-        ]),
+      // Read old settings without offering or generating new tags.
+      tags: z.array(z.string().trim().min(1).max(40)).max(100).default([]),
       keywords: z.string().max(6000).default(defaultKeywords),
       rotationAnchor: z.iso.date().default('2026-10-26'),
       rotationsEnabled: z.boolean().default(true),
@@ -158,6 +178,7 @@ export const settingsSchema = z.preprocess(
       taskRetryLimit: z.number().int().min(0).max(3).default(1),
       processingConcurrency: z.number().int().min(1).max(20).default(3),
       collectionEnabled: z.boolean().default(false),
+      deliveryEnabled: z.boolean().default(true),
       financeSummaryMaxLength: z.number().int().min(1).max(1000).default(140),
       financeOverviewMaxLength: z.number().int().min(1).max(1000).default(120),
       briefLengthTolerancePercent: z.number().int().min(0).max(50).default(10),
@@ -189,16 +210,42 @@ export const settingsSchema = z.preprocess(
       minScore: z.number().int().min(0).max(100),
       editorialPrompt: z.string().max(6000),
     })
-    .refine((v) => v.highlightRating >= v.candidateRating, '要览门槛不能低于日报候选门槛'),
+    .refine((v) => v.highlightRating >= v.candidateRating, '要览门槛不能低于日报候选门槛')
+    .refine((v) => v.highlightsMinItems <= v.highlightsMaxItems, '要览条数下限不能大于上限')
+    .refine(
+      (v) => v.highlightsDeleted || !v.sections.some((s) => s.name === v.highlightsName),
+      '栏目名称不能重复',
+    )
+    .transform((v) => ({
+      ...v,
+      rotationAnchor: v.startDate,
+      sections: v.sections.map((s) =>
+        s.kind === 'rotation'
+          ? { ...s, anchorDate: v.startDate, lookbackDays: s.intervalWeeks * 7 }
+          : s,
+      ),
+    })),
 );
 export type Settings = z.infer<typeof settingsSchema>;
 export const defaultSettings: Settings = {
   editorialConfigVersion: 1,
+  internalColumnInitialized: true,
   sections: defaultColumns,
   ratingRules: defaultRatingRules,
   candidateRating: 3.5,
   highlightRating: 4.3,
-  tags: ['金融', 'AMC', '银行', '保险', '证券', '智能体', '大模型', '数据安全', '采购', '开源'],
+  ratingRelaxationEnabled: false,
+  ratingRelaxationMaxDrop: 0.3,
+  budgetTolerancePercent: 10,
+  highlightsName: '今日要览',
+  highlightsDeleted: false,
+  highlightsMinItems: 3,
+  highlightsEnabled: true,
+  highlightsMaxItems: 5,
+  highlightsBudget: 150,
+  highlightsPrompt:
+    '30秒读完今天最值得知道的事项，突出事实、影响与必要条件，不重复栏目标题，不增加材料之外的信息。',
+  tags: [],
   keywords: defaultKeywords,
   rotationAnchor: '2026-10-26',
   rotationsEnabled: true,
@@ -215,6 +262,7 @@ export const defaultSettings: Settings = {
   weeklyDay: 1,
   monthlyDay: 1,
   collectionEnabled: false,
+  deliveryEnabled: true,
   startDate: new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10),
   reviewEnabled: true,
   processingModel: '',

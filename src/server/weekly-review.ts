@@ -9,6 +9,7 @@ import {
   fixedSections,
   type SectionRule,
   type RatingRule,
+  evidenceMatches,
 } from './editorial.ts';
 import type { BriefContent } from './types.ts';
 
@@ -238,7 +239,7 @@ export function weeklyProgress(
           .array()
           .parse(d.facts)
           .map((fact) => {
-            if (!fact.evidence || !article.excerpt.includes(fact.evidence))
+            if (!fact.evidence || !evidenceMatches(article.excerpt, fact.evidence))
               throw new Error('周报进展依据不在来源摘要中');
             return {
               sourceUrl: article.url,

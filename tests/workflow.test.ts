@@ -183,7 +183,8 @@ test('无效事件引用拒绝写入；模型回执保留token数', async () => 
   await assert.rejects(() => generateBrief('daily', '2026-10-22'), /无效或重复/);
   assert.equal((await db.select().from(briefs)).length, 0);
   const calls = await db.select().from(modelCalls);
-  assert.equal(calls[0].inputTokens, 5);
+  assert.equal(calls[0].inputTokens, 10);
+  assert.equal(calls[0].apiAttempts, 2);
 });
 test('付费调用开关和每日额度在请求前生效', async () => {
   let called = 0;
@@ -455,12 +456,50 @@ test('事实必须引用真实摘要片段，拒绝证据外推并保留失败�
     'pending',
   );
   const calls = await pool.query(
-    'SELECT state,response,input_tokens FROM model_calls WHERE subject=$1',
+    'SELECT state,response,input_tokens,api_attempts FROM model_calls WHERE subject=$1',
     [`article:${row.id}`],
   );
   assert.equal(calls.rows[0].state, 'failed');
-  assert.equal(calls.rows[0].input_tokens, 30);
+  assert.equal(calls.rows[0].input_tokens, 60);
+  assert.equal(calls.rows[0].api_attempts, 2);
   assert.ok(calls.rows[0].response);
+});
+test('评分总述误放进assessment时自动归位，证据比对允许排版差异', async () => {
+  await saveSettings({ ...(await getSettings()), reviewEnabled: false });
+  const [row] = await importArticle({
+    title: '监管试点',
+    url: 'https://example.invalid/repair-assessment',
+    excerpt: '机构公布试点计划，明确分阶段实施。',
+    sourceName: '本地测试',
+    industryId: 'ai',
+    publishedAt: '2026-10-22T07:00:00+08:00',
+  });
+  globalThis.fetch = async () =>
+    modelReply({
+      relevant: true,
+      title: '监管试点计划',
+      summary: '机构公布分阶段实施的试点计划。',
+      section: '行业监管',
+      assessment: {
+        ...testAssessment,
+        scoreReason: '材料给出了明确的实施阶段',
+      },
+      tags: [],
+      existingEventId: null,
+      facts: [
+        {
+          statement: '机构公布分阶段实施的试点计划',
+          evidence: '机构公布 试点计划明确分阶段实施',
+          status: 'announced',
+          entities: ['机构'],
+        },
+      ],
+    });
+  await processArticle(row.id);
+  const [saved] = await db.select().from(articles).where(eq(articles.id, row.id));
+  assert.equal(saved.state, 'processed');
+  assert.equal(saved.scoreReason, '材料给出了明确的实施阶段');
+  assert.equal(saved.assessment?.scoreReason, undefined);
 });
 test('复核失败后仅重试复核，主处理结果复用；不同意合并则保留独立低分原文', async () => {
   const excerpt = '机构公布试点计划。';
@@ -872,18 +911,18 @@ test('压缩失败后重试复用初稿，修正成功前不落库或发布', as
   globalThis.fetch = async () => {
     calls++;
     if (calls === 1) return modelReply(content);
-    return modelReply({
-      segments: [{ id: `summary:${ids[0]}`, text: calls === 2 ? '金'.repeat(155) : '完成压缩' }],
-    });
+    if (calls === 2 || calls === 3)
+      return modelReply({ segments: [{ id: `summary:${ids[0]}`, text: '金'.repeat(155) }] });
+    return modelReply({ segments: [{ id: `summary:${ids[0]}`, text: '完成压缩' }] });
   };
   await assert.rejects(generateBrief('daily', '2026-10-22'), /155.*154/);
   assert.equal((await db.select().from(briefs)).length, 0);
   const { previewLegacyBrief: previewBrief } = await import('../src/server/briefs.ts');
   assert.equal((await previewBrief('daily', '2026-10-22')).cached, false);
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   const saved = await generateBrief('daily', '2026-10-22');
   assert.equal((await previewBrief('daily', '2026-10-22')).cached, true);
-  assert.equal(calls, 3);
+  assert.equal(calls, 4);
   assert.equal(saved.draft!.items[0].summary, '完成压缩');
   const log = await pool.query('SELECT reused_count FROM model_calls ORDER BY created_at LIMIT 1');
   assert.equal(log.rows[0].reused_count, 1);

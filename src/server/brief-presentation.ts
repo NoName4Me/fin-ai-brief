@@ -47,6 +47,21 @@ export function sectionGroups(items: BriefContent['items'], sections: string[]) 
     .filter((group) => group.items.length);
 }
 
+export function dailySections(content: BriefContent) {
+  const fixed = sectionGroups(content.items, []).map((group) => ({
+    ...group,
+    kind: 'fixed' as const,
+  }));
+  const rotations = (content.rotations ?? []).map((group) => ({
+    ...group,
+    kind: 'rotation' as const,
+  }));
+  const sections = [...fixed, ...rotations];
+  if (!content.sectionOrder) return sections;
+  const order = new Map(content.sectionOrder.map((name, index) => [name, index]));
+  return sections.sort((a, b) => (order.get(a.name) ?? 1000) - (order.get(b.name) ?? 1000));
+}
+
 export function editionCalendar(kind: Kind, date: string, content: BriefContent) {
   const start = localDate(new Date(content.rangeStart));
   // 周刊范围是左闭右开；日期标记展示范围内完整日期，周次按最后一天的ISO周计算。

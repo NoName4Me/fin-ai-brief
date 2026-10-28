@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { Pool } from 'pg';
 import { PgBoss } from 'pg-boss';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, createHash, createHmac } from 'node:crypto';
 async function login(page: import('@playwright/test').Page) {
   await page.goto('/login');
   await page.getByLabel('管理员密码').fill(process.env.ADMIN_PASSWORD!);
@@ -12,49 +12,81 @@ test('匿名管理访问被拦截，审核开关与额度可以保存', async ({
   await page.goto('/admin/editorial');
   await expect(page).toHaveURL(/\/login/);
   await login(page);
-  await page.getByRole('link', { name: '栏目与选题', exact: true }).click();
+  await page.getByText('编辑规则', { exact: true }).click();
+  await page.getByRole('link', { name: '栏目与篇幅', exact: true }).click();
   await expect(page.getByLabel('政策与监管字数预算')).toHaveValue('250');
-  await expect(page.getByLabel('关键词监控')).toBeVisible();
+  await expect(page.locator('textarea[name="keywords"]')).toHaveCount(0);
   await expect(page.getByLabel('行业', { exact: true })).toHaveCount(0);
-  await page.getByRole('link', { name: '出刊设置', exact: true }).click();
+  await page.goto('/admin/publications?configure=publication');
   const auto = page.getByLabel('生成成功后直接发布');
   const prior = await auto.isChecked();
-  const limit = page.getByLabel('每日调用次数上限');
-  const previous = await limit.inputValue();
+  await expect(page.getByLabel('每日调用次数上限')).toHaveCount(0);
   const db = new Pool({ connectionString: process.env.DATABASE_URL });
   const old = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
   try {
     await auto.setChecked(!prior);
-    await limit.fill('99');
-    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await page.getByRole('button', { name: '保存出刊设置', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
+    await page.goto('/admin/publications?configure=publication');
     await expect(auto).toBeChecked({ checked: !prior });
-    await expect(limit).toHaveValue('99');
+
     await expect(page.getByLabel('截稿时间（北京时间）')).toHaveValue('08:00');
     await expect(page.getByLabel('周报出刊日', { exact: true })).toHaveCount(0);
-    expect(previous).toBeTruthy();
+    await page.goto('/admin/settings');
+    const limit = page.getByLabel('每日调用次数上限');
+    await limit.fill('99');
+    await page.getByRole('button', { name: '保存模型额度', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('操作已完成');
+    await page.reload();
+    await expect(limit).toHaveValue('99');
+    expect(
+      (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value.autoPublish,
+    ).toBe(!prior);
   } finally {
     await db.query('UPDATE settings SET value=$1 WHERE id=1', [old]);
     await db.end();
   }
 });
-test('订阅只提供AI日报，登记退订与删除可完成', async ({ page }) => {
+test('用户端需确认邮箱，确认后可退订与删除', async ({ page }) => {
   const email = `browser-${Date.now()}@example.invalid`;
-  await page.goto('/subscribe');
-  await expect(page.getByLabel('周报', { exact: true })).toHaveCount(0);
-  await page.getByLabel('邮箱地址').fill(email);
-  await page.getByRole('button', { name: '登记订阅' }).click();
-  await expect(page.getByText('邮箱已登记。', { exact: false })).toBeVisible();
-  await page.getByRole('link', { name: '保存这个退订链接' }).click();
-  await page.getByRole('button', { name: '确认退订' }).click();
-  await expect(page.getByRole('status')).toHaveText('操作已完成');
-  await login(page);
-  await page.goto('/admin/subscriptions');
-  const row = page.getByRole('row').filter({ hasText: email });
-  await expect(row).toContainText('已退订');
-  await row.getByRole('button', { name: '删除登记' }).click();
-  await expect(page.getByText(email, { exact: true })).toHaveCount(0);
+  const db = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    await page.goto('/subscribe');
+    await expect(page.getByText('提交后需通过邮件确认', { exact: false })).toBeVisible();
+    await page.goto('/subscribe?registered=1');
+    await expect(page.getByRole('status')).toContainText('链接24小时内有效');
+    await page.screenshot({ path: '.data/subscription-check-email.png' });
+    const token = randomBytes(32).toString('base64url');
+    await db.query(
+      "INSERT INTO subscription_confirmations(email,token_hash,kinds,expires_at) VALUES($1,$2,'[\"daily\"]',now()+interval '24 hours')",
+      [email, createHash('sha256').update(token).digest('hex')],
+    );
+    await page.goto(`/subscribe/confirm?token=${token}`);
+    await expect(page.getByRole('heading', { name: '订阅已确认' })).toBeVisible();
+    await page.screenshot({ path: '.data/subscription-confirmed-desktop.png' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: '.data/subscription-confirmed-mobile.png' });
+    const row = (await db.query('SELECT id,active FROM subscriptions WHERE email=$1', [email]))
+      .rows[0];
+    expect(row.active).toBe(true);
+    const cancel = `${row.id}.${createHmac('sha256', process.env.APP_SECRET!).update(row.id).digest('base64url')}`;
+    await page.goto(`/unsubscribe?token=${encodeURIComponent(cancel)}`);
+    await page.getByRole('button', { name: '确认退订' }).click();
+    await expect(page.getByRole('status')).toHaveText('操作已完成');
+    await page.goto('/subscribe/confirmed?status=expired');
+    await expect(page.getByRole('heading', { name: '确认链接已过期' })).toBeVisible();
+    await page.screenshot({ path: '.data/subscription-expired-mobile.png' });
+    await login(page);
+    await page.goto('/admin/subscriptions');
+    const listed = page.getByRole('row').filter({ hasText: email });
+    await expect(listed).toContainText('已退订');
+    await listed.getByRole('button', { name: '删除登记' }).click();
+    await expect(page.getByText(email, { exact: true })).toHaveCount(0);
+  } finally {
+    await db.query('DELETE FROM subscription_confirmations WHERE email=$1', [email]);
+    await db.end();
+  }
 });
 test('来源弹窗可逐条打开，半星与今日要览显示', async ({ page }) => {
   await page.goto('/');
@@ -68,14 +100,14 @@ test('来源弹窗可逐条打开，半星与今日要览显示', async ({ page 
   await dialog.getByRole('button', { name: '关闭来源弹窗' }).click();
   await expect(dialog).toBeHidden();
 });
-test('栏目预算、标签和关键词保存，轮动排期与记录可查', async ({ page }) => {
+test('栏目预算保存，轮动排期与记录可查', async ({ page }) => {
   await login(page);
   const db = new Pool({ connectionString: process.env.DATABASE_URL });
   const old = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
   try {
     await page.goto('/admin/editorial');
     await page.getByLabel('工具与开源字数预算').fill('220');
-    await page.getByRole('button', { name: '保存栏目与选题' }).click();
+    await page.getByRole('button', { name: '保存栏目与篇幅' }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await expect(page.getByLabel('工具与开源字数预算')).toHaveValue('220');
@@ -101,6 +133,7 @@ test('重新生成默认不重处理，勾选后只创建持久批次交给Worke
   );
   try {
     await login(page);
+    await page.goto('/admin/publications');
     const row = page.getByRole('row').filter({ hasText: 'AI治理与工具进展' });
     const checkbox = row.getByRole('checkbox', { name: '先重新处理资讯' });
     await expect(checkbox).not.toBeChecked();
@@ -121,7 +154,7 @@ test('重新生成默认不重处理，勾选后只创建持久批次交给Worke
       (await db.query('SELECT state FROM articles WHERE id=$1', [article.id])).rows[0].state,
     ).toBe('processed');
     await page.getByRole('link', { name: '任务管理', exact: true }).click();
-    await expect(page.getByRole('heading', { name: '重新处理批次' })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: '批量重处理' })).toBeVisible();
   } finally {
     await db.query(
       'DELETE FROM reprocessing_batches WHERE id IN (SELECT batch_id FROM reprocessing_items WHERE article_id=$1)',

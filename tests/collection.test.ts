@@ -15,7 +15,7 @@ before(async () => {
 after(async () => {
   await pool.end();
 });
-test('RSS采集保留明确时区的发布时间，跳过缺失日期，重复采集不新增', async () => {
+test('RSS采集保留明确时区、缺省按北京时间，跳过缺失日期且重复不新增', async () => {
   await saveSettings({ ...(await getSettings()), collectionEnabled: true });
   const [source] = await db
     .insert(sources)
@@ -30,15 +30,18 @@ test('RSS采集保留明确时区的发布时间，跳过缺失日期，重复�
   const rss = async () =>
     `<rss version="2.0"><channel><title>Test</title><link>https://example.invalid</link><description>local fixture</description><item><title>有日期</title><link>https://example.invalid/rss/1</link><description>来源摘要</description><pubDate>Thu, 22 Oct 2026 07:30:00 +0800</pubDate></item><item><title>无日期</title><link>https://example.invalid/rss/2</link></item><item><title>缺少时区</title><link>https://example.invalid/rss/3</link><pubDate>2026-10-22 07:30:00</pubDate></item></channel></rss>`;
   assert.deepEqual(await collectSource(source.id, rss, new Date('2026-10-23T00:00:00Z')), {
-    fetched: 1,
-    inserted: 1,
+    fetched: 2,
+    inserted: 2,
   });
   assert.deepEqual(await collectSource(source.id, rss, new Date('2026-10-23T00:00:00Z')), {
-    fetched: 1,
+    fetched: 2,
     inserted: 0,
   });
   const [article] = await db.select().from(articles).where(eq(articles.sourceId, source.id));
   assert.equal(article.publishedAt.toISOString(), '2026-10-21T23:30:00.000Z');
+  const imported = await db.select().from(articles).where(eq(articles.sourceId, source.id));
+  assert.equal(imported.length, 2);
+  assert.ok(imported.every((row) => row.publishedAt.toISOString() === '2026-10-21T23:30:00.000Z'));
   const [saved] = await db.select().from(sources).where(eq(sources.id, source.id));
   assert.ok(saved.lastFetchedAt);
   assert.equal(saved.lastError, null);

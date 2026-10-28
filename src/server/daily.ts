@@ -1,3 +1,6 @@
+import { admissionThreshold, budgetLimit } from './editorial-limits.ts';
+import { highlightErrors } from './highlights.ts';
+import { fixedSectionOutcome } from './edition-status.ts';
 import { z } from 'zod';
 import { pool } from './db.ts';
 import { getSettings } from './settings.ts';
@@ -21,12 +24,12 @@ const writtenSchema = z.object({
       }),
     )
     .max(50),
-  highlights: z.array(z.object({ eventId: z.uuid(), text: z.string().min(1).max(30) })).max(5),
+  highlights: z.array(z.object({ eventId: z.uuid(), text: z.string().min(1).max(3000) })).max(10),
   rotations: z
     .array(
       z.object({
         name: z.string(),
-        text: z.string().trim().min(1).max(3000),
+        text: z.string().trim().min(1).max(4500),
         eventIds: z.array(z.uuid()).min(1).max(20),
       }),
     )
@@ -62,23 +65,45 @@ async function prepareDaily(date: string) {
   const sections = fixedSections(config.sections);
   const material = await weeklyMaterials(range, 0, 1000, config);
   // Only assessments saved with a development belong to that historical cutoff.
-  const rated = material.selected
-    .flatMap((event) => {
-      const snapshot = event.editorial as { assessment?: unknown; tags?: string[] } | null;
-      const parsed = assessmentSchema.safeParse(snapshot?.assessment);
-      const rating = parsed.success
-        ? ratingForEditorial(event.editorial, config.ratingRules)
-        : null;
-      if (rating === null) return [];
-      return [{ ...event, rating, tags: snapshot?.tags ?? [] }];
-    })
-    .filter((e) => e.rating >= config.candidateRating);
+  const scored = material.selected.flatMap((event) => {
+    const snapshot = event.editorial as { assessment?: unknown; tags?: string[] } | null;
+    const parsed = assessmentSchema.safeParse(snapshot?.assessment);
+    const rating = parsed.success ? ratingForEditorial(event.editorial, config.ratingRules) : null;
+    if (rating === null) return [];
+    return [{ ...event, rating, tags: snapshot?.tags ?? [] }];
+  });
+  const perSectionRatings = sections.flatMap((rule) =>
+    scored
+      .filter((e) => e.section === rule.name)
+      .slice(0, rule.maxItems)
+      .map((e) => e.rating),
+  );
+  const target = Math.min(
+    config.maxItems,
+    sections.reduce((n, rule) => n + rule.minItems, 0),
+  );
+  const candidateRating = admissionThreshold(
+    config.candidateRating,
+    perSectionRatings,
+    target,
+    config.ratingRelaxationEnabled,
+    config.ratingRelaxationMaxDrop,
+  );
+  const rated = scored.filter((e) => e.rating >= candidateRating);
   const selected: typeof rated = [];
   for (const rule of sections)
     selected.push(...rated.filter((e) => e.section === rule.name).slice(0, rule.maxItems));
   selected.sort((a, b) => b.rating - a.rating || a.id.localeCompare(b.id));
   selected.splice(config.maxItems);
-  const rules = rotationRules(date, config.rotationAnchor, config.sections).map((r) => ({
+  const highlightRating = admissionThreshold(
+    config.highlightRating,
+    selected.map((e) => e.rating),
+    config.highlightsMinItems,
+    config.ratingRelaxationEnabled && config.highlightsEnabled && !config.highlightsDeleted,
+    config.ratingRelaxationMaxDrop,
+    candidateRating,
+  );
+  const rules = rotationRules(date, config.startDate, config.sections).map((r) => ({
     ...r,
     scheduled: r.scheduled && config.rotationsEnabled,
   }));
@@ -88,7 +113,7 @@ async function prepareDaily(date: string) {
       const start = new Date(range.end.getTime() - rule.days * 86400000);
       const materials = await weeklyMaterials(
         { start, end: range.end },
-        config.candidateRating * 20,
+        candidateRating * 20,
         1000,
         config,
       );
@@ -105,18 +130,30 @@ async function prepareDaily(date: string) {
       return { ...rule, materials };
     }),
   );
-  const system = `你是AI日报编辑。${config.editorialPrompt} 只使用提供的材料，不添加外部事实或投资建议。区分计划、研究结果、机构自述与已证实事实。
+  const system = `你是数智参阅编辑。${config.editorialPrompt} 只使用提供的材料，不添加外部事实或投资建议。区分计划、研究结果、机构自述与已证实事实。
 输出{title,items:[{eventId,title,summary}],highlights:[{eventId,text}],rotations:[{name,text,eventIds}]}。
-title不重复刊名，最多${config.briefTitleMaxLength}字。items必须覆盖给定当日selected事件且各一次，不增加或删除事件。每个栏目遵守其description。每个栏目内title+summary总字数不得超过其budget。短刊允许少于条数目标，不凑稿。不强求行动建议。
-highlights只从当日items中rating>=${config.highlightRating}的事件选最多5条，每条text最多30字，总计150字，可少于3条。不得编造事件ID。
-轮动只写scheduled=true且证据足够的栏目，遵守每项description及minItems/maxItems（引用不同事件数）和budget。资料不足时省略，不使用当日窗口之外的材料冒充当日新闻。引用对应rotationMaterials给定事件ID，所有事实、机构、数字和案例必须来自最终eventIds引用的材料；不要写入未引用事件或编造图表。所有正文纯文本。`;
+title不重复刊名，不添加“数智参阅｜”前缀，最多${config.briefTitleMaxLength}字。items必须覆盖给定当日selected事件且各一次，不增加或删除事件。每个栏目遵守其description。每个栏目内title+summary合计以budget为目标，允许超出${config.budgetTolerancePercent}%，不得超过limit。短刊允许少于条数目标，不凑稿。不强求行动建议。
+highlights${config.highlightsEnabled && !config.highlightsDeleted ? `是“${config.highlightsName}”，只从当日items中rating>=${highlightRating}的事件选${config.highlightsMinItems}至${config.highlightsMaxItems}条，总计以${config.highlightsBudget}字为目标，最多${budgetLimit(config.highlightsBudget, config.budgetTolerancePercent)}字（含容差）。${config.highlightsPrompt}` : '已关闭，必须输出空数组'}。不足时少选，不凑条数。不得编造事件ID。
+轮动只写scheduled=true且证据足够的栏目，参考每项keywords并遵守description及minItems/maxItems（引用不同事件数）和budget，正文允许超出budget ${config.budgetTolerancePercent}%，不得超过limit。资料不足时省略，不使用当日窗口之外的材料冒充当日新闻。引用对应rotationMaterials给定事件ID，所有事实、机构、数字和案例必须来自最终eventIds引用的材料；不要写入未引用事件或编造图表。所有正文纯文本。`;
   const input = {
     date,
     range,
-    sections,
+    sections: sections.map((s) => ({
+      ...s,
+      limit: budgetLimit(s.budget, config.budgetTolerancePercent),
+    })),
+    budgetTolerancePercent: config.budgetTolerancePercent,
     ratingRules: config.ratingRules,
-    candidateRating: config.candidateRating,
-    highlightRating: config.highlightRating,
+    candidateRating,
+    highlightRating,
+    highlights: {
+      enabled: config.highlightsEnabled && !config.highlightsDeleted,
+      name: config.highlightsName,
+      minItems: config.highlightsMinItems,
+      maxItems: config.highlightsMaxItems,
+      budget: config.highlightsBudget,
+      prompt: config.highlightsPrompt,
+    },
     selected: selected.map((e) => ({
       id: e.id,
       section: e.section,
@@ -127,7 +164,9 @@ highlights只从当日items中rating>=${config.highlightRating}的事件选最�
       name: r.name,
       scheduled: r.scheduled,
       budget: r.budget,
+      limit: budgetLimit(r.budget, config.budgetTolerancePercent),
       description: r.description,
+      keywords: r.keywords,
       minItems: r.minItems,
       maxItems: r.maxItems,
       events: r.materials?.inputEvents ?? [],
@@ -142,6 +181,13 @@ highlights只从当日items中rating>=${config.highlightRating}的事件选最�
   );
   return {
     config,
+    candidateRating,
+    highlightRating,
+    health: health.rows[0] as {
+      processing_errors: number;
+      source_errors: number;
+      unassessed: number;
+    },
     sections,
     range,
     material,
@@ -171,7 +217,12 @@ export async function previewDaily(date: string) {
       request.key,
     ]);
     const written = writtenSchema.parse(rows[0].response);
-    const repair = dailyLengthRepair(written.items, p.selected, p.sections);
+    const repair = dailyLengthRepair(
+      written.items,
+      p.selected,
+      p.sections,
+      p.config.budgetTolerancePercent,
+    );
     if (repair)
       request.cached = (
         await inspectModelRequest('brief', repair.system, repair.input, 12000)
@@ -187,7 +238,7 @@ export async function generateDaily(
   const config = await getSettings();
   const names = [
     ...fixedSections(config.sections).map((s) => s.name),
-    ...rotationRules(date, config.rotationAnchor, config.sections).map((s) => s.name),
+    ...rotationRules(date, config.startDate, config.sections).map((s) => s.name),
   ];
   try {
     const p = await prepareDaily(date);
@@ -213,12 +264,12 @@ export async function generateDaily(
         ids.some((id) => !p.selected.some((e) => e.id === id))
       )
         fail('模型返回无效或重复的事件引用，或遗漏已选事件');
+      for (const message of highlightErrors(v.highlights, p.config)) fail(message);
       const highlightIds = v.highlights.map((h) => h.eventId);
       if (
         new Set(highlightIds).size !== highlightIds.length ||
         v.highlights.some(
-          (h) =>
-            !p.selected.some((e) => e.id === h.eventId && e.rating >= p.config.highlightRating),
+          (h) => !p.selected.some((e) => e.id === h.eventId && e.rating >= p.highlightRating),
         )
       )
         fail('要览引用了未入选或评分不足的事件');
@@ -227,7 +278,7 @@ export async function generateDaily(
         const source = p.rotationMaterials.find((s) => s.name === r.name && s.scheduled);
         if (
           !source ||
-          [...r.text].length > source.budget ||
+          [...r.text].length > budgetLimit(source.budget, p.config.budgetTolerancePercent) ||
           new Set(r.eventIds).size !== r.eventIds.length ||
           r.eventIds.some(
             (id) =>
@@ -249,8 +300,13 @@ export async function generateDaily(
           subject: `brief:daily:${date}`,
           maxTokens: 12000,
         })
-      : { title: 'AI日报', items: [], highlights: [], rotations: [] };
-    const repair = dailyLengthRepair(written.items, p.selected, p.sections);
+      : { title: '数智参阅', items: [], highlights: [], rotations: [] };
+    const repair = dailyLengthRepair(
+      written.items,
+      p.selected,
+      p.sections,
+      p.config.budgetTolerancePercent,
+    );
     if (repair) {
       const result = await modelJSON('brief', repair.system, repair.input, repair.schema, {
         subject: `brief:daily:${date}`,
@@ -271,6 +327,8 @@ export async function generateDaily(
     const content = briefContentSchema.parse({
       ...written,
       format: 'ai-daily-v1',
+      highlightsTitle: p.config.highlightsName,
+      sectionOrder: p.config.sections.filter((s) => s.enabled).map((s) => s.name),
       overview: {},
       rangeStart: p.range.start.toISOString(),
       rangeEnd: p.range.end.toISOString(),
@@ -338,7 +396,7 @@ export async function generateDaily(
             ? '本期采用'
             : rating === null
               ? '缺少启用指标评分，请重新处理资讯'
-              : rating < p.config.candidateRating
+              : rating < p.candidateRating
                 ? '未达到入选分数'
                 : '未进入本期篇幅或材料不足以形成轮动内容',
         };
@@ -349,17 +407,24 @@ export async function generateDaily(
         (e) => e.section === rule.name,
       ).length;
       const qualified = p.rated.filter((e) => e.section === rule.name).length;
+      const outcome = fixedSectionOutcome({
+        candidates,
+        qualified,
+        selected: count,
+        unscored: p.material.unscoredEvents.filter((e) => e.section === rule.name).length,
+        published: autoPublish,
+        health: p.health,
+      });
       await recordEdition(
         date,
         rule.name,
-        count ? (autoPublish ? 'published' : 'ready') : p.unhealthy ? 'error' : 'skipped',
+        outcome.status,
         candidates,
         count,
-        count
-          ? `候选${candidates}条，${qualified}条达到选题分数，按去重和篇幅采用${count}条${p.material.unscoredEvents.some((e) => e.section === rule.name) ? '；部分资讯缺少当前指标评分，需重新处理' : ''}`
-          : p.unhealthy
-            ? '采集或处理存在异常，不能判定为正常无内容'
-            : `筛选完成：候选${candidates}条，${qualified}条达到选题分数；无合格材料或未进入本期篇幅`,
+        outcome.reason +
+          (p.candidateRating < p.config.candidateRating
+            ? `；内容不足，本次候选门槛由${p.config.candidateRating}放宽至${p.candidateRating}`
+            : ''),
         candidateDetails(
           [...p.material.selected, ...p.material.unscoredEvents].filter(
             (e) => e.section === rule.name,
@@ -399,7 +464,7 @@ export async function generateDaily(
     }
     return saved;
   } catch (error) {
-    const rotations = rotationRules(date, config.rotationAnchor, config.sections);
+    const rotations = rotationRules(date, config.startDate, config.sections);
     for (const name of names) {
       const rotation = rotations.find((r) => r.name === name);
       const unscheduled = rotation && (!rotation.scheduled || !config.rotationsEnabled);

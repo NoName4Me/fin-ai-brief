@@ -6,6 +6,7 @@ export async function createDeliveries(tx: Transaction, briefId: string, kind: s
   if (process.env.MAIL_ENABLED !== 'true' || kind !== 'daily') return;
   await tx.execute(sql`INSERT INTO deliveries(brief_id,subscription_id)
     SELECT ${briefId}::uuid,id FROM subscriptions
-    WHERE active=true AND kinds @> ${JSON.stringify([kind])}::jsonb
+    WHERE coalesce((SELECT (value->>'deliveryEnabled')::boolean FROM settings WHERE id=1),true)
+      AND active=true AND kinds @> ${JSON.stringify([kind])}::jsonb
     ON CONFLICT(brief_id,subscription_id) DO NOTHING`);
 }

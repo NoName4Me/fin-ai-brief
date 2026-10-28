@@ -164,3 +164,30 @@ test('强制推送仍跳过排队中和发送中记录，连续并发提交只�
     1,
   );
 });
+
+test('关闭推送阻止自动创建、手动推送和已排队邮件发送，重新开启后可继续', async () => {
+  const { saveSettingsPatch } = await import('../src/server/settings.ts');
+  const { deliver } = await import('../src/server/mail.ts');
+  const a = await recipient('pause@example.invalid');
+  const input = { briefId, subscriptionIds: [a.id] };
+  const first = await requestManualDelivery(input);
+  assert.equal(first.created, 1);
+  const [queued] = await db.select().from(deliveries);
+  try {
+    await saveSettingsPatch({ deliveryEnabled: false });
+    await deliver(queued.id);
+    const [stillPending] = await db.select().from(deliveries).where(eq(deliveries.id, queued.id));
+    assert.equal(stillPending.state, 'pending');
+    await assert.rejects(requestManualDelivery(input), /推送已暂停/);
+    const b = await recipient('pause-new@example.invalid');
+    await db.transaction((tx) => createDeliveries(tx, briefId, 'daily'));
+    assert.equal(
+      (await db.select().from(deliveries).where(eq(deliveries.subscriptionId, b.id))).length,
+      0,
+    );
+    await saveSettingsPatch({ deliveryEnabled: true });
+    assert.equal((await requestManualDelivery({ briefId, subscriptionIds: [b.id] })).created, 1);
+  } finally {
+    await saveSettingsPatch({ deliveryEnabled: true });
+  }
+});

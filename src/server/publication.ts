@@ -1,11 +1,12 @@
 import { and, desc, eq, gte, isNotNull, inArray, sql } from 'drizzle-orm';
 import { db, pool } from './db.ts';
 import { briefs, events, articles, industries } from './schema.ts';
+import { cleanBriefTitle } from './brief-title.ts';
 import { getSettings } from './settings.ts';
 import type { Kind } from './types.ts';
 // 所有读者页面与邮件只从这里取得正式内容。
 export async function listPublished(kind?: Kind) {
-  return db
+  const rows = await db
     .select({
       id: briefs.id,
       kind: briefs.kind,
@@ -17,6 +18,12 @@ export async function listPublished(kind?: Kind) {
     .from(briefs)
     .where(and(isNotNull(briefs.published), kind ? eq(briefs.kind, kind) : undefined))
     .orderBy(desc(briefs.periodDate));
+  return rows.map((row) => ({
+    ...row,
+    content: row.content
+      ? { ...row.content, title: cleanBriefTitle(row.content.title) }
+      : row.content,
+  }));
 }
 export async function publishedBrief(id: string) {
   const [row] = await db
@@ -30,7 +37,14 @@ export async function publishedBrief(id: string) {
     })
     .from(briefs)
     .where(and(eq(briefs.id, id), isNotNull(briefs.published)));
-  return row;
+  return row
+    ? {
+        ...row,
+        content: row.content
+          ? { ...row.content, title: cleanBriefTitle(row.content.title) }
+          : row.content,
+      }
+    : row;
 }
 export async function publicIndustries() {
   return db.select().from(industries).orderBy(industries.position);

@@ -133,13 +133,14 @@ test('实际发送使用新版模板并带入已发布刊期元数据', async ()
     close: () => {},
   }));
   await deliver(deliveryId);
-  assert.equal(subject, `AI日报｜${fixtureContent().title}`);
+  assert.equal(subject, `《数智参阅》第005期｜${fixtureContent().title}`);
   assert.ok(html.includes('第005期'));
   assert.ok(html.includes('金融要情'));
   assert.ok(!html.includes('>总览<'));
   assert.ok(html.includes('padding:28px 28px;'));
-  assert.ok(html.includes('max-width:1040px;'));
-  assert.ok(html.includes('email-calendar'));
+  assert.ok(html.includes('max-width:960px;'));
+  assert.ok(!html.includes('<td class="email-calendar"'));
+  assert.ok(html.includes('主办：数智化转型办公室 AI工作组'));
   assert.equal(
     (await db.select().from(deliveries).where(eq(deliveries.id, deliveryId)))[0].state,
     'sent',

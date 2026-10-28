@@ -4,7 +4,7 @@ test('日报保留刊物风格，桌面手机无横向溢出', async ({ page }) 
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/');
     await expect(
-      page.getByRole('banner').getByRole('link', { name: 'AI日报', exact: true }),
+      page.getByRole('banner').getByRole('link', { name: '数智参阅', exact: true }),
     ).toBeVisible();
     await expect(page.locator('.report-heading h1')).toHaveText('AI治理与工具进展');
     await expect(page.getByRole('heading', { name: '金融要情', exact: true })).toHaveCount(0);

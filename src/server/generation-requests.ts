@@ -24,7 +24,7 @@ export async function requestGeneration(
   date: string,
   options: { force?: boolean; expectedKey?: string } = {},
 ) {
-  if (kind !== 'daily') throw new Error('目前只生成AI日报');
+  if (kind !== 'daily') throw new Error('目前只生成数智参阅');
   await reconcileFailedArticles();
   const { pending, range } = await generationStatus(kind, date);
   if (pending && !options.force) throw new Error('本期仍有资讯待处理，请重新预览并确认强制生成');

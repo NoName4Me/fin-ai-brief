@@ -148,7 +148,7 @@ export function Brief({
               </section>
             );
           })}
-          <PublicationFooter kind={kind} content={content} />
+          <PublicationFooter />
         </section>
       </div>
       <BriefContext content={content} industries={industries} />

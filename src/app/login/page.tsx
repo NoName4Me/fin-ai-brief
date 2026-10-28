@@ -10,7 +10,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<Qu
       <div className="view-header">
         <div>
           <h1>管理员登录</h1>
-          <p>登录后直接进入简报工作台。</p>
+          <p>登录后进入管理台。</p>
         </div>
       </div>
       <Notice query={await searchParams} />

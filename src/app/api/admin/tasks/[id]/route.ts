@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { isAdmin } from '../../../../../server/auth.ts';
+import { batchDetail } from '../../../../../server/admin-reprocessing.ts';
 import { taskDetail } from '../../../../../server/admin-tasks.ts';
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await isAdmin())) return NextResponse.json({ error: '请重新登录管理台' }, { status: 401 });
   const { id } = await params;
   try {
-    const detail = await taskDetail(id);
+    const detail = id.startsWith('batch:') ? await batchDetail(id.slice(6)) : await taskDetail(id);
     return detail
       ? NextResponse.json(detail, { headers: { 'Cache-Control': 'no-store' } })
       : NextResponse.json({ error: '任务不存在' }, { status: 404 });

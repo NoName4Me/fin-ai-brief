@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { subscribeAction } from '../actions.ts';
+import { SubscribeButton } from '../../components/subscribe-dialog.tsx';
 import { Notice, type Query } from '../../components/notice.tsx';
 export const metadata = { title: '邮箱订阅', robots: { index: false, follow: false } };
 export default async function Subscribe({ searchParams }: { searchParams: Promise<Query> }) {
@@ -14,36 +14,18 @@ export default async function Subscribe({ searchParams }: { searchParams: Promis
       </div>
       <Notice query={q} />
       {q.registered ? (
-        <div className="notice">
-          <p>
-            邮箱已登记。
-            {process.env.MAIL_ENABLED === 'true'
-              ? '正式简报发布后按订阅类型发送。'
-              : '正式邮件服务尚未启用，接通后开始发送。'}
-          </p>
-          {typeof q.token === 'string' && (
-            <p>
-              <Link href={`/unsubscribe?token=${encodeURIComponent(q.token)}`}>
-                保存这个退订链接
-              </Link>
-              ，之后可随时取消。
-            </p>
-          )}
+        <div className="notice" role="status">
+          <p>请前往邮箱，点击确认邮件中的“确认订阅”按钮。确认后订阅才会生效，链接24小时内有效。</p>
+          <p>未收到邮件时，请检查垃圾邮件。已生效的订阅无需重复确认。</p>
+          <Link href="/subscribe">重新填写邮箱</Link>
         </div>
       ) : (
-        <form action={subscribeAction} className="stack-form">
-          <label>
-            邮箱地址
-            <input name="email" type="email" autoComplete="email" maxLength={254} required />
-          </label>
-          <input type="hidden" name="kinds" value="daily" />
-          <label className="honey" aria-hidden="true">
-            Website
-            <input name="website" tabIndex={-1} autoComplete="off" />
-          </label>
-          <p className="muted">仅用于发送所选简报。每封邮件提供退订入口。</p>
-          <button className="solid-button">登记订阅</button>
-        </form>
+        <div className="stack-form">
+          <p className="muted">提交后需通过邮件确认，每封简报均提供退订入口。</p>
+          <SubscribeButton className="solid-button" initiallyOpen>
+            邮箱订阅
+          </SubscribeButton>
+        </div>
       )}
       <p className="back-link">
         <Link href="/">返回简报中心</Link>

@@ -32,9 +32,9 @@ export const sources = pgTable('sources', {
   verificationNote: text('verification_note').notNull().default(''),
   verifiedAt: at('verified_at'),
   notes: text().notNull().default(''),
-  intervalMinutes: integer('interval_minutes').notNull().default(30),
+  intervalMinutes: integer('interval_minutes').notNull().default(60),
   autoInterval: boolean('auto_interval').notNull().default(false),
-  minIntervalMinutes: integer('min_interval_minutes').notNull().default(30),
+  minIntervalMinutes: integer('min_interval_minutes').notNull().default(60),
   maxIntervalMinutes: integer('max_interval_minutes').notNull().default(240),
   intervalReason: text('interval_reason'),
   quietRuns: integer('quiet_runs').notNull().default(0),
@@ -114,6 +114,14 @@ export const subscriptions = pgTable('subscriptions', {
   active: boolean().notNull().default(true),
   createdAt: at('created_at').defaultNow().notNull(),
 });
+export const subscriptionConfirmations = pgTable('subscription_confirmations', {
+  email: text().primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  kinds: jsonb().$type<string[]>().notNull(),
+  expiresAt: at('expires_at').notNull(),
+  requestedAt: at('requested_at').defaultNow().notNull(),
+  confirmedAt: at('confirmed_at'),
+});
 export const deliveries = pgTable(
   'deliveries',
   {
@@ -150,6 +158,7 @@ export const modelCalls = pgTable('model_calls', {
   state: text().notNull(),
   inputTokens: integer('input_tokens'),
   outputTokens: integer('output_tokens'),
+  apiAttempts: integer('api_attempts').notNull().default(0),
   error: text(),
   createdAt: at('created_at').defaultNow().notNull(),
 });

@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { logoutAction } from '../app/actions.ts';
+import { SubscribeButton } from './subscribe-dialog.tsx';
 const items = [
   ['/', '最新日报'],
   ['/archive', '历史日报'],
@@ -11,10 +12,10 @@ export function Header() {
   const admin = path === '/admin' || path.startsWith('/admin/');
   return (
     <>
-      <header className={`app-header ${admin ? 'admin-header' : ''}`}>
+      <header className={`app-header ${admin ? 'admin-header' : 'reader-header'}`}>
         <Link href={admin ? '/admin' : '/'} className="brand">
           <div>
-            <div className="brand-name">{admin ? 'AI日报 管理台' : 'AI日报'}</div>
+            <div className="brand-name">{admin ? '数智参阅 管理台' : '数智参阅'}</div>
           </div>
         </Link>
         {!admin && (
@@ -41,9 +42,7 @@ export function Header() {
             </button>
           </form>
         ) : (
-          <Link href="/subscribe" className="user-menu subscribe-link">
-            邮箱订阅
-          </Link>
+          <SubscribeButton className="user-menu subscribe-link" />
         )}
       </header>
       {!admin && (

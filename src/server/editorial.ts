@@ -8,6 +8,7 @@ export const sectionRuleSchema = z
     kind: z.enum(['fixed', 'rotation']).default('fixed'),
     enabled: z.boolean().default(true),
     description: z.string().trim().max(2000).default(''),
+    keywords: z.string().trim().max(2000).default(''),
     minItems: z.number().int().min(0).max(20),
     maxItems: z.number().int().min(1).max(20),
     budget: z.number().int().min(50).max(3000),
@@ -19,6 +20,22 @@ export const sectionRuleSchema = z
   .refine((v) => v.minItems <= v.maxItems, '条数下限不能高于上限')
   .transform((v) => ({ ...v, id: v.id ?? v.name }));
 export type SectionRule = z.infer<typeof sectionRuleSchema>;
+export const defaultColumnDescriptions: Record<string, string> = {
+  政策与监管:
+    '回答AI相关的监管红线、鼓励方向与报备要求。优先依据监管部门正式文件，明确发文机构、适用范围、生效时间及实际变化，宁缺毋滥。写明“我司需关注”的事项，必须以材料为据，不虚构公司现状或具体适用义务。',
+  技术与模型:
+    '关注模型、工具与开源的实质变化，回答哪些变化会影响AI研发、部署、采购或使用。突出能力、成本、可靠性和使用条件，不堆参数与跑分；只写材料能够支持的实际影响。',
+  同业与场景:
+    '关注银行、券商、保险与AMC的AI落地案例，说明谁做成了什么、如何实施、效果证据与适用条件。每条给出有依据的“可借鉴点”；仅在已提供内部场景资料时对应二期场景，不虚构内部规划或成效。',
+  资本与项目:
+    '关注AI资金流向、项目合作、采购与招投标线索，说明相关主体、金额、项目阶段、采购需求及公开时间节点。作为采购线索池，对有依据的方案或案例标注“可参照”，不把意向、签约或宣传当作已交付成果。',
+  风险与安全:
+    '关注AI相关事故、监管处罚、诈骗与安全漏洞，回答发生了什么、涉及谁、如何防范。采用“避坑”的表达，说明风险条件、影响边界及材料支持的防范措施；有依据的要求可整理为上线审查清单素材。',
+  工具与开源:
+    '关注可直接使用的AI工具与开源项目，回答用途、适用条件以及能否私有化部署。核实许可、依赖、部署要求与限制，服务选型和POC；仅在证据充分时给出“值得试／暂不试”及理由，不凭宣传或热度推荐。',
+  内部动态:
+    '依据经过审批的内部供稿与平台使用数据，说明目前进展、已完成工作和下一步安排。遵守披露边界与审批要求，不从外部新闻推断内部动态；没有获批材料时留空。',
+};
 export const defaultSections = [
   { name: '政策与监管', minItems: 1, maxItems: 3, budget: 250 },
   { name: '技术与模型', minItems: 2, maxItems: 4, budget: 350 },
@@ -26,7 +43,9 @@ export const defaultSections = [
   { name: '资本与项目', minItems: 1, maxItems: 3, budget: 250 },
   { name: '风险与安全', minItems: 1, maxItems: 2, budget: 150 },
   { name: '工具与开源', minItems: 1, maxItems: 3, budget: 200 },
-].map((s) => sectionRuleSchema.parse(s));
+].map((s) =>
+  sectionRuleSchema.parse({ ...s, description: defaultColumnDescriptions[s.name] ?? '' }),
+);
 export const defaultRotations = [
   {
     name: '一周观察',
@@ -59,7 +78,16 @@ export const defaultRotations = [
     description: '一图一趋势或有出处的观点摘编，只使用可核对数字或归属明确的观点。',
   },
 ].map((s) => sectionRuleSchema.parse({ ...s, kind: 'rotation' }));
-export const defaultColumns = [...defaultSections, ...defaultRotations];
+export const defaultInternalColumn = sectionRuleSchema.parse({
+  name: '内部动态',
+  kind: 'fixed',
+  enabled: false,
+  minItems: 1,
+  maxItems: 3,
+  budget: 200,
+  description: defaultColumnDescriptions['内部动态'],
+});
+export const defaultColumns = [...defaultSections, defaultInternalColumn, ...defaultRotations];
 export function fixedSections(sections: SectionRule[]) {
   return sections.filter((s) => s.kind === 'fixed' && s.enabled);
 }
@@ -123,13 +151,16 @@ export function normalizedRatingRules(rules: RatingRule[]) {
 export function migrateEditorialSettings(input: unknown) {
   if (!input || typeof input !== 'object') return input;
   const old = input as Record<string, unknown>;
-  if (old.editorialConfigVersion === 1) return old;
+  if (old.editorialConfigVersion === 1) return migrateColumnKeywords(old);
   const sections = Array.isArray(old.sections) ? old.sections : defaultSections;
-  return {
+  const candidateRating =
+    old.candidateRating ??
+    (typeof old.minScore === 'number' ? Math.max(1, old.minScore / 20) : 3.5);
+  return migrateColumnKeywords({
     ...old,
     editorialConfigVersion: 1,
-    candidateRating:
-      old.candidateRating ?? (typeof old.minScore === 'number' ? old.minScore / 20 : 3.5),
+    candidateRating,
+    highlightRating: old.highlightRating ?? Math.max(4.3, Number(candidateRating)),
     sections: [
       ...sections,
       ...defaultRotations.map((r) => ({
@@ -138,7 +169,7 @@ export function migrateEditorialSettings(input: unknown) {
         anchorDate: typeof old.rotationAnchor === 'string' ? old.rotationAnchor : r.anchorDate,
       })),
     ],
-  };
+  });
 }
 export const defaultKeywords = [
   '政策监管：生成式人工智能；算法备案；AI内容标识；数据安全；个人信息保护',
@@ -149,6 +180,80 @@ export const defaultKeywords = [
   '招投标：大模型招标；智能体中标；知识库采购；AI平台采购',
   '风险安全：AI安全；深度伪造；提示词注入；数据泄露；模型漏洞',
 ].join('\n');
+function migrateColumnKeywords(value: Record<string, unknown>) {
+  if (!Array.isArray(value.sections)) return value;
+  const raw = typeof value.keywords === 'string' ? value.keywords : defaultKeywords;
+  const sections = [...value.sections];
+  if (
+    value.internalColumnInitialized !== true &&
+    !sections.some(
+      (s) =>
+        s &&
+        typeof s === 'object' &&
+        (s.name === '内部动态' || (Array.isArray(s.aliases) && s.aliases.includes('内部动态'))),
+    )
+  )
+    sections.push(defaultInternalColumn);
+  const mapping: Record<string, string[]> = {
+    政策监管: ['政策与监管'],
+    技术模型: ['技术与模型'],
+    智能体工程: ['技术与模型', '工具与开源'],
+    金融同业: ['同业与场景'],
+    资本项目: ['资本与项目'],
+    招投标: ['同业与场景'],
+    风险安全: ['风险与安全'],
+  };
+  const normalize = (name: string) => name.replace(/[与／/、\s]/g, '');
+  return {
+    ...value,
+    internalColumnInitialized: true,
+    sections: sections.map((input) => {
+      if (!input || typeof input !== 'object') return input;
+      const original = input as Record<string, unknown>;
+      const knownNames = [
+        original.name,
+        ...(Array.isArray(original.aliases) ? original.aliases : []),
+      ];
+      const fallbackDescription =
+        knownNames
+          .map((name) => (typeof name === 'string' ? defaultColumnDescriptions[name] : undefined))
+          .find(Boolean) ?? '';
+      const section: Record<string, unknown> = {
+        ...original,
+        description:
+          typeof original.description === 'string' && original.description.trim()
+            ? original.description
+            : fallbackDescription,
+      };
+      if (Object.hasOwn(section, 'keywords')) return section;
+      if (section.kind === 'rotation') return { ...section, keywords: '' };
+      const names = [
+        section.name,
+        ...(Array.isArray(section.aliases) ? section.aliases : []),
+      ].filter((name): name is string => typeof name === 'string');
+      const keywords = raw
+        .split('\n')
+        .filter((line) => {
+          const parts = line.split(/[：:]/);
+          if (parts.length < 2) return true;
+          const label = parts[0].trim();
+          const targets = mapping[label];
+          if (targets) return targets.some((target) => names.includes(target));
+          const matched = value.sections as Record<string, unknown>[];
+          const hasMatch = matched.some((s) =>
+            [s.name, ...(Array.isArray(s.aliases) ? s.aliases : [])].some(
+              (name) => typeof name === 'string' && normalize(name) === normalize(label),
+            ),
+          );
+          return !hasMatch || names.some((name) => normalize(name) === normalize(label));
+        })
+        .map((line) => line.split(/[：:]/).at(-1)?.trim() ?? '')
+        .filter(Boolean)
+        .join('；');
+      return { ...section, keywords };
+    }),
+  };
+}
 export const aiScope =
   '只关注AI发展与治理，以及明确改变AI研发、部署、采购或使用条件的内容。金融、AMC是重点关注领域，涵盖监管、风险、资本、采购与应用；普通金融新闻、泛数字化和无法说明AI关联的内容不收录。';
 const dimension = z.object({
@@ -239,12 +344,17 @@ export function keywordMatches(text: string, groups: string) {
 }
 export function ratingInstructionsFor(rules: RatingRule[]) {
   const active = normalizedRatingRules(rules);
-  return `各启用指标1—5整数分，每项提供来自材料的具体理由。assessment使用以下固定ID作为键，值为{score,reason}。仅评估启用指标。总分由服务器按归一化权重计算，不要自行计算总分。指标：${JSON.stringify(active.map((r) => ({ id: r.id, name: r.name, description: r.description, percent: r.share * 100 })))}。`;
+  return `各启用指标1—5整数分，每项提供来自材料的具体理由。assessment使用以下固定ID作为键，值为{score,reason}。assessment中不得放入scoreReason或任何非指标键。scoreReason是assessment的同级字段，必须作为顶层字符串返回。仅评估启用指标。总分由服务器按归一化权重计算，不要自行计算总分。指标：${JSON.stringify(active.map((r) => ({ id: r.id, name: r.name, description: r.description, percent: r.share * 100 })))}。`;
 }
 export const ratingInstructions = ratingInstructionsFor(defaultRatingRules);
+export function evidenceMatches(excerpt: string, evidence: string) {
+  const normalize = (text: string) => text.normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu, '');
+  const needle = normalize(evidence);
+  return needle.length > 0 && normalize(excerpt).includes(needle);
+}
 export function rotationRules(
   date: string,
-  anchor: string,
+  startDate: string,
   sections: SectionRule[] = defaultColumns,
 ) {
   const monday = (value: string) => {
@@ -255,15 +365,15 @@ export function rotationRules(
   return sections
     .filter((r) => r.kind === 'rotation')
     .map((r) => {
-      const weeks = Math.floor(
-        (monday(date) - monday(sections === defaultColumns ? anchor : r.anchorDate)) /
-          (7 * 86400000),
-      );
+      const weeks = Math.floor((monday(date) - monday(startDate)) / (7 * 86400000));
       return {
         ...r,
-        days: r.lookbackDays,
+        anchorDate: startDate,
+        lookbackDays: r.intervalWeeks * 7,
+        days: r.intervalWeeks * 7,
         scheduled:
           r.enabled &&
+          date >= startDate &&
           r.weekdays.includes(new Date(`${date}T00:00:00Z`).getUTCDay()) &&
           ((weeks % r.intervalWeeks) + r.intervalWeeks) % r.intervalWeeks === 0,
       };

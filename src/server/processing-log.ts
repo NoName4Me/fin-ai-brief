@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { pool } from './db.ts';
+import { stageNames } from './task-labels.ts';
 export function fingerprint(value: unknown): string {
   const normalize = (v: unknown): unknown =>
     v instanceof Date
@@ -42,6 +43,10 @@ export async function stage<T>(
     );
     return result;
   } catch (error) {
+    const raw = error instanceof Error ? error.message : '处理失败';
+    const annotate =
+      !(error instanceof BudgetWait) && !(error instanceof Error && error.name === 'EventChanged');
+    const message = annotate ? `${stageNames[name] ?? name}失败：${raw}` : raw;
     await pool.query(
       'UPDATE processing_steps SET state=$4,finished_at=now(),error=$5 WHERE subject=$1 AND run_key=$2 AND stage=$3',
       [
@@ -49,9 +54,9 @@ export async function stage<T>(
         runKey,
         name,
         error instanceof BudgetWait ? 'waiting' : 'failed',
-        error instanceof Error ? error.message.slice(0, 1000) : '处理失败',
+        message.slice(0, 1000),
       ],
     );
-    throw error;
+    throw annotate ? new Error(message, { cause: error }) : error;
   }
 }
