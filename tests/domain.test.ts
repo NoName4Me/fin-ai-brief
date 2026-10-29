@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rangeFor, duePeriods, localDate } from '../src/server/periods.ts';
+import { rangeFor, duePeriods, localDate, preCollectionCutoff } from '../src/server/periods.ts';
 import { canonicalUrl, articleInput } from '../src/server/collect.ts';
 import { publicAddress } from '../src/server/fetch.ts';
 import { requestModel, modelConfig } from '../src/server/model.ts';
@@ -30,6 +30,28 @@ test('定时出刊只在北京时间到点后触发对应类型', () => {
     duePeriods(new Date('2026-06-01T00:00:00Z'), '08:00').map((x) => x.kind),
     ['daily', 'weekly', 'monthly'],
   );
+});
+test('出刊前一小时补采，跳过此前一小时已采集的信源，并支持跨午夜', () => {
+  const at = (value: string) => new Date(value);
+  assert.equal(preCollectionCutoff(at('2026-06-01T22:59:00Z'), '08:00'), null);
+  assert.equal(
+    preCollectionCutoff(at('2026-06-01T23:00:00Z'), '08:00')?.toISOString(),
+    '2026-06-01T22:00:00.000Z',
+  );
+  assert.equal(
+    preCollectionCutoff(at('2026-06-01T23:59:00Z'), '08:00')?.toISOString(),
+    '2026-06-01T22:00:00.000Z',
+  );
+  assert.equal(preCollectionCutoff(at('2026-06-02T00:00:00Z'), '08:00'), null);
+  assert.equal(
+    preCollectionCutoff(at('2026-06-02T00:30:00Z'), '09:30')?.toISOString(),
+    '2026-06-01T23:30:00.000Z',
+  );
+  assert.equal(
+    preCollectionCutoff(at('2026-06-01T15:15:00Z'), '00:15')?.toISOString(),
+    '2026-06-01T14:15:00.000Z',
+  );
+  assert.equal(preCollectionCutoff(at('2026-06-01T15:14:00Z'), '00:15'), null);
 });
 test('去重剔除跟踪参数，保留影响正文的查询参数', () => {
   assert.equal(
@@ -332,44 +354,14 @@ test('代理Fake-IP仅在显式允许时接受，仍拒绝回环和内网地址'
   assert.equal(publicAddress('192.168.0.1', true), false);
 });
 
-test('机器之心令牌只附加到官方RSS请求，配置地址不得含令牌且间隔至少60分钟', async () => {
-  const { sourceRequestUrl, validateSourceAccess } = await import('../src/server/source-access.ts');
-  const old = process.env.JIQIZHIXIN_RSS_TOKEN;
-  process.env.JIQIZHIXIN_RSS_TOKEN = 'local-test-token';
-  try {
-    assert.equal(
-      new URL(sourceRequestUrl('https://mcp.applications.jiqizhixin.com/rss')).searchParams.get(
-        'token',
-      ),
-      'local-test-token',
-    );
-    assert.equal(sourceRequestUrl('https://example.invalid/rss'), 'https://example.invalid/rss');
-    assert.equal(
-      sourceRequestUrl('http://mcp.applications.jiqizhixin.com/rss'),
-      'http://mcp.applications.jiqizhixin.com/rss',
-    );
-    assert.throws(
-      () =>
-        validateSourceAccess({
-          url: 'https://mcp.applications.jiqizhixin.com/rss?token=local-test-token',
-          format: 'rss',
-          intervalMinutes: 60,
-        }),
-      /不要包含token/,
-    );
-    assert.throws(
-      () =>
-        validateSourceAccess({
-          url: 'https://mcp.applications.jiqizhixin.com/rss',
-          format: 'rss',
-          intervalMinutes: 30,
-        }),
-      /至少60分钟/,
-    );
-  } finally {
-    if (old === undefined) delete process.env.JIQIZHIXIN_RSS_TOKEN;
-    else process.env.JIQIZHIXIN_RSS_TOKEN = old;
-  }
+test('RSS入口直接使用配置URL，保留其中的token参数', async () => {
+  const { sourceRequestUrl } = await import('../src/server/source-access.ts');
+  const url = 'https://mcp.applications.jiqizhixin.com/rss?token=test-token';
+  assert.equal(sourceRequestUrl(url), url);
+  assert.equal(
+    sourceRequestUrl('https://example.invalid/rss?token=other'),
+    'https://example.invalid/rss?token=other',
+  );
 });
 
 test('银行保险报公开接口仅在指定HTTPS端点使用POST与站点标识', async () => {
@@ -397,7 +389,7 @@ test('自动调频有硬边界，失败不立即提频恢复', async () => {
     failureCount: 0,
     stableRuns: 5,
   };
-  assert.equal(nextInterval({ ...source, intervalMinutes: 15 }, { inserted: 10 }).interval, 15);
+  assert.equal(nextInterval({ ...source, intervalMinutes: 15 }, { inserted: 10 }).interval, 60);
   assert.equal(
     nextInterval({ ...source, intervalMinutes: 120, quietRuns: 4 }, { inserted: 0 }).interval,
     120,
@@ -407,7 +399,7 @@ test('自动调频有硬边界，失败不立即提频恢复', async () => {
     nextInterval({ ...source, intervalMinutes: 60, stableRuns: 0 }, { inserted: 2 }).interval,
     60,
   );
-  assert.equal(nextInterval({ ...source, quietRuns: 2 }, { inserted: 0 }).interval, 45);
+  assert.equal(nextInterval({ ...source, quietRuns: 2 }, { inserted: 0 }).interval, 60);
 });
 test('日周月按各自时刻出刊，起刊日期以前不安排，补刊先限定期数', async () => {
   const { backfillPeriods } = await import('../src/server/periods.ts');

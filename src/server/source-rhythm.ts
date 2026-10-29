@@ -32,7 +32,7 @@ export function nextInterval(
     } else reason = stable < 3 ? '观察恢复情况，暂不提频' : '保持当前节奏';
     interval = Math.max(source.minIntervalMinutes, Math.min(source.maxIntervalMinutes, interval));
   }
-  return { interval, quiet, failures, stable, reason };
+  return { interval: Math.max(60, interval), quiet, failures, stable, reason };
 }
 export async function reserveHost(host: string) {
   const client = await pool.connect();

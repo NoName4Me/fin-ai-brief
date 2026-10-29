@@ -67,6 +67,12 @@ export async function cleanupRetention(now = new Date()) {
       counts[name] = result.rowCount ?? 0;
     };
     await remove(
+      'sourceDiscoveries',
+      `DELETE FROM source_discoveries d WHERE last_seen_at<$1
+      AND NOT EXISTS(SELECT 1 FROM articles a JOIN retention_active r ON r.subject='article:'||a.id::text WHERE a.url=d.url)`,
+      [newsCutoff],
+    );
+    await remove(
       'articles',
       `DELETE FROM articles a WHERE published_at<$1
       AND NOT EXISTS(SELECT 1 FROM retention_active r WHERE r.subject='article:'||a.id::text)

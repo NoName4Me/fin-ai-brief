@@ -7,10 +7,13 @@
     "node": ">=24.11"
   },
   "scripts": {
+    "predev": "npm run db:migrate",
     "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
+    "predev:web": "npm run db:migrate",
     "dev:web": "next dev -p 3100",
     "dev:worker": "tsx watch --env-file-if-exists=.env src/worker.ts",
     "build": "next build",
+    "prestart": "npm run db:migrate",
     "start": "next start -p 3100",
     "mail:verify": "tsx --env-file-if-exists=.env scripts/verify-mail.ts",
     "worker": "tsx --env-file-if-exists=.env src/worker.ts",
@@ -26,9 +29,11 @@
     "sources:verify": "tsx --env-file-if-exists=.env scripts/verify-source-catalog.ts"
   },
   "dependencies": {
+    "cheerio": "^1.2.0",
     "drizzle-orm": "0.45.4",
     "next": "16.4.2",
     "nodemailer": "10.2.1",
+    "pdfjs-dist": "^6.4.299",
     "pg": "^8.16.3",
     "pg-boss": "12.38.0",
     "react": "19.3.1",

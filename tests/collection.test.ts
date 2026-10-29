@@ -246,43 +246,27 @@ test('新智元官方列表读取标题、摘要和日期，保留日期精度�
   assert.equal(article.excerpt, '站点提供的文章简介');
 });
 
-test('机器之心免费RSS限制一小时一次，手动触发也不重复请求', async () => {
+test('带token的RSS使用配置原址，手动采集不受专属冷却限制', async () => {
+  const url = 'https://mcp.applications.jiqizhixin.com/rss?token=test-token';
   const [source] = await db
     .insert(sources)
-    .values({
-      name: '机器之心限频测试',
-      url: 'https://mcp.applications.jiqizhixin.com/rss',
-      format: 'rss',
-      intervalMinutes: 60,
-      industryId: 'ai',
-      enabled: true,
-    })
+    .values({ name: 'RSS完整入口', url, format: 'rss', industryId: 'ai', enabled: true })
     .returning();
   await saveSettings({ ...(await getSettings()), collectionEnabled: true });
   let requests = 0;
-  const rss = async () => {
+  const rss = async (input: string) => {
+    assert.equal(input, url);
     requests++;
-    return `<rss version="2.0"><channel><title>local</title><link>https://example.invalid</link><description>test</description><item><title>研究报道</title><link>https://example.invalid/jiqi-rate</link><description></description><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`;
+    return `<rss version="2.0"><channel><title>local</title><link>https://example.invalid</link><description>test</description><item><title>研究报道</title><link>https://example.invalid/jiqi-rate</link><description>这是研究报道提供的真实摘要内容</description><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`;
   };
   await collectSource(source.id, rss);
-  const [article] = await db.select().from(articles).where(eq(articles.sourceId, source.id));
-  assert.equal(article.excerpt, '研究报道');
-  const before = await pool.query(
-    'SELECT next_fetch_at, (SELECT count(*)::int FROM collection_runs WHERE source_id=$1) runs FROM sources WHERE id=$1',
-    [source.id],
+  await collectSource(source.id, rss, undefined, { manual: true });
+  assert.equal(requests, 2);
+  assert.equal(
+    (await pool.query('SELECT count(*)::int n FROM articles WHERE source_id=$1', [source.id]))
+      .rows[0].n,
+    1,
   );
-  const deferred = await collectSource(source.id, rss);
-  assert.equal(deferred.deferred, true);
-  assert.equal(deferred.inserted, 0);
-  const after = await pool.query(
-    'SELECT next_fetch_at, (SELECT count(*)::int FROM collection_runs WHERE source_id=$1) runs FROM sources WHERE id=$1',
-    [source.id],
-  );
-  // 冷却期内跳过不新增采集记录，也不产生失败任务；下次采集时间被推到冷却结束。
-  assert.equal(after.rows[0].runs, before.rows[0].runs);
-  assert.ok(after.rows[0].next_fetch_at.getTime() > Date.now() + 50 * 60_000);
-  await assert.rejects(() => collectSource(source.id, rss, undefined, { manual: true }), /60分钟/);
-  assert.equal(requests, 1);
 });
 
 test('五家金融源保留来源、日期精度并跳过已收录详情', async () => {
@@ -449,7 +433,7 @@ test('调频读取信源自身新增量，跨信源去重及304不误判更新�
   assert.equal((await collectSource(source.id, fetcher, now)).inserted, 0);
   assert.equal(
     (await db.select().from(sources).where(eq(sources.id, source.id)))[0].intervalMinutes,
-    24,
+    60,
   );
   await collectSource(source.id, async () => null, now);
   await collectSource(source.id, fetcher, now);
@@ -459,6 +443,6 @@ test('调频读取信源自身新增量，跨信源去重及304不误判更新�
   );
   assert.equal(last.rows[0].result.sourceNew, 0);
   const saved = (await db.select().from(sources).where(eq(sources.id, source.id)))[0];
-  assert.equal(saved.intervalMinutes, 24);
+  assert.equal(saved.intervalMinutes, 60);
   assert.equal(saved.quietRuns, 2);
 });

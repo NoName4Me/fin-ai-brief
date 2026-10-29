@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { getSettings } from '../../../server/settings.ts';
 import { TaskSettingsForm } from '../../../components/settings-forms.tsx';
@@ -29,8 +30,23 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
     completed_with_errors: '完成，有失败项',
   };
   const state = typeof query.state === 'string' && query.state in states ? query.state : '';
-  const [tasks, config] = await Promise.all([taskOverview(q, type, state), getSettings()]);
-  const params = new URLSearchParams({ q, type, state });
+  const page = Math.max(1, Math.min(1000000, Number.parseInt(String(query.page), 10) || 1));
+  let [tasks, config] = await Promise.all([taskOverview(q, type, state, page, 50), getSettings()]);
+  const params = new URLSearchParams({
+    q,
+    type,
+    state,
+    ...(page > 1 ? { page: String(page) } : {}),
+  });
+  if (!tasks.length && page > 1) {
+    const first = await taskOverview(q, type, state, 1, 50);
+    const last = Math.max(1, Math.ceil((first[0]?.total_count ?? 0) / 50));
+    redirect(`/admin/articles?${new URLSearchParams({ q, type, state, page: String(last) })}`);
+  }
+  const total = tasks[0]?.total_count ?? 0;
+  const pages = Math.max(1, Math.ceil(total / 50));
+  const pageHref = (value: number) =>
+    `/admin/articles?${new URLSearchParams({ q, type, state, page: String(value) })}`;
   return (
     <>
       <Notice query={query} />
@@ -74,8 +90,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
       )}
       <form className="inline-form task-filters" aria-label="任务筛选">
         <label>
-          任务类型
-          <select name="type" defaultValue={type}>
+          <select aria-label="任务类型" name="type" defaultValue={type}>
             <option value="">全部类型</option>
             {Object.entries(taskTypes).map(([value, label]) => (
               <option key={value} value={value}>
@@ -85,8 +100,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
           </select>
         </label>
         <label>
-          状态
-          <select name="state" defaultValue={state}>
+          <select aria-label="状态" name="state" defaultValue={state}>
             <option value="">全部状态</option>
             {Object.entries(states).map(([value, label]) => (
               <option key={value} value={value}>
@@ -96,8 +110,8 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
           </select>
         </label>
         <label>
-          任务名
           <input
+            aria-label="任务名"
             name="q"
             type="search"
             maxLength={200}
@@ -110,9 +124,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
           刷新
         </Link>
       </form>
-      <p className="form-hint">
-        最多100个匹配任务，进行中的批次置顶，其余最近任务在前。时间为北京时间。
-      </p>
+
       <div className="table-wrap">
         <table className="managed-task-table" aria-label="任务列表">
           <thead>
@@ -139,6 +151,21 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
           </tbody>
         </table>
       </div>
+      <nav className="pagination" aria-label="任务分页">
+        <span>
+          共{total}条 · 第{page}/{pages}页
+        </span>
+        {page > 1 ? (
+          <Link href={pageHref(page - 1)}>上一页</Link>
+        ) : (
+          <span aria-disabled="true">上一页</span>
+        )}
+        {page < pages ? (
+          <Link href={pageHref(page + 1)}>下一页</Link>
+        ) : (
+          <span aria-disabled="true">下一页</span>
+        )}
+      </nav>
       {!tasks.length && <p className="empty-state">暂无匹配的任务。</p>}
     </>
   );

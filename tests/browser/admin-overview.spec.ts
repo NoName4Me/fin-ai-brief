@@ -23,6 +23,14 @@ test('首页展示运行总览，出刊管理独立，手机无横向溢出', as
     await expect(page.getByText('正常留空 0', { exact: true })).toBeVisible();
     await expect(page.getByText('未排期 1', { exact: true })).toBeVisible();
     await page.screenshot({ path: '.data/admin-overview-desktop.png', fullPage: true });
+    await page.getByRole('link', { name: '近7天', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '内容转化', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '订阅趋势', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '栏目表现', exact: true })).toBeVisible();
+    await page.getByRole('link', { name: '近30天', exact: true }).click();
+    await expect(page).toHaveURL(/view=30/);
+    await expect(page.getByRole('heading', { name: '信源有效贡献 Top 5' })).toBeVisible();
+    await page.getByRole('link', { name: '今日', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
       false,
@@ -33,7 +41,7 @@ test('首页展示运行总览，出刊管理独立，手机无横向溢出', as
       .getByRole('link', { name: '出刊管理', exact: true })
       .click();
     await expect(page).toHaveURL(/\/admin\/publications$/);
-    await expect(page.getByRole('button', { name: '生成前检查' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '手动补刊', exact: true })).toBeVisible();
     await expect(page.getByRole('row').filter({ hasText: 'AI治理与工具进展' })).toBeVisible();
     await page.goto('/admin/editorial/content');
     await expect(page.locator('textarea[name="tags"]')).toHaveCount(0);

@@ -24,7 +24,7 @@ export function PublicationSettingsForm({ config }: { config: Settings }) {
         <input type="checkbox" name="autoPublish" defaultChecked={config.autoPublish} />
         生成成功后直接发布
       </label>
-      <button className="solid-button">保存出刊设置</button>
+      <button className="solid-button">保存</button>
     </form>
   );
 }
@@ -53,7 +53,7 @@ export function TaskSettingsForm({ config }: { config: Settings }) {
           required
         />
       </label>
-      <button className="solid-button">保存任务配置</button>
+      <button className="solid-button">保存</button>
     </form>
   );
 }
@@ -107,7 +107,7 @@ export function RetentionSettingsForm({ config }: { config: Settings }) {
           </label>
           <p className="form-hint">正在处理的任务及排队中、发送中的邮件暂不清理。</p>
         </fieldset>
-        <button className="solid-button">保存保留规则</button>
+        <button className="solid-button">保存</button>
       </form>
       <section className="admin-section">
         <h2>立即清理</h2>

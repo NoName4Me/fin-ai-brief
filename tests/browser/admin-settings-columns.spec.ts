@@ -18,13 +18,13 @@ test('配置归位、栏目要求与关键词、拖拽保存及轮动自动规�
     await page.getByRole('link', { name: '出刊设置', exact: true }).click();
     const publication = page.getByRole('dialog', { name: '出刊设置' });
     await publication.getByLabel('起刊日期', { exact: true }).fill('2026-10-01');
-    await publication.getByRole('button', { name: '保存出刊设置' }).click();
+    await publication.getByRole('button', { name: '保存' }).click();
     await expect(publication).toHaveCount(0);
     await page.goto('/admin/articles');
     await page.getByRole('link', { name: '任务处理配置', exact: true }).click();
     const tasks = page.getByRole('dialog', { name: '任务处理配置' });
     await tasks.getByLabel('资讯处理并发数').fill('4');
-    await tasks.getByRole('button', { name: '保存任务配置' }).click();
+    await tasks.getByRole('button', { name: '保存' }).click();
     await expect(tasks).toHaveCount(0);
     await page.goto('/admin/settings');
     await expect(page.getByLabel('资讯处理并发数')).toHaveCount(0);
@@ -45,7 +45,7 @@ test('配置归位、栏目要求与关键词、拖拽保存及轮动自动规�
     const movedName = await source.locator('input[aria-label$="名称"]').inputValue();
     await source.getByRole('button', { name: /排序，使用上下方向键调整/ }).dragTo(rows.first());
     await expect(rows.first().locator('input[aria-label$="名称"]')).toHaveValue(movedName);
-    await page.getByRole('button', { name: '保存栏目与篇幅' }).click();
+    await page.getByRole('button', { name: '保存' }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     const saved = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
     expect(saved.sections[0].name).toBe(movedName);

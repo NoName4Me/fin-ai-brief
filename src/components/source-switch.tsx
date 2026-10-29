@@ -1,5 +1,6 @@
 'use client';
 import { useActionState } from 'react';
+import { Switch } from './switch.tsx';
 import { sourceToggleAction } from '../app/actions.ts';
 export function SourceSwitch({
   id,
@@ -17,24 +18,17 @@ export function SourceSwitch({
     <form action={action} className="source-toggle-form">
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="enabled" value={String(!enabled)} />
-      <button
+      <Switch
         type="submit"
-        role="switch"
-        aria-checked={enabled}
+        checked={enabled}
         aria-label={`启用${name}`}
         aria-busy={pending}
         disabled={pending || (!enabled && !canEnable)}
-        className="source-switch"
+        size="small"
         title={
-          !enabled && !canEnable
-            ? '请先在详情中完成采集与内容评估'
-            : enabled
-              ? '关闭信源'
-              : '启用信源'
+          !enabled && !canEnable ? '请先在详情中完成采集验证' : enabled ? '关闭信源' : '启用信源'
         }
-      >
-        <span />
-      </button>
+      />
       {result?.error && (
         <p role="alert" className="source-toggle-error">
           {result.error}

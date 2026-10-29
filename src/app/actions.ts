@@ -87,10 +87,19 @@ export async function logoutAction() {
 }
 export async function sourceAction(form: FormData) {
   await perform('/admin/sources', async () => {
+    const urls = (
+      form.has('urls')
+        ? text(form, 'urls')
+        : [text(form, 'url'), text(form, 'additionalUrls')].join('\n')
+    )
+      .split(/\s+/)
+      .filter(Boolean);
     await saveSourceConfig(text(form, 'id') || undefined, {
       name: text(form, 'name'),
       originAddress: text(form, 'originAddress'),
-      url: text(form, 'url') || null,
+      url: urls[0] || null,
+      additionalUrls: urls.slice(1),
+      readDetails: form.has('readDetails'),
       format: text(form, 'format'),
       sections: form.getAll('sections').map(String),
       priority: text(form, 'priority') || 'P1',
@@ -245,8 +254,10 @@ export async function generateAction(form: FormData) {
       return;
     }
     requireModelConfig();
-    const force = form.get('force') === 'true';
-    if (force && !form.has('confirmed')) throw new Error('请确认优先处理本期资讯后强制生成');
+    const direct = form.get('direct') === 'true';
+    const force = direct || form.get('force') === 'true';
+    if (force && !direct && !form.has('confirmed'))
+      throw new Error('请确认优先处理本期资讯后强制生成');
     const expectedKey = force
       ? undefined
       : z
@@ -322,7 +333,7 @@ export async function retryArticleAction(form: FormData) {
   await perform('/admin/articles', () => retryArticle(text(form, 'id')));
 }
 export async function backfillAction(form: FormData) {
-  await perform('/admin/backfill', async () => {
+  await perform('/admin/publications', async () => {
     const { getSettings } = await import('../server/settings.ts');
     const config = await getSettings();
     const kind = kindSchema.parse(text(form, 'kind')),
@@ -430,4 +441,32 @@ export async function cleanupRetentionAction() {
   redirect(
     `/admin/settings?${failed ? 'error' : 'notice'}=${encodeURIComponent(notice)}&event=${crypto.randomUUID()}`,
   );
+}
+
+export async function sourceReviewAction(form: FormData) {
+  await requireAdmin();
+  const sourceId = z.uuid().parse(text(form, 'sourceId'));
+  const date = text(form, 'date');
+  const path = `/admin/sources/monitor?${new URLSearchParams({ source: sourceId, ...(validDate(date) ? { date } : {}) })}`;
+  await perform(path, async () => {
+    const verdict = z
+      .enum(['keep', 'scope', 'slower', 'stop', 'observe'])
+      .parse(text(form, 'verdict'));
+    const evidence = z
+      .enum(['original', 'reprint', 'aggregator', 'unknown'])
+      .parse(text(form, 'evidenceKind'));
+    const completeness = z
+      .enum(['sufficient', 'thin', 'title', 'unknown'])
+      .parse(text(form, 'completeness'));
+    const note = z.string().trim().min(1).max(2000).parse(text(form, 'note'));
+    const urls = z
+      .array(z.url().refine((v) => /^https?:/.test(v)))
+      .max(20)
+      .parse(text(form, 'urls').split(/\s+/).filter(Boolean));
+    await pool.query(
+      'INSERT INTO source_reviews(source_id,verdict,evidence_kind,completeness,note,urls) VALUES($1,$2,$3,$4,$5,$6::jsonb)',
+      [sourceId, verdict, evidence, completeness, note, JSON.stringify(urls)],
+    );
+    revalidatePath('/admin/sources/monitor');
+  });
 }

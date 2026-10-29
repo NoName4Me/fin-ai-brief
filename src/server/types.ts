@@ -12,9 +12,30 @@ import {
 export const kindSchema = z.enum(['daily', 'weekly', 'monthly']);
 export type Kind = z.infer<typeof kindSchema>;
 export const kindNames: Record<Kind, string> = { daily: '日报', weekly: '周报', monthly: '月报' };
+export const rankingSnapshotSchema = z.object({
+  boardUrl: z.url().refine((v) => /^https?:/.test(v)),
+  observedAt: z.iso.datetime(),
+  previousObservedAt: z.iso.datetime().optional(),
+  entries: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(500),
+        name: z.string().min(1).max(500),
+        url: z.url().refine((v) => /^https?:/.test(v)),
+        rank: z.number().int().positive(),
+        score: z.number().finite().optional(),
+        metric: z.string().max(200).optional(),
+        description: z.string().max(1500).optional(),
+      }),
+    )
+    .min(1)
+    .max(1000),
+});
+export type RankingSnapshot = z.infer<typeof rankingSnapshotSchema>;
 export const provenanceSchema = z.object({
   itemId: z.string(),
   category: z.string(),
+  snapshot: rankingSnapshotSchema.optional(),
   attribution: z.object({ name: z.string(), url: z.url().refine((url) => /^https?:/.test(url)) }),
   canonical: z.url().refine((url) => /^https?:/.test(url)),
 });

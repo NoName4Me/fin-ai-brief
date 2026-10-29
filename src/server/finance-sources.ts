@@ -25,9 +25,10 @@ export function financeKind(input: string) {
   if (u.protocol !== 'https:') return null;
   if (
     u.hostname === 'www.pbc.gov.cn' &&
-    ['/goutongjiaoliu/113456/2986536/index.html', '/goutongjiaoliu/113456/2986536/index.xml'].includes(
-      u.pathname,
-    )
+    [
+      '/goutongjiaoliu/113456/2986536/index.html',
+      '/goutongjiaoliu/113456/2986536/index.xml',
+    ].includes(u.pathname)
   )
     return 'pbc';
   if (
@@ -58,6 +59,10 @@ type Context = {
   rss: (text: string) => Promise<Item[]>;
   exists: (url: string) => Promise<boolean>;
   now: Date;
+  onDiscard?: (
+    item: { title: string; url: string; publishedAt: string },
+    outcome: 'invalid' | 'outside_window',
+  ) => void;
 };
 const localTime = (s: string) => {
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(s)) throw Error('信源时间格式已变化');
@@ -74,9 +79,15 @@ function nextData(text: string) {
 export async function financeItems(input: string, text: string, c: Context): Promise<Item[]> {
   const kind = financeKind(input);
   const result: Item[] = [];
-  const recent = (date: string) => {
+  const recent = (date: string, title: string, url: string) => {
     const t = Date.parse(date);
-    return Number.isFinite(t) && t <= c.now.getTime() && t >= c.now.getTime() - 7 * 86400000;
+    const valid = Number.isFinite(t) && t <= c.now.getTime() && t >= c.now.getTime() - 7 * 86400000;
+    if (!valid)
+      c.onDiscard?.(
+        { title: c.clean(title), url, publishedAt: date },
+        Number.isFinite(t) ? 'outside_window' : 'invalid',
+      );
+    return valid;
   };
   const excerpt = (html: string) => {
     const stripped = html
@@ -99,7 +110,7 @@ export async function financeItems(input: string, text: string, c: Context): Pro
         : new URL(item.url, input).href;
       if (new URL(url).origin !== 'https://www.pbc.gov.cn')
         throw Error('央行RSS原文地址不属于官方网站');
-      if (!recent(item.publishedAt) || (await c.exists(url))) continue;
+      if (!recent(item.publishedAt, item.title, url) || (await c.exists(url))) continue;
       const html = await read(url);
       const title = c.clean(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '');
       if (!title) throw Error('央行详情缺少完整标题');
@@ -130,7 +141,7 @@ export async function financeItems(input: string, text: string, c: Context): Pro
       for (const row of group.docInfoVOList) {
         const publishedAt = localTime(row.publishDate);
         const url = `https://www.nfra.gov.cn/cn/view/pages/ItemDetail.html?docId=${row.docId}&itemId=${group.itemId}`;
-        if (!recent(publishedAt) || (await c.exists(url))) continue;
+        if (!recent(publishedAt, row.docTitle, url) || (await c.exists(url))) continue;
         const detail = z
           .object({ rptCode: z.literal(200), data: z.object({ docClob: z.string() }) })
           .parse(
@@ -168,7 +179,7 @@ export async function financeItems(input: string, text: string, c: Context): Pro
       const url = new URL(row.url, input).href;
       if (new URL(url).origin !== 'https://www.csrc.gov.cn')
         throw Error('证监会原文地址不属于官方网站');
-      if (!recent(publishedAt) || (await c.exists(url))) continue;
+      if (!recent(publishedAt, row.title, url) || (await c.exists(url))) continue;
       result.push({
         title: c.clean(row.title),
         url,
@@ -219,7 +230,7 @@ export async function financeItems(input: string, text: string, c: Context): Pro
           ).data,
         );
       const publishedAt = localTime(row.pubTime);
-      if (!recent(publishedAt)) continue;
+      if (!recent(publishedAt, row.title, url)) continue;
       result.push({
         title: c.clean(row.title),
         url,
@@ -245,7 +256,12 @@ export async function financeItems(input: string, text: string, c: Context): Pro
     for (const row of body.data.list.flatMap((x) => x.newsList ?? []).filter((x) => x.kind === 0)) {
       const publishedAt = new Date(row.happen_time).toISOString();
       const url = `https://www.cbimc.cn/news/${row.news_id}`;
-      if (seen.has(row.news_id) || !recent(publishedAt) || (await c.exists(url))) continue;
+      if (
+        seen.has(row.news_id) ||
+        !recent(publishedAt, row.news_title, url) ||
+        (await c.exists(url))
+      )
+        continue;
       seen.add(row.news_id);
       const detail = z
         .object({

@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from './db.ts';
 import { subscriptions } from './schema.ts';
 import { hash } from './crypto.ts';
@@ -33,7 +33,7 @@ export async function unsubscribe(token: string) {
   if (token.length > 150) throw new Error('退订链接无效');
   const rows = await db
     .update(subscriptions)
-    .set({ active: false })
+    .set({ active: false, unsubscribedAt: sql`coalesce(${subscriptions.unsubscribedAt},now())` })
     .where(eq(subscriptions.tokenHash, hash(token)))
     .returning({ id: subscriptions.id });
   if (!rows.length) throw new Error('退订链接无效');

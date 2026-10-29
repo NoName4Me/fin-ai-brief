@@ -15,14 +15,14 @@ test('补刊、手工导入和发送记录归位，旧入口保留查询参数',
       .getByRole('link', { name: '出刊管理', exact: true })
       .click();
     await page.getByRole('link', { name: '手动补刊', exact: true }).click();
-    await expect(page).toHaveURL(/\/admin\/backfill$/);
-    await expect(page.getByRole('button', { name: '预览补刊期数', exact: true })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: '手动补刊' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '补刊', exact: true })).toBeVisible();
     await page.goto('/admin/settings?notice=入口已迁移&event=legacy');
     await expect(page).toHaveURL(/\/admin\/settings\?/);
     await expect(page.getByRole('status')).toHaveText('入口已迁移');
     await expect(page.getByLabel('资讯处理并发数')).toHaveCount(0);
     await expect(page.getByLabel('简报主标题字数上限')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: '预览补刊期数', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '补刊', exact: true })).toHaveCount(0);
     await page.goto('/admin/settings/runtime');
     await expect(page.getByLabel('资讯处理并发数')).toBeVisible();
     await expect(page.getByLabel('生成成功后直接发布')).toHaveCount(0);

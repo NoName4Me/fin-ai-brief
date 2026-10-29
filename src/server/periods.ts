@@ -64,6 +64,18 @@ export function duePeriods(
   }
   return due;
 }
+export function preCollectionCutoff(now: Date, dailyTime: string) {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(dailyTime)) throw new Error('无效出刊时间');
+  const todayPublication = new Date(`${localDate(now)}T${dailyTime}:00+08:00`);
+  for (const publicationAt of [
+    todayPublication,
+    new Date(todayPublication.getTime() + 86400_000),
+  ]) {
+    if (now >= new Date(publicationAt.getTime() - 3600_000) && now < publicationAt)
+      return new Date(publicationAt.getTime() - 2 * 3600_000);
+  }
+  return null;
+}
 export function backfillPeriods(start: string, end: string, kind: Kind, config: Schedule = {}) {
   if (!validDate(start) || !validDate(end) || start > end) throw new Error('补刊日期范围无效');
   const result: { kind: Kind; date: string }[] = [];

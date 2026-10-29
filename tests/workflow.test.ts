@@ -284,8 +284,14 @@ test('订阅去重不泄露凭据或修改偏好，退订幂等', async () => {
   assert.notEqual(row.tokenHash, token);
   assert.equal(unsubscribeToken(row.id), token);
   await unsubscribe(token);
+  const cancelledAt = (await db.select().from(subscriptions))[0].unsubscribedAt;
+  assert.ok(cancelledAt);
   await unsubscribe(token);
   assert.equal((await db.select().from(subscriptions))[0].active, false);
+  assert.equal(
+    (await db.select().from(subscriptions))[0].unsubscribedAt?.getTime(),
+    cancelledAt.getTime(),
+  );
   await assert.rejects(() => unsubscribe('bad'), /无效/);
 });
 test('首次发布创建投递，重出不重发，即使投递记录已清理', async () => {
@@ -880,7 +886,7 @@ test('超出容差只压缩对应段落，保留其余内容、标题和事件�
     const summary = input.segments.find((s: { id: string }) => s.id === `summary:${ids[0]}`);
     assert.equal(summary.currentLength, 170);
     assert.equal(summary.maxLength, 140);
-    assert.equal(summary.acceptedMaxLength, 154);
+    assert.equal('acceptedMaxLength' in summary, false);
     assert.match(request.messages[0].content, /数字|事实/);
     return modelReply({
       segments: input.segments.map((s: { id: string }) => ({
@@ -915,7 +921,7 @@ test('压缩失败后重试复用初稿，修正成功前不落库或发布', as
       return modelReply({ segments: [{ id: `summary:${ids[0]}`, text: '金'.repeat(155) }] });
     return modelReply({ segments: [{ id: `summary:${ids[0]}`, text: '完成压缩' }] });
   };
-  await assert.rejects(generateBrief('daily', '2026-10-22'), /155.*154/);
+  await assert.rejects(generateBrief('daily', '2026-10-22'), /155.*140/);
   assert.equal((await db.select().from(briefs)).length, 0);
   const { previewLegacyBrief: previewBrief } = await import('../src/server/briefs.ts');
   assert.equal((await previewBrief('daily', '2026-10-22')).cached, false);

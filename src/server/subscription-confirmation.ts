@@ -83,10 +83,11 @@ export async function confirmSubscription(
         kinds: pending.kinds,
         tokenHash: hash(unsubscribeToken(id)),
         active: true,
+        subscribedAt: now,
       })
       .onConflictDoUpdate({
         target: subscriptions.email,
-        set: { active: true, kinds: pending.kinds },
+        set: { active: true, kinds: pending.kinds, subscribedAt: now, unsubscribedAt: null },
         setWhere: eq(subscriptions.active, false),
       });
     await tx

@@ -133,7 +133,7 @@ export async function modelJSON<T>(
   system: string,
   input: unknown,
   schema: z.ZodType<T>,
-  options: { subject?: string; maxTokens?: number } = {},
+  options: { subject?: string; maxTokens?: number; validationContext?: unknown } = {},
 ) {
   const base = requireModelConfig();
   const settings = await getSettings();
@@ -146,6 +146,9 @@ export async function modelJSON<T>(
     input,
     model,
     maxTokens,
+    ...(options.validationContext === undefined
+      ? {}
+      : { validationContext: options.validationContext }),
     reasoningEffort: 'low',
     endpoint: new URL(process.env.LLM_BASE_URL || 'http://unconfigured.invalid').href.replace(
       /\/+$/,
@@ -274,6 +277,7 @@ export async function inspectModelRequest(
   system: string,
   input: unknown,
   maxTokens: number,
+  validationContext?: unknown,
 ) {
   const model = process.env.LLM_MODEL || '';
   const key = fingerprint({
@@ -282,6 +286,7 @@ export async function inspectModelRequest(
     input,
     model,
     maxTokens,
+    ...(validationContext === undefined ? {} : { validationContext }),
     reasoningEffort: 'low',
     endpoint: new URL(process.env.LLM_BASE_URL || 'http://unconfigured.invalid').href.replace(
       /\/+$/,

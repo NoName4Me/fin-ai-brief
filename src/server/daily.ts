@@ -1,6 +1,6 @@
 import { admissionThreshold, budgetLimit } from './editorial-limits.ts';
 import { highlightErrors } from './highlights.ts';
-import { fixedSectionOutcome } from './edition-status.ts';
+import { explainEditionRecord, fixedSectionOutcome } from './edition-status.ts';
 import { z } from 'zod';
 import { pool } from './db.ts';
 import { getSettings } from './settings.ts';
@@ -130,19 +130,15 @@ async function prepareDaily(date: string) {
       return { ...rule, materials };
     }),
   );
-  const system = `你是数智参阅编辑。${config.editorialPrompt} 只使用提供的材料，不添加外部事实或投资建议。区分计划、研究结果、机构自述与已证实事实。
+  const system = `你是数智参阅编辑。${config.editorialPrompt}榜单快照按采集时点陈述，不能当作模型或项目在当日发布；首次快照不推断排名变化。 只使用提供的材料，不添加外部事实或投资建议。区分计划、研究结果、机构自述与已证实事实。
 输出{title,items:[{eventId,title,summary}],highlights:[{eventId,text}],rotations:[{name,text,eventIds}]}。
-title不重复刊名，不添加“数智参阅｜”前缀，最多${config.briefTitleMaxLength}字。items必须覆盖给定当日selected事件且各一次，不增加或删除事件。每个栏目遵守其description。每个栏目内title+summary合计以budget为目标，允许超出${config.budgetTolerancePercent}%，不得超过limit。短刊允许少于条数目标，不凑稿。不强求行动建议。
-highlights${config.highlightsEnabled && !config.highlightsDeleted ? `是“${config.highlightsName}”，只从当日items中rating>=${highlightRating}的事件选${config.highlightsMinItems}至${config.highlightsMaxItems}条，总计以${config.highlightsBudget}字为目标，最多${budgetLimit(config.highlightsBudget, config.budgetTolerancePercent)}字（含容差）。${config.highlightsPrompt}` : '已关闭，必须输出空数组'}。不足时少选，不凑条数。不得编造事件ID。
-轮动只写scheduled=true且证据足够的栏目，参考每项keywords并遵守description及minItems/maxItems（引用不同事件数）和budget，正文允许超出budget ${config.budgetTolerancePercent}%，不得超过limit。资料不足时省略，不使用当日窗口之外的材料冒充当日新闻。引用对应rotationMaterials给定事件ID，所有事实、机构、数字和案例必须来自最终eventIds引用的材料；不要写入未引用事件或编造图表。所有正文纯文本。`;
+title不重复刊名，不添加“数智参阅｜”前缀，最多${config.briefTitleMaxLength}字。items必须覆盖给定当日selected事件且各一次，不增加或删除事件。每个栏目遵守其description。每个栏目内title+summary合计不得超过budget字。短刊允许少于条数目标，不凑稿。不强求行动建议。
+highlights${config.highlightsEnabled && !config.highlightsDeleted ? `是“${config.highlightsName}”，只从当日items中rating>=${highlightRating}的事件选${config.highlightsMinItems}至${config.highlightsMaxItems}条，总计不超过${config.highlightsBudget}字。${config.highlightsPrompt}` : '已关闭，必须输出空数组'}。不足时少选，不凑条数。不得编造事件ID。
+轮动只写scheduled=true且证据足够的栏目，参考每项keywords并遵守description及minItems/maxItems（引用不同事件数）和budget，正文不得超过budget字。资料不足时省略，不使用当日窗口之外的材料冒充当日新闻。引用对应rotationMaterials给定事件ID，所有事实、机构、数字和案例必须来自最终eventIds引用的材料；不要写入未引用事件或编造图表。所有正文纯文本。`;
   const input = {
     date,
     range,
-    sections: sections.map((s) => ({
-      ...s,
-      limit: budgetLimit(s.budget, config.budgetTolerancePercent),
-    })),
-    budgetTolerancePercent: config.budgetTolerancePercent,
+    sections,
     ratingRules: config.ratingRules,
     candidateRating,
     highlightRating,
@@ -164,7 +160,6 @@ highlights${config.highlightsEnabled && !config.highlightsDeleted ? `是“${con
       name: r.name,
       scheduled: r.scheduled,
       budget: r.budget,
-      limit: budgetLimit(r.budget, config.budgetTolerancePercent),
       description: r.description,
       keywords: r.keywords,
       minItems: r.minItems,
@@ -210,7 +205,7 @@ export async function previewDaily(date: string) {
   const hasMaterials =
     p.selected.length || p.rotationMaterials.some((r) => r.materials?.selected.length);
   const request = hasMaterials
-    ? await inspectModelRequest('brief', p.system, p.input, 12000)
+    ? await inspectModelRequest('brief', p.system, p.input, 12000, p.config.budgetTolerancePercent)
     : { key: fingerprint(p.input), model: '无需生成', cached: true };
   if (hasMaterials && request.cached) {
     const { rows } = await pool.query('SELECT response FROM model_calls WHERE request_key=$1', [
@@ -225,7 +220,13 @@ export async function previewDaily(date: string) {
     );
     if (repair)
       request.cached = (
-        await inspectModelRequest('brief', repair.system, repair.input, 12000)
+        await inspectModelRequest(
+          'brief',
+          repair.system,
+          repair.input,
+          12000,
+          p.config.budgetTolerancePercent,
+        )
       ).cached;
   }
   return { ...request, count: p.selected.length, range: p.range };
@@ -240,8 +241,9 @@ export async function generateDaily(
     ...fixedSections(config.sections).map((s) => s.name),
     ...rotationRules(date, config.startDate, config.sections).map((s) => s.name),
   ];
+  let prepared: Awaited<ReturnType<typeof prepareDaily>> | undefined;
   try {
-    const p = await prepareDaily(date);
+    const p = (prepared = await prepareDaily(date));
     if (!p.selected.length && p.material.unscored)
       throw new Error('候选资讯缺少当前启用指标的评分，请先重新处理资讯');
     if (!p.selected.length && p.unhealthy)
@@ -249,7 +251,15 @@ export async function generateDaily(
     const hasMaterials =
       p.selected.length || p.rotationMaterials.some((r) => r.materials?.selected.length);
     const key = hasMaterials
-      ? (await inspectModelRequest('brief', p.system, p.input, 12000)).key
+      ? (
+          await inspectModelRequest(
+            'brief',
+            p.system,
+            p.input,
+            12000,
+            p.config.budgetTolerancePercent,
+          )
+        ).key
       : fingerprint(p.input);
     if (expectedKey && key !== expectedKey)
       throw new Error('资料或模型设置已变化，请重新预览后生成');
@@ -299,6 +309,7 @@ export async function generateDaily(
       ? await modelJSON('brief', p.system, p.input, validation, {
           subject: `brief:daily:${date}`,
           maxTokens: 12000,
+          validationContext: p.config.budgetTolerancePercent,
         })
       : { title: '数智参阅', items: [], highlights: [], rotations: [] };
     const repair = dailyLengthRepair(
@@ -311,6 +322,7 @@ export async function generateDaily(
       const result = await modelJSON('brief', repair.system, repair.input, repair.schema, {
         subject: `brief:daily:${date}`,
         maxTokens: 12000,
+        validationContext: p.config.budgetTolerancePercent,
       });
       const replacement = new Map(result.items.map((i) => [i.eventId, i]));
       written = { ...written, items: written.items.map((i) => replacement.get(i.eventId) ?? i) };
@@ -323,6 +335,9 @@ export async function generateDaily(
       publishedAt:
         a.publishedPrecision === 'day' ? localDate(a.publishedAt) : a.publishedAt.toISOString(),
       provenance: a.provenance ?? undefined,
+      ...(a.publishedPrecision === 'observed'
+        ? { timeNote: '榜单快照采集时间，非项目或模型发布时间' }
+        : {}),
     });
     const content = briefContentSchema.parse({
       ...written,
@@ -468,13 +483,45 @@ export async function generateDaily(
     for (const name of names) {
       const rotation = rotations.find((r) => r.name === name);
       const unscheduled = rotation && (!rotation.scheduled || !config.rotationsEnabled);
+      const candidates = prepared
+        ? rotation
+          ? (prepared.rotationMaterials.find((r) => r.name === name)?.materials?.selected ?? [])
+          : [...prepared.material.selected, ...prepared.material.unscoredEvents].filter(
+              (e) => e.section === name,
+            )
+        : [];
+      const failure = explainEditionRecord({
+        section: name,
+        status: unscheduled ? 'unscheduled' : 'error',
+        candidate_count: candidates.length,
+        selected_count: 0,
+        reason: unscheduled
+          ? '本期未排期或已关闭'
+          : error instanceof Error
+            ? error.message
+            : '生成异常',
+      });
       await recordEdition(
         date,
         name,
-        unscheduled ? 'unscheduled' : 'error',
+        failure.status,
+        candidates.length,
         0,
-        0,
-        unscheduled ? '本期未排期或已关闭' : error instanceof Error ? error.message : '生成异常',
+        failure.reason,
+        candidates.map((event) => {
+          const parsed = assessmentSchema.safeParse(
+            (event.editorial as { assessment?: unknown })?.assessment,
+          );
+          return {
+            id: event.id,
+            title: event.title,
+            rating: parsed.success ? ratingForEditorial(event.editorial, config.ratingRules) : null,
+            assessment: parsed.success ? parsed.data : null,
+            ratingRules: config.ratingRules,
+            selected: false,
+            reason: '整期生成未完成，尚未刊登',
+          };
+        }),
       );
     }
     throw error;

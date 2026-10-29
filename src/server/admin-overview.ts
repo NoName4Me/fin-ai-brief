@@ -133,7 +133,7 @@ export async function adminOverview(now = new Date()) {
                 ? '自动出刊已暂停'
                 : date < config.startDate
                   ? '尚未到启用日期'
-                  : now < new Date(`${date}T08:00:00+08:00`)
+                  : now < new Date(`${date}T${config.dailyTime}:00+08:00`)
                     ? '未到截稿时间'
                     : '尚未生成';
   // Paused collection is not a scheduling fault. Actual failures and uncollected sources remain visible.

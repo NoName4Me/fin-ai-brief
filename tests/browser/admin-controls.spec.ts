@@ -70,7 +70,7 @@ test('信源菜单、采集开关和两家信源的日报贡献', async ({ page 
     await expect(toggle).toBeChecked();
     await page.goto('/admin/settings/runtime');
     await expect(page.getByLabel('开启自动采集')).toHaveCount(0);
-    await page.getByRole('button', { name: '保存任务配置' }).click();
+    await page.getByRole('button', { name: '保存' }).click();
     await page.goto('/admin');
     await expect(page.getByRole('heading', { name: /日报有效贡献 Top 5/ })).toBeVisible();
     await expect(page.getByRole('heading', { name: /信源重合 Top 3/ })).toBeVisible();

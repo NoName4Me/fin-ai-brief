@@ -4,7 +4,7 @@ import { fixedSectionOutcome, explainEditionRecord } from '../src/server/edition
 import { cleanBriefTitle } from '../src/server/brief-title.ts';
 import { highlightErrors } from '../src/server/highlights.ts';
 
-test('低分候选正常留空，不受其他资讯失败影响；无候选明确标记待核查', () => {
+test('低分候选正常留空，无候选自动说明候选材料不完整的可能原因', () => {
   const input = {
     candidates: 2,
     qualified: 0,
@@ -17,7 +17,16 @@ test('低分候选正常留空，不受其他资讯失败影响；无候选明�
   const empty = fixedSectionOutcome({ ...input, candidates: 0 });
   assert.equal(empty.status, 'error');
   assert.match(empty.reason, /11篇资讯处理未完成或失败/);
-  assert.match(empty.reason, /缺稿原因待核查/);
+  assert.match(empty.reason, /候选材料不完整/);
+  assert.doesNotMatch(empty.reason, /待核查/);
+  const historical = explainEditionRecord({
+    status: 'error',
+    candidate_count: 0,
+    selected_count: 0,
+    reason: '本期有52篇资讯处理未完成或失败；本栏目暂无候选，缺稿原因待核查',
+  });
+  assert.match(historical.reason, /可能因本期有52篇资讯处理未完成或失败/);
+  assert.doesNotMatch(historical.reason, /待核查/);
   assert.equal(fixedSectionOutcome({ ...input, unscored: 1 }).status, 'error');
 });
 
@@ -58,4 +67,24 @@ test('标题只移除前缀；要览按配置检查开关、条数和字数', ()
       .length,
     2,
   );
+});
+
+test('单栏目超长不能把同一异常归给其他栏目，兼容既有任务快照', () => {
+  const reason = JSON.stringify([
+    { code: 'custom', message: '技术与模型超过440字上限（含容差）（449字）', path: [] },
+  ]);
+  const record = {
+    status: 'error',
+    section: '政策与监管',
+    candidate_count: 0,
+    selected_count: 0,
+    reason,
+  };
+  const other = explainEditionRecord(record);
+  assert.equal(other.status, 'blocked');
+  assert.match(other.reason, /整期.*技术与模型/);
+  assert.doesNotMatch(other.reason, /449|440/);
+  const failed = explainEditionRecord({ ...record, section: '技术与模型' });
+  assert.equal(failed.status, 'error');
+  assert.match(failed.reason, /449/);
 });

@@ -24,9 +24,12 @@ export const sources = pgTable('sources', {
   name: text().notNull(),
   url: text(),
   format: text().notNull(),
+  additionalUrls: jsonb('additional_urls').$type<string[]>().notNull().default([]),
+  readDetails: boolean('read_details').notNull().default(false),
   originAddress: text('origin_address').notNull().default(''),
   sections: jsonb().$type<string[]>().notNull().default([]),
   catalogKey: text('catalog_key').unique(),
+  sortOrder: integer('sort_order').notNull().default(1000000),
   priority: text().notNull().default('P1'),
   verificationStatus: text('verification_status').notNull().default('pending'),
   verificationNote: text('verification_note').notNull().default(''),
@@ -112,6 +115,8 @@ export const subscriptions = pgTable('subscriptions', {
   kinds: jsonb().$type<string[]>().notNull(),
   tokenHash: text('token_hash').notNull().unique(),
   active: boolean().notNull().default(true),
+  subscribedAt: at('subscribed_at').defaultNow().notNull(),
+  unsubscribedAt: at('unsubscribed_at'),
   createdAt: at('created_at').defaultNow().notNull(),
 });
 export const subscriptionConfirmations = pgTable('subscription_confirmations', {

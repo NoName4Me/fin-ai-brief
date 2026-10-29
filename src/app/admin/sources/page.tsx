@@ -1,5 +1,5 @@
+import { Switch } from '../../../components/switch.tsx';
 import Link from 'next/link';
-import { isJiqizhixinRss } from '../../../server/source-access.ts';
 import { requireAdmin } from '../../../server/auth.ts';
 import { asc } from 'drizzle-orm';
 import { db, pool } from '../../../server/db.ts';
@@ -21,7 +21,7 @@ const formatLabels: Record<string, string> = {
   rss: 'RSS / Atom',
   json: '公开接口',
   html: '网页',
-  manual: '待接入',
+  manual: '未知',
 };
 const date = (value: Date | null) =>
   value?.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) ?? '—';
@@ -58,25 +58,79 @@ function Fields({
         ))}
         <p className="form-hint">不选表示通用，参与所有栏目的候选。</p>
       </fieldset>
-      <label>
-        采集方式
-        <select name="format" defaultValue={row?.format ?? 'manual'}>
-          <option value="manual">待接入</option>
-          <option value="rss">RSS / Atom</option>
-          <option value="json">公开接口 / JSON</option>
-          <option value="html">网页 / HTML</option>
-        </select>
-      </label>
-      <label>
-        采集入口
-        <input
-          type="url"
-          name="url"
-          defaultValue={row?.url ?? ''}
-          placeholder="https://…"
-          maxLength={2000}
-        />
-      </label>
+      <fieldset className="source-collection source-field-wide">
+        <legend>采集方式</legend>
+        <label>
+          采集格式
+          <select name="format" defaultValue={row?.format ?? 'manual'}>
+            <option value="manual">未知</option>
+            <option value="rss">RSS / Atom</option>
+            <option value="json">公开接口 / JSON</option>
+            <option value="html">网页 / HTML</option>
+          </select>
+        </label>
+        <label className="check source-detail-option">
+          <Switch
+            name="readDetails"
+            aria-label="读取详情页"
+            size="small"
+            defaultChecked={row?.readDetails ?? false}
+          />
+          读取详情页
+        </label>
+        <label className="source-field-wide">
+          <span>
+            采集入口 <small className="muted">（多入口一行一个）</small>
+          </span>
+          <textarea
+            aria-label="采集入口"
+            name="urls"
+            defaultValue={[row?.url, ...(row?.additionalUrls ?? [])].filter(Boolean).join('\n')}
+            rows={3}
+            maxLength={20009}
+          />
+        </label>
+      </fieldset>
+      <fieldset className="source-rhythm source-field-wide">
+        <legend>采集节奏</legend>
+        <label>
+          采集间隔（分钟）
+          <input
+            type="number"
+            name="intervalMinutes"
+            min={60}
+            max={1440}
+            defaultValue={row?.intervalMinutes ?? 60}
+            required
+          />
+        </label>
+        <label>
+          最短间隔（分钟）
+          <input
+            type="number"
+            name="minIntervalMinutes"
+            min={60}
+            max={1440}
+            defaultValue={row?.minIntervalMinutes ?? 60}
+            required
+          />
+        </label>
+        <label>
+          最长间隔（分钟）
+          <input
+            type="number"
+            name="maxIntervalMinutes"
+            min={60}
+            max={1440}
+            defaultValue={row?.maxIntervalMinutes ?? 240}
+            required
+          />
+        </label>
+        <label className="check">
+          <input type="checkbox" name="autoInterval" defaultChecked={row?.autoInterval} />
+          自动调整采集间隔
+        </label>
+      </fieldset>
       <label>
         优先级
         <select name="priority" defaultValue={row?.priority ?? 'P1'}>
@@ -103,46 +157,6 @@ function Fields({
         备注
         <textarea name="notes" defaultValue={row?.notes} maxLength={4000} />
       </label>
-      <fieldset className="source-rhythm source-field-wide">
-        <legend>采集节奏</legend>
-        <label>
-          采集间隔（分钟）
-          <input
-            type="number"
-            name="intervalMinutes"
-            min={isJiqizhixinRss(row?.url ?? null) ? 60 : 5}
-            max={1440}
-            defaultValue={row?.intervalMinutes ?? 60}
-            required
-          />
-        </label>
-        <label>
-          最短间隔（分钟）
-          <input
-            type="number"
-            name="minIntervalMinutes"
-            min={isJiqizhixinRss(row?.url ?? null) ? 60 : 5}
-            max={1440}
-            defaultValue={row?.minIntervalMinutes ?? 60}
-            required
-          />
-        </label>
-        <label>
-          最长间隔（分钟）
-          <input
-            type="number"
-            name="maxIntervalMinutes"
-            min={5}
-            max={1440}
-            defaultValue={row?.maxIntervalMinutes ?? 240}
-            required
-          />
-        </label>
-        <label className="check">
-          <input type="checkbox" name="autoInterval" defaultChecked={row?.autoInterval} />
-          自动调整采集间隔
-        </label>
-      </fieldset>
     </>
   );
 }
@@ -151,7 +165,10 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
   const query = await searchParams;
   const config = await getSettings();
   const sections = config.sections.filter((s) => s.kind === 'fixed');
-  const rows = await db.select().from(sources).orderBy(asc(sources.createdAt), asc(sources.id));
+  const rows = await db
+    .select()
+    .from(sources)
+    .orderBy(asc(sources.sortOrder), asc(sources.createdAt), asc(sources.id));
   const selected = rows.find((row) => row.id === query.detail);
   const enabledFilter = query.enabled === 'true' || query.enabled === 'false' ? query.enabled : '';
   const sectionFilter =
@@ -177,16 +194,32 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
   if (sectionFilter) listQuery.set('section', sectionFilter);
   if (formatFilter) listQuery.set('format', formatFilter);
   const listHref = `/admin/sources${listQuery.size ? `?${listQuery}` : ''}`;
-  const quality =
-    await pool.query(`WITH recent AS (SELECT * FROM articles WHERE published_at >= now()-interval '30 days'), repeated AS
-    (SELECT event_id FROM recent WHERE event_id IS NOT NULL GROUP BY event_id HAVING count(DISTINCT source_id)>1)
-    SELECT source_id,count(*)::int total,count(*) FILTER(WHERE state='ignored')::int ignored,
-    count(*) FILTER(WHERE event_id IN (SELECT event_id FROM repeated))::int repeated FROM recent GROUP BY source_id`);
-  const metric = quality.rows.find((q) => q.source_id === selected?.id);
+  const metric = selected
+    ? (
+        await pool.query(
+          `SELECT count(*)::int total,
+    count(*) FILTER(WHERE a.state='processed')::int relevant,
+    count(*) FILTER(WHERE a.state='ignored')::int ignored
+    FROM source_discoveries d LEFT JOIN articles a ON a.url=d.url
+    WHERE d.source_id=$1 AND d.first_seen_at>=now()-interval '30 days'`,
+          [selected.id],
+        )
+      ).rows[0]
+    : null;
   return (
     <>
       <Notice query={query} />
+      <p className="form-hint">
+        {rows.length}个信源 · {rows.filter((s) => s.enabled).length}个启用
+      </p>
       <div className="source-toolbar">
+        <Link
+          className="solid-button"
+          scroll={false}
+          href={`${listHref}${listQuery.size ? '&' : '?'}add=1`}
+        >
+          添加信源
+        </Link>
         <SourceFilters
           enabled={enabledFilter}
           section={sectionFilter}
@@ -200,13 +233,6 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
             label="自动采集"
             enabled={config.collectionEnabled}
           />
-          <Link
-            className="solid-button"
-            scroll={false}
-            href={`${listHref}${listQuery.size ? '&' : '?'}add=1`}
-          >
-            添加信源
-          </Link>
         </div>
       </div>
       {query.add === '1' && !selected && (
@@ -232,23 +258,20 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
           closeHref={listHref}
         >
           <div className="source-meta">
+            <p>
+              <Link href={`/admin/sources/monitor?source=${selected.id}`}>每日采集与质量评价</Link>
+            </p>
             <p className="form-hint">
               最近验证：{date(selected.verifiedAt)} · 下次采集：{date(selected.nextFetchAt)}
             </p>
             {metric && (
               <p className="form-hint">
-                近30天采入{metric.total}篇，关联性淘汰{metric.ignored}篇，涉及跨源共同报道事件
-                {metric.repeated}篇。
+                近30天首次发现{metric.total}条 · 筛选通过{metric.relevant}条 · 淘汰{metric.ignored}
+                条
               </p>
             )}
             {selected.intervalReason && <p className="form-hint">{selected.intervalReason}</p>}
             {selected.lastError && <p className="notice error">{selected.lastError}</p>}
-            {isJiqizhixinRss(selected.url) && (
-              <p className="form-hint">
-                官方RSS每60分钟最多请求一次。访问令牌
-                {process.env.JIQIZHIXIN_RSS_TOKEN ? '已配置' : '未配置'}。
-              </p>
-            )}
           </div>
           <form
             action={sourceAction}
@@ -275,14 +298,11 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
               </form>
             </div>
             <button className="solid-button" form="source-config-form">
-              保存信源
+              保存
             </button>
           </footer>
         </SourceManagementDialog>
       )}
-      <p className="form-hint">
-        {rows.length}个信源 · {rows.filter((s) => s.enabled).length}个启用
-      </p>
       <div
         className="table-wrap source-table-wrap"
         id="sources-table"
@@ -293,7 +313,7 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
         <table className="source-table">
           <thead>
             <tr>
-              {['信源名称', '归属栏目', '采集方式', '验证状态', '最近采集', '启用', '操作'].map(
+              {['信源名称', '归属栏目', '采集格式', '验证状态', '最近采集', '启用', '操作'].map(
                 (name) => (
                   <th key={name} scope="col">
                     {name}

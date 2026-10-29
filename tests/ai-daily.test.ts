@@ -456,15 +456,23 @@ test('栏目预算、要览门槛、重复和遗漏事件均校验，失败不�
       return reply({
         items: input.sections.flatMap(
           (s: { items: { eventId: string; title: string; summary: string }[] }) =>
-            s.items.map((i) => ({ ...i, summary: '字'.repeat(201) })),
+            s.items.map((i) => ({ ...i, summary: '字'.repeat(221) })),
         ),
       });
     const v = written(input);
-    v.items[0].summary = '字'.repeat(201);
+    v.items[0].summary = '字'.repeat(221);
     return reply(v);
   };
-  await assert.rejects(generateBrief('daily', '2026-10-22'), /200字预算/);
+  await assert.rejects(generateBrief('daily', '2026-10-22'), /压缩至200字以内/);
   assert.equal((await pool.query('SELECT count(*)::int n FROM briefs')).rows[0].n, 0);
+  const outcomes = (
+    await pool.query('SELECT section,status,candidate_count,reason,details FROM edition_runs')
+  ).rows;
+  assert.equal(outcomes.find((r) => r.section === '工具与开源').status, 'error');
+  assert.equal(outcomes.find((r) => r.section === '工具与开源').candidate_count, 1);
+  assert.equal(outcomes.find((r) => r.section === '工具与开源').details.length, 1);
+  assert.equal(outcomes.find((r) => r.section === '政策与监管').status, 'blocked');
+  assert.doesNotMatch(outcomes.find((r) => r.section === '政策与监管').reason, /压缩至/);
   await pool.query('DELETE FROM model_calls');
   globalThis.fetch = async (_url, init) => {
     const v = written(inputFrom(init));
@@ -481,6 +489,14 @@ test('超预算时系统只压缩对应栏目，保留其他内容并复用初�
   globalThis.fetch = async (_url, init) => {
     calls++;
     const input = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+    assert.doesNotMatch(
+      JSON.parse(String(init?.body)).messages[0].content,
+      /容差|允许超出|不得超过limit/,
+    );
+    assert.equal('budgetTolerancePercent' in input, false);
+    for (const rule of [...(input.sections ?? []), ...(input.rotationMaterials ?? [])]) {
+      assert.equal('limit' in rule, false);
+    }
     if (input.selected) {
       const v = written(input);
       v.items = v.items.map((i) => ({

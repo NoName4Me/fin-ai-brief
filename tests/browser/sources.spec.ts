@@ -39,9 +39,14 @@ test('候选无入口也可新增，多栏目可编辑为通用，新来源默�
     await expect(row.getByRole('switch')).toBeDisabled();
     await row.getByRole('link', { name: '详情' }).click();
     const editor = page.getByRole('dialog', { name: `${name}详情` });
+    await expect(editor.getByLabel('验证状态').locator('option')).toHaveText([
+      '待验证',
+      '可用',
+      '未通过',
+    ]);
     await editor.getByRole('checkbox', { name: '政策与监管', exact: true }).uncheck();
     await editor.getByRole('checkbox', { name: '风险与安全', exact: true }).uncheck();
-    await editor.getByRole('button', { name: '保存信源' }).click();
+    await editor.getByRole('button', { name: '保存' }).click();
     await expect(row).toContainText('通用');
     await expect(page.getByLabel('行业', { exact: true })).toHaveCount(0);
     const saved = (await db.query('SELECT sections,url,enabled FROM sources WHERE name=$1', [name]))
@@ -66,7 +71,7 @@ test('信源平铺七列表头，开关可直接启停且不改栏目，手机�
     await expect(page.getByRole('columnheader')).toHaveText([
       '信源名称',
       '归属栏目',
-      '采集方式',
+      '采集格式',
       '验证状态',
       '最近采集',
       /启用/,
@@ -80,7 +85,7 @@ test('信源平铺七列表头，开关可直接启停且不改栏目，手机�
     await filter.selectOption('true');
     await expect(page).toHaveURL(/enabled=true/);
     const section = page.getByRole('combobox', { name: '栏目筛选', exact: true });
-    const format = page.getByRole('combobox', { name: '采集方式筛选' });
+    const format = page.getByRole('combobox', { name: '采集格式筛选' });
     await expect(page.locator('thead select')).toHaveCount(0);
     await section.selectOption('政策与监管');
     await expect(row).toHaveCount(0);
@@ -137,6 +142,45 @@ test('信源平铺七列表头，开关可直接启停且不改栏目，手机�
     await page.screenshot({ path: '.data/source-list-mobile.png' });
   } finally {
     await db.query('DELETE FROM sources WHERE id=$1', [id]);
+    await db.end();
+  }
+});
+
+test('详情读取开关及多入口配置可编辑保存', async ({ page }) => {
+  const db = new Pool({ connectionString: process.env.DATABASE_URL });
+  const name = `多入口-${randomUUID()}`;
+  const first = 'https://www.pbc.gov.cn/tiaofasi/144941/3581332/index.html';
+  const second = 'https://www.pbc.gov.cn/tiaofasi/144941/144957/index.html';
+  const {
+    rows: [source],
+  } = await db.query(
+    "INSERT INTO sources(name,url,format,industry_id,additional_urls,read_details) VALUES($1,$2,'html','ai',$3::jsonb,true) RETURNING id",
+    [name, first, JSON.stringify([second])],
+  );
+  try {
+    await page.goto(`/admin/sources?source=${source.id}`);
+    // Open through the row so URL parameter conventions remain covered by the normal UI.
+    const row = page.locator(`[data-source-id="${source.id}"]`);
+    if (!(await page.getByRole('dialog').count()))
+      await row.getByRole('link', { name: '详情' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByLabel('采集入口', { exact: true })).toHaveValue(`${first}\n${second}`);
+    const toggle = dialog.getByRole('switch', { name: '读取详情页' });
+    await expect(toggle).toBeChecked();
+    const size = await toggle.boundingBox();
+    expect(size?.width).toBe(30);
+    expect(size?.height).toBe(18);
+    await toggle.uncheck();
+    await dialog.getByLabel('采集入口', { exact: true }).fill(first);
+    await dialog.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('操作已完成');
+    const {
+      rows: [saved],
+    } = await db.query('SELECT additional_urls,read_details FROM sources WHERE id=$1', [source.id]);
+    expect(saved.additional_urls).toEqual([]);
+    expect(saved.read_details).toBe(false);
+  } finally {
+    await db.query('DELETE FROM sources WHERE id=$1', [source.id]);
     await db.end();
   }
 });

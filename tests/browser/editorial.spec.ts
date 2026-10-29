@@ -12,7 +12,9 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await page.goto('/admin/editorial');
     await expect(page).toHaveURL(/\/editorial\/columns$/);
     const columns = page.getByRole('region', { name: '栏目配置', exact: true });
-    await expect(columns.locator('tbody tr')).toHaveCount(10);
+    await expect(columns.locator('tbody tr')).toHaveCount(
+      previous.sections.length + (previous.highlightsDeleted ? 0 : 1),
+    );
     await expect(page.getByRole('region', { name: '评分指标配置', exact: true })).toHaveCount(0);
     await expect(page.locator('textarea[name="keywords"]')).toHaveCount(0);
     await expect(columns.locator('details')).toHaveCount(0);
@@ -26,7 +28,7 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await page.getByLabel('简报主标题字数上限').fill('40');
     await page.getByRole('button', { name: '新增栏目', exact: true }).click();
     await page.getByLabel('新栏目名称', { exact: true }).fill('工程实践');
-    await page.getByRole('button', { name: '保存栏目与篇幅', exact: true }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await expect(page.getByLabel('周度观察出刊星期')).toHaveValue('周二、周四');
@@ -42,7 +44,7 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await expect(page.getByRole('region', { name: '栏目配置', exact: true })).toHaveCount(0);
     const ratings = page.getByRole('region', { name: '评分指标配置', exact: true });
     await expect(ratings.locator('tbody tr')).toHaveCount(5);
-    await page.getByLabel('可行动性启用', { exact: true }).uncheck();
+    await page.getByRole('switch', { name: '可行动性启用', exact: true }).click();
     await expect(page.locator('[data-rating-id="relevance"] .editorial-share')).toHaveText('37.5%');
     await page.getByLabel('相关性权重').fill('40');
     await expect(page.locator('[data-rating-id="relevance"] .editorial-share')).toHaveText('44.4%');
@@ -53,8 +55,8 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await page.getByRole('button', { name: '新增指标', exact: true }).click();
     await page.getByLabel('新指标名称', { exact: true }).fill('可复用性');
     await page.getByLabel('可复用性描述').fill('方法可复用程度');
-    await page.getByLabel('可复用性启用', { exact: true }).uncheck();
-    await page.getByRole('button', { name: '保存评分规则', exact: true }).click();
+    await page.getByRole('switch', { name: '可复用性启用', exact: true }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await expect(page.getByLabel('覆盖程度描述')).toHaveValue('评估对机构与使用者的影响范围');
@@ -64,7 +66,7 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await expect(page.getByRole('region', { name: '评分指标配置', exact: true })).toHaveCount(0);
     await expect(page.getByLabel('标签（可选）', { exact: true })).toHaveCount(0);
     await page.getByLabel('启用疑难归组与事实复核').uncheck();
-    await page.getByRole('button', { name: '保存收录与写作', exact: true }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await page.getByRole('button', { name: '关闭通知', exact: true }).click();
@@ -94,11 +96,11 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await expect(dialog.getByRole('checkbox', { name: '技术与模型', exact: true })).toHaveCount(0);
     await page.goto('/admin/editorial/columns');
     await page.getByRole('button', { name: '工程实践删除', exact: true }).click();
-    await page.getByRole('button', { name: '保存栏目与篇幅', exact: true }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.goto('/admin/editorial/ratings');
     await page.getByRole('button', { name: '可复用性删除', exact: true }).click();
-    await page.getByRole('button', { name: '保存评分规则', exact: true }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await expect(page.getByLabel('可复用性名称')).toHaveCount(0);

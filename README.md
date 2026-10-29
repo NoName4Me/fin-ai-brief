@@ -78,7 +78,7 @@ npm run dev
 
 ## 信源
 
-优先采用经实际验证的RSS，保留不可替代的一手监管来源和已适配官网例外。机器之心官方RSS至少60分钟一次，令牌保存在服务端`JIQIZHIXIN_RSS_TOKEN`，不写入订阅地址或公开页面。
+优先采用经实际验证的RSS，保留不可替代的一手监管来源和已适配官网例外。采集入口直接使用信源配置中的完整URL；需要令牌的RSS将令牌填写在入口URL中。所有信源采集间隔至少60分钟。
 
 ```bash
 npx tsx --env-file-if-exists=.env scripts/audit-ai-sources.ts

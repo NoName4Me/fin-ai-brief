@@ -58,6 +58,7 @@ export async function validateRemoteUrl(input: string) {
 }
 export type SourceHeaders = { etag: string | null };
 export type SourceFetchOptions = {
+  binaryBase64?: boolean;
   method?: 'GET' | 'POST';
   body?: string;
   headers?: Record<string, string>;
@@ -81,7 +82,7 @@ export async function fetchSource(input: string, options: SourceFetchOptions = {
   };
   let method = options.method ?? plan.method ?? 'GET';
   let requestBody = options.body ?? plan.body;
-  const origin = new URL(input).origin;
+  const origin = new URL(next).origin;
   for (let n = 0; n < 4; n++) {
     const { url, address } = await resolveRemote(next);
     const slot = await reserveHost(url.hostname);
@@ -179,6 +180,7 @@ export async function fetchSource(input: string, options: SourceFetchOptions = {
         : encoding === 'br'
           ? brotliDecompressSync(rawBody, { maxOutputLength: 3_000_000 })
           : rawBody;
+    if (options.binaryBase64) return body.toString('base64');
     const charset =
       /charset=["']?([\w-]+)/i.exec(String(response.headers['content-type']))?.[1] ??
       /<\?xml[^>]*encoding=["']([\w-]+)/i.exec(body.subarray(0, 200).toString('ascii'))?.[1] ??

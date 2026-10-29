@@ -1,6 +1,7 @@
 type Candidate = { rating?: number | null; selected?: boolean; reason?: string };
 type Record = {
   status: string;
+  section?: string;
   candidate_count: number;
   selected_count: number;
   reason: string;
@@ -8,6 +9,33 @@ type Record = {
 };
 export function explainEditionRecord<T extends Record>(record: T, processingFailures?: number): T {
   if (record.status !== 'error' || record.selected_count > 0) return record;
+  // Historical failures stored the complete validation error on every section.
+  // Recover the affected sections from individual validation messages, never from a shared string match.
+  if (record.section) {
+    try {
+      const issues: unknown = JSON.parse(record.reason);
+      if (Array.isArray(issues) && issues.length) {
+        const messages = issues.map((issue) =>
+          typeof issue?.message === 'string' ? issue.message : '',
+        );
+        const sections = messages.map(
+          (message) => message.match(/^(.+?)超过(?:\d+字上限|字数要求)/)?.[1],
+        );
+        if (sections.every((name) => !!name)) {
+          const own = messages.filter((_, index) => sections[index] === record.section);
+          return own.length
+            ? { ...record, reason: own.join('；') }
+            : {
+                ...record,
+                status: 'blocked',
+                reason: `整期因${[...new Set(sections)].join('、')}栏目处理异常未出刊；本栏目未记录独立异常`,
+              };
+        }
+      }
+    } catch {
+      /* Non-JSON reasons describe a general generation failure. */
+    }
+  }
   const details = record.details ?? [];
   if (
     details.length > 0 &&
@@ -23,8 +51,14 @@ export function explainEditionRecord<T extends Record>(record: T, processingFail
     return {
       ...record,
       reason: processingFailures
-        ? `本批次有${processingFailures}条资讯处理失败；本栏目暂无可用候选，缺稿原因待核查，并非已确认该栏目采集失败`
-        : '当次整期采集或处理检查未通过；本栏目暂无可用候选，缺稿原因待核查，并非已确认该栏目采集失败',
+        ? `本栏目暂无候选，可能因本批次有${processingFailures}条资讯处理失败导致候选材料不完整`
+        : '本栏目暂无候选，可能因当次整期采集或处理检查未通过导致候选材料不完整',
+    };
+  const pendingCause = record.reason.match(/^(.+?)；本栏目暂无候选，缺稿原因待核查$/)?.[1];
+  if (pendingCause)
+    return {
+      ...record,
+      reason: `本栏目暂无候选，可能因${pendingCause}导致候选材料不完整`,
     };
   return record;
 }
@@ -57,6 +91,9 @@ export function fixedSectionOutcome(input: {
     health.unassessed ? `${health.unassessed}篇资讯缺少评分` : '',
   ].filter(Boolean);
   return problems.length
-    ? { status: 'error', reason: `本期有${problems.join('、')}；本栏目暂无候选，缺稿原因待核查` }
+    ? {
+        status: 'error',
+        reason: `本栏目暂无候选，可能因本期有${problems.join('、')}导致候选材料不完整`,
+      }
     : { status: 'skipped', reason: '本栏目暂无合格候选，本期正常留空' };
 }

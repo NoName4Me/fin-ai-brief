@@ -18,7 +18,7 @@ test('重试与并发通过弹窗保存，操作通知固定右上角并可关�
     await page.goto('/admin/articles?configure=tasks');
     await page.getByLabel('失败后自动重试次数').fill('2');
     await page.getByLabel('资讯处理并发数').fill('4');
-    await page.getByRole('button', { name: '保存任务配置' }).click();
+    await page.getByRole('button', { name: '保存' }).click();
     const notice = page.getByRole('status');
     await expect(notice).toHaveText('操作已完成');
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -32,7 +32,7 @@ test('重试与并发通过弹窗保存，操作通知固定右上角并可关�
     await page.goto('/admin/articles?configure=tasks');
     await expect(page.getByLabel('失败后自动重试次数')).toHaveValue('2');
     await expect(page.getByLabel('资讯处理并发数')).toHaveValue('4');
-    await page.getByRole('button', { name: '保存任务配置' }).click();
+    await page.getByRole('button', { name: '保存' }).click();
     await page.setViewportSize({ width: 375, height: 812 });
     await expect(notice).toBeInViewport();
     await page.getByRole('button', { name: '关闭通知' }).click();

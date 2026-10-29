@@ -20,7 +20,7 @@ before(async () => {
 beforeEach(async () => {
   for (const name of ['collect', 'process', 'generate']) await boss.deleteAllJobs(name);
   await pool.query(
-    'TRUNCATE articles,events,sources,brief_requests,processing_steps,model_calls CASCADE',
+    'TRUNCATE reprocessing_batches,articles,events,sources,brief_requests,processing_steps,model_calls CASCADE',
   );
   await saveSettings(defaultSettings);
 });
@@ -154,4 +154,19 @@ test('信源改名或删除后保留入队时的任务名，详情时间线倒�
   assert.equal(detail?.steps[0].stage, 'task');
   assert.equal(await taskDetail(`job:${randomUUID()}`), null);
   assert.equal(await taskDetail('invalid'), null);
+});
+
+test('分页覆盖100条以外的任务，过滤后总数与页数一致', async () => {
+  await pool.query(`INSERT INTO articles(title,url,excerpt,published_at,source_name,industry_id)
+    SELECT '分页资讯'||n,'https://example.invalid/page/'||n,'摘要',now(),'分页信源','ai' FROM generate_series(1,123) n`);
+  const first = await taskOverview('分页资讯', 'process', '', 1, 50);
+  const second = await taskOverview('分页资讯', 'process', '', 2, 50);
+  const third = await taskOverview('分页资讯', 'process', '', 3, 50);
+  assert.equal(first.length, 50);
+  assert.equal(second.length, 50);
+  assert.equal(third.length, 23);
+  assert.equal(first[0].total_count, 123);
+  assert.equal(new Set([...first, ...second, ...third].map((t) => t.id)).size, 123);
+  const filtered = await taskOverview('分页资讯123', 'process', '', 1, 50);
+  assert.equal(filtered[0].total_count, 1);
 });

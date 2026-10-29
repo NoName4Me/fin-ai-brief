@@ -1,4 +1,5 @@
-import { and, eq, ilike, isNull, lt, not, or } from 'drizzle-orm';
+import { migrate } from '../scripts/migrate.ts';
+import { and, eq, isNull, lt, or } from 'drizzle-orm';
 import { db, pool } from './server/db.ts';
 import {
   getQueue,
@@ -14,13 +15,14 @@ import { processingController } from './server/processing-worker.ts';
 import { cleanupRetention } from './server/retention.ts';
 import { deliver } from './server/mail.ts';
 import { getSettings } from './server/settings.ts';
-import { duePeriods, rangeFor } from './server/periods.ts';
+import { duePeriods, preCollectionCutoff, rangeFor } from './server/periods.ts';
 import { dispatchReprocessingBatches } from './server/reprocessing.ts';
 import {
   dispatchGenerationRequests,
   runGeneration,
   type GenerationTask,
 } from './server/generation-requests.ts';
+await migrate();
 const boss = await getQueue();
 await boss.work<{ id: string; manual?: boolean }>('collect', async ([job]) =>
   executeTask('collect', job.id, job.data, () =>
@@ -39,20 +41,20 @@ async function tick() {
   let collecting = false;
   const config = await getSettings();
   if (config.collectionEnabled) {
+    const preCollectionBefore = config.dailyEnabled
+      ? preCollectionCutoff(new Date(), config.dailyTime)
+      : null;
     const due = await db
       .select()
       .from(sources)
       .where(
         and(
           eq(sources.enabled, true),
-          or(isNull(sources.nextFetchAt), lt(sources.nextFetchAt, new Date())),
-          // 机器之心免费RSS硬性要求两次请求间隔≥60分钟；未到冷却期不入队，
-          // 否则会每分钟产生一条无意义的失败任务。
           or(
-            isNull(sources.url),
-            not(ilike(sources.url, '%mcp.applications.jiqizhixin.com/rss%')),
-            isNull(sources.lastFetchedAt),
-            lt(sources.lastFetchedAt, new Date(Date.now() - 60 * 60_000)),
+            or(isNull(sources.nextFetchAt), lt(sources.nextFetchAt, new Date())),
+            preCollectionBefore
+              ? or(isNull(sources.lastFetchedAt), lt(sources.lastFetchedAt, preCollectionBefore))
+              : undefined,
           ),
         ),
       );

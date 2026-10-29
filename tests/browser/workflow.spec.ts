@@ -25,7 +25,7 @@ test('匿名管理访问被拦截，审核开关与额度可以保存', async ({
   const old = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
   try {
     await auto.setChecked(!prior);
-    await page.getByRole('button', { name: '保存出刊设置', exact: true }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await page.goto('/admin/publications?configure=publication');
@@ -107,7 +107,7 @@ test('栏目预算保存，轮动排期与记录可查', async ({ page }) => {
   try {
     await page.goto('/admin/editorial');
     await page.getByLabel('工具与开源字数预算').fill('220');
-    await page.getByRole('button', { name: '保存栏目与篇幅' }).click();
+    await page.getByRole('button', { name: '保存' }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await expect(page.getByLabel('工具与开源字数预算')).toHaveValue('220');

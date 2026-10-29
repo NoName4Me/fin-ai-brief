@@ -8,85 +8,49 @@ type Entry = {
   priority: string;
   section: string;
   notes: string | null;
-  access: string;
-  type: string;
 };
 const entries: Entry[] = JSON.parse(await readFile('src/data/source-catalog.json', 'utf8'));
 const aliases: Record<string, string> = {
   'Hugging Face': 'Hugging Face Blog',
   'InfoQ 中文': 'InfoQ中文',
 };
-const endpoints: Record<string, string> = {
-  'InfoQ 中文': 'https://www.infoq.cn/feed',
-  未央网: 'https://www.weiyangx.com/feed',
-  'arXiv cs.AI / cs.CL': 'https://rss.arxiv.org/rss/cs.AI',
-  'MIT Technology Review': 'https://www.technologyreview.com/topic/artificial-intelligence/feed',
-  'TLDR AI': 'https://tldr.tech/api/rss/ai',
-};
 const client = await pool.connect();
-let inserted = 0,
-  matched = 0;
+const added: string[] = [];
 try {
   await client.query('BEGIN');
   await client.query('SELECT pg_advisory_xact_lock(76140511)');
   for (const entry of entries) {
-    if (entry.section === '内部动态' || entry.name === '各银行/AMC官网采购公告') continue;
     const key = `leader-xlsx:${entry.number}`;
-    if ((await client.query('SELECT 1 FROM sources WHERE catalog_key=$1', [key])).rowCount)
-      continue;
-    const existing = await client.query('SELECT id FROM sources WHERE name=ANY($1::text[])', [
-      [entry.name, aliases[entry.name] ?? entry.name],
-    ]);
-    const notes = [entry.notes, `原始获取方式：${entry.access}`].filter(Boolean).join('；');
+    const existing = await client.query(
+      'SELECT id FROM sources WHERE catalog_key=$1 OR name=ANY($2::text[]) ORDER BY (catalog_key=$1) DESC NULLS LAST LIMIT 1',
+      [key, [entry.name, aliases[entry.name] ?? entry.name]],
+    );
     if (existing.rowCount) {
+      // Reordering must preserve configured endpoints, credentials and collection switches.
       await client.query(
-        `UPDATE sources SET catalog_key=$2,origin_address=$3,sections=$4::jsonb,priority=$5,notes=$6 WHERE id=$1`,
-        [
-          existing.rows[0].id,
-          key,
-          entry.address,
-          JSON.stringify([entry.section]),
-          entry.priority,
-          notes,
-        ],
+        'UPDATE sources SET name=$2,sort_order=$3,catalog_key=coalesce(catalog_key,$4) WHERE id=$1',
+        [existing.rows[0].id, entry.name, entry.number, key],
       );
-      matched++;
     } else {
-      const endpoint = endpoints[entry.name] ?? null;
       await client.query(
-        `INSERT INTO sources(name,url,format,origin_address,industry_id,sections,catalog_key,priority,notes,enabled,verification_note)
-        VALUES($1,$2,$3,$4,'ai',$5::jsonb,$6,$7,$8,false,$9)`,
+        `INSERT INTO sources(name,url,format,origin_address,industry_id,sections,catalog_key,sort_order,priority,notes,enabled)
+        VALUES($1,NULL,'manual',$2,'ai',$3::jsonb,$4,$5,$6,$7,false)`,
         [
           entry.name,
-          endpoint,
-          endpoint ? 'rss' : 'manual',
           entry.address,
           JSON.stringify([entry.section]),
           key,
+          entry.number,
           entry.priority,
-          notes,
-          endpoint ? '已找到RSS候选，待复核采集与内容质量' : '待寻找RSS或适配采集入口；不自动采集',
+          entry.notes ?? '',
         ],
       );
-      inserted++;
+      added.push(entry.name);
     }
   }
-  // Existing selections retain their switches. This records their provenance, not a new network check.
-  await client.query(
-    `UPDATE sources SET verification_status='approved',verification_note='沿用既有选用来源；持续观察采入质量与跨源重复率' WHERE enabled AND verification_status='pending' AND verified_at IS NULL AND (catalog_key IS NOT NULL OR name IN ('AIHOT','上海证券报金融频道'))`,
-  );
+  await client.query("UPDATE sources SET sort_order=2147483647 WHERE name='AIHOT'");
   await client.query('COMMIT');
-  console.log(
-    JSON.stringify({
-      inserted,
-      matched,
-      excluded: [
-        '中投公司（内部动态）',
-        '中国东方资产管理（内部动态）',
-        '各银行/AMC官网采购公告（集合项，待拆分）',
-      ],
-    }),
-  );
+  console.log(JSON.stringify({ added, ordered: entries.length }));
 } catch (error) {
   await client.query('ROLLBACK');
   throw error;

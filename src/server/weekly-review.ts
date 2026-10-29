@@ -170,7 +170,9 @@ export async function weeklyMaterials(
           id: a.id,
           title: a.title,
           excerpt: a.excerpt,
-          publishedAt: a.publishedAt,
+          publishedAt: a.publishedPrecision === 'observed' ? undefined : a.publishedAt,
+          observedAt: a.publishedPrecision === 'observed' ? a.publishedAt : undefined,
+          publishedPrecision: a.publishedPrecision,
         })),
     };
   });

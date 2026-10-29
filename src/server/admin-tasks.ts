@@ -26,6 +26,7 @@ import { explainEditionRecord } from './edition-status.ts';
 import { retryBatchFailures } from './admin-reprocessing.ts';
 export type TaskType = keyof typeof taskTypes;
 export interface ManagedTask {
+  total_count?: number;
   id: string;
   queue: TaskType;
   name: string;
@@ -113,7 +114,7 @@ const taskProjection = `WITH unified AS (
   FROM reprocessing_batches b LEFT JOIN reprocessing_items i ON i.batch_id=b.id GROUP BY b.id
 
 )`;
-export async function taskOverview(query = '', type = '', state = '') {
+export async function taskOverview(query = '', type = '', state = '', page = 1, pageSize = 100) {
   const rows = await pool.query<ManagedTask>(
     `${taskProjection},
     ranked AS (
@@ -124,7 +125,7 @@ export async function taskOverview(query = '', type = '', state = '') {
       FROM unified WHERE ($1='' OR queue=$1)
       AND ($3='' OR name ILIKE '%'||$3||'%' OR id=$3 OR target_id=$3)
     )
-    SELECT * FROM ranked WHERE position=1 AND ($2='' OR state=$2)
+    SELECT *,count(*) OVER()::int total_count FROM ranked WHERE position=1 AND ($2='' OR state=$2)
       AND NOT ((queue='process' OR (queue='generate' AND $1<>'generate')) AND data->>'reprocessBatchId' IS NOT NULL)
       AND NOT (queue='process' AND EXISTS (
         SELECT 1 FROM reprocessing_items i JOIN reprocessing_batches b ON b.id=i.batch_id
@@ -133,8 +134,14 @@ export async function taskOverview(query = '', type = '', state = '') {
           OR (ranked.job_id IS NULL AND i.state IN ('failed','waiting','queued'))
         )
       ))
-    ORDER BY CASE WHEN queue='reprocess' AND state IN ('created','active','generating','waiting_articles','waiting_budget') THEN 0 ELSE 1 END,CASE WHEN queue='reprocess' THEN coalesce(completed_on,created_on) ELSE created_on END DESC,id DESC LIMIT 100`,
-    [type, state, query.trim().slice(0, 200)],
+    ORDER BY CASE WHEN queue='reprocess' AND state IN ('created','active','generating','waiting_articles','waiting_budget') THEN 0 ELSE 1 END,CASE WHEN queue='reprocess' THEN coalesce(completed_on,created_on) ELSE created_on END DESC,id DESC LIMIT $4 OFFSET $5`,
+    [
+      type,
+      state,
+      query.trim().slice(0, 200),
+      Math.min(100, Math.max(1, pageSize)),
+      (Math.max(1, page) - 1) * Math.min(100, Math.max(1, pageSize)),
+    ],
   );
   return rows.rows;
 }

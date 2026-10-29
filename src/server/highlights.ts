@@ -16,6 +16,6 @@ export function highlightErrors(
     errors.push(`要览最多${config.highlightsMaxItems}条`);
   const limit = budgetLimit(config.highlightsBudget, config.budgetTolerancePercent);
   if (items.reduce((sum, item) => sum + [...item.text].length, 0) > limit)
-    errors.push(`要览总字数不能超过${limit}字（含容差）`);
+    errors.push(`要览总字数超出要求，请压缩至${config.highlightsBudget}字以内`);
   return errors;
 }

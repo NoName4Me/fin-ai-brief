@@ -55,10 +55,10 @@ test('候选可无采集入口入库，默认关闭且不能绕过验证启用',
       url: 'https://example.invalid/rss',
       format: 'rss',
       industryId: 'ai',
-      verificationStatus: 'technical',
+      verificationStatus: 'pending',
     })
     .returning();
-  await assert.rejects(toggleSource(technical.id, true), /内容评估/);
+  await assert.rejects(toggleSource(technical.id, true), /采集验证/);
   await pool.query("UPDATE sources SET verification_status='approved' WHERE id=$1", [technical.id]);
   await toggleSource(technical.id, true);
   await toggleSource(technical.id, false);
@@ -84,7 +84,7 @@ test('移除采集入口会关闭信源并撤销旧验证，非法栏目不能�
   assert.equal(saved.enabled, false);
   assert.equal(saved.verificationStatus, 'pending');
   assert.equal(saved.etag, null);
-  await assert.rejects(saveSourceConfig(undefined, { ...config, sections: ['内部动态'] }));
+  await assert.rejects(saveSourceConfig(undefined, { ...config, sections: ['不存在的栏目'] }));
 });
 test('从官网声明发现RSS，保存样本但不导入、不启用，失败也留记录', async () => {
   const row = await saveSourceConfig(undefined, {
@@ -103,7 +103,7 @@ test('从官网声明发现RSS，保存样本但不导入、不启用，失败�
       ? '<link rel="alternate" type="application/rss+xml" href="/feed">'
       : '<rss version="2.0"><channel><title>来源</title><item><title>AI模型发布</title><link>https://example.invalid/story</link><description>模型新增工具调用能力。</description><pubDate>Mon, 26 Oct 2026 08:00:00 GMT</pubDate></item></channel></rss>',
   );
-  assert.equal(result.status, 'technical');
+  assert.equal(result.status, 'approved');
   assert.match(result.note, /AI模型发布/);
   const saved = (await pool.query('SELECT * FROM sources WHERE id=$1', [row.id])).rows[0];
   assert.equal(saved.url, 'https://example.invalid/feed');
@@ -128,14 +128,14 @@ test('从官网声明发现RSS，保存样本但不导入、不启用，失败�
     async () =>
       '<rss version="2.0"><channel><title>旧订阅</title><item><title>旧消息</title><link>https://example.invalid/old</link><description>旧摘要</description><pubDate>Sun, 26 Apr 2020 19:35:56 GMT</pubDate></item></channel></rss>',
   );
-  assert.equal(stale.status, 'held');
-  await assert.rejects(toggleSource(row.id, true), /内容评估/);
+  assert.equal(stale.status, 'approved');
+  await toggleSource(row.id, true);
   const thin = await verifySource(
     row.id,
     async () =>
       '<rss version="2.0"><channel><title>空摘要</title><item><title>AI模型发布</title><link>https://example.invalid/new</link><description>点击查看原文&gt;</description><pubDate>Mon, 26 Oct 2026 08:00:00 GMT</pubDate></item></channel></rss>',
   );
-  assert.equal(thin.status, 'held');
+  assert.equal(thin.status, 'approved');
   assert.match(thin.note, /有效摘要不足/);
 });
 async function processed(configured: string[], chosen: string) {

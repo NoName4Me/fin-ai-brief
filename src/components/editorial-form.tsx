@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { Switch } from './switch.tsx';
 import type { Settings } from '../server/types.ts';
 import { normalizedRatingRules, type SectionRule, type RatingRule } from '../server/editorial.ts';
 import { editorialAction } from '../app/actions.ts';
@@ -504,12 +505,11 @@ export function EditorialForm({
         </section>
       )}
       {showRatings && (
-        <section aria-labelledby="ratings-heading" className="editorial-group">
-          <header className="editorial-group-header">
-            <h2 id="ratings-heading">评分指标</h2>
+        <section aria-label="评分规则" className="editorial-group">
+          <header className="editorial-group-header column-actions">
             <button
               type="button"
-              className="outline-button"
+              className="solid-button"
               onClick={addRating}
               disabled={ratings.length >= 30}
             >
@@ -572,11 +572,11 @@ export function EditorialForm({
                         : '暂停'}
                     </td>
                     <td>
-                      <input
+                      <Switch
+                        size="small"
                         aria-label={`${rule.name}启用`}
-                        type="checkbox"
                         checked={rule.enabled}
-                        onChange={(e) => updateRating(rule.id, { enabled: e.target.checked })}
+                        onCheckedChange={(enabled) => updateRating(rule.id, { enabled })}
                       />
                     </td>
                     <td>
@@ -671,15 +671,7 @@ export function EditorialForm({
           {error}
         </p>
       )}
-      <button className="solid-button">
-        {section === 'columns'
-          ? '保存栏目与篇幅'
-          : section === 'ratings'
-            ? '保存评分规则'
-            : section === 'content'
-              ? '保存收录与写作'
-              : '保存栏目与选题'}
-      </button>
+      <button className="solid-button">保存</button>
     </form>
   );
 }

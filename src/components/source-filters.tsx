@@ -58,12 +58,12 @@ export function SourceFilters({
       </label>
       <label>
         <select
-          aria-label="采集方式筛选"
+          aria-label="采集格式筛选"
           value={format}
           disabled={pending}
           onChange={(event) => update('format', event.target.value)}
         >
-          <option value="">全部方式</option>
+          <option value="">全部格式</option>
           {Object.entries(formats).map(([key, name]) => (
             <option key={key} value={key}>
               {name}

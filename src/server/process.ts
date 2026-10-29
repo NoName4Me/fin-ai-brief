@@ -15,7 +15,12 @@ import {
 import { modelJSON } from './model.ts';
 import { getSettings } from './settings.ts';
 import { fingerprint, stage } from './processing-log.ts';
-class EventChanged extends Error {}
+class EventChanged extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EventChanged';
+  }
+}
 export const PROCESS_VERSION = 'ai-editorial-v6';
 const factSchema = z.object({
   statement: z.string().min(1).max(1000),
@@ -139,19 +144,22 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
   const decision = await stage(subject, runKey, 'analyze', async () => {
     const value = await modelJSON(
       'article',
-      `你是数智参阅编辑。一次完成AI实质关联筛选、可配置指标评分、事实提取、中文标题摘要、全局事件归组。输入只有来源摘要，不得补写未提供事实。${config.editorialPrompt}
+      `你是数智参阅编辑。一次完成AI实质关联筛选、可配置指标评分、事实提取、中文标题摘要、全局事件归组。输入只有来源摘要，不得补写未提供事实。榜单快照按采集时点陈述，采集时间不是模型或项目发布时间；首次快照不能推断新上榜或排名升降。${config.editorialPrompt}
 关键词仅用于召回线索，不能凭命中关键词收录，也不能漏掉不含这些词的重要AI内容。普通金融新闻和泛数字化不收。纯营销、没有实质事实、标题与材料不符或无法追溯来源的低质量材料输出relevant:false并给出具体原因；有真实新增事实的机构公告不因其机构自述身份直接淘汰。先检查来源与证据，再评分。${ratingInstructionsFor(config.ratingRules)}只使用给定栏目，按sectionRules的description判断归属，它们是该信源允许参与的栏目；不属于任何允许栏目时输出relevant:false并说明“超出信源栏目范围”，不能强行归类。section是单选栏目名。媒体传闻、匿名消息、厂商自述保留归属和不确定性。existingEventId只能是给定候选ID，同公司不代表同事件。facts逐项给出statement、evidence、status(confirmed/announced/planned/claim/rumor)、entities；evidence必须逐字来自article.excerpt，但允许空白和标点的排版差异。最多12条，相关资讯至少一条事实；事实不足不要编造。不相关输出{"relevant":false,"reason":"具体原因"}。相关输出必须严格遵守此结构，scoreReason与assessment同级：{"relevant":true,"title":"中文标题","summary":"中文摘要","section":"单个栏目名","assessment":{"指标ID":{"score":1,"reason":"具体理由"}},"scoreReason":"评分总述","existingEventId":null,"facts":[{"statement":"事实陈述","evidence":"原文逐字片段","status":"announced","entities":[]}],"novelty":"new","needsReview":false,"conflict":false}。重复报道标duplicate；有冲突或归属不确定标needsReview。合并新进展时summary保留重要前情。`,
       {
         industry,
         sectionRules,
         keywords,
-        reportedAt: article.publishedAt,
+        reportedAt: article.publishedPrecision === 'observed' ? undefined : article.publishedAt,
+        observedAt: article.publishedPrecision === 'observed' ? article.publishedAt : undefined,
         matchedKeywords: keywordMatches(article.title + ' ' + article.excerpt, keywords),
         article: {
           title: article.title,
           excerpt: article.excerpt,
           source: article.sourceName,
-          publishedAt: article.publishedAt,
+          publishedAt: article.publishedPrecision === 'observed' ? undefined : article.publishedAt,
+          observedAt: article.publishedPrecision === 'observed' ? article.publishedAt : undefined,
+          publishedPrecision: article.publishedPrecision,
           provenance: article.provenance,
         },
         candidates: candidates.map((e) => ({ id: e.id, title: e.title, summary: e.summary })),
@@ -210,7 +218,9 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
             excerpt: article.excerpt,
             source: article.sourceName,
             url: article.url,
-            publishedAt: article.publishedAt,
+            publishedAt:
+              article.publishedPrecision === 'observed' ? undefined : article.publishedAt,
+            observedAt: article.publishedPrecision === 'observed' ? article.publishedAt : undefined,
             publishedPrecision: article.publishedPrecision,
           },
           decision,

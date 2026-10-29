@@ -1,4 +1,5 @@
 'use client';
+import { Switch } from './switch.tsx';
 import { useEffect, useRef, useState } from 'react';
 import type { NewsItem } from '../server/publication.ts';
 import { dateLabel, timeLabel } from '../server/periods.ts';
@@ -143,12 +144,7 @@ export function NewsFeed({
         {searchTools}
         <div className="live-controls">
           <label className="check">
-            <input
-              type="checkbox"
-              role="switch"
-              checked={live}
-              onChange={(e) => setLive(e.target.checked)}
-            />
+            <Switch aria-label="实时更新" size="small" checked={live} onCheckedChange={setLive} />
             实时更新
           </label>
           <button className="outline-button" onClick={() => void refresh()} disabled={loading}>

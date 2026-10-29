@@ -60,13 +60,17 @@ export function briefLengthRepair(
         if (expected && actual > expected.acceptedMaxLength)
           ctx.addIssue({
             code: 'custom',
-            message: `${segment.id}压缩后仍有${actual}字，容差上限${expected.acceptedMaxLength}字（目标${expected.maxLength}字）`,
+            message: `${segment.id}压缩后仍有${actual}字，请压缩至${expected.maxLength}字以内`,
             path: ['segments', index, 'text'],
           });
       });
     });
-  const system = `你是简报文字编辑。只压缩给定segments中的超长段落，每段压缩至maxLength字以内（含标点）。currentLength为实际字数，acceptedMaxLength为含容差的验收上限。保留原文核心事实、关键数字、时间、主体及计划或已发生的状态，不增加新事实，不机械截断，不输出省略号代替正文。每段返回原id与压缩后的text，不修改或新增其他段落。只输出JSON，格式示例：${JSON.stringify({ segments: [{ id: segments[0].id, text: '压缩后的正文' }] })}。`;
-  return { system, input: { segments }, schema };
+  const system = `你是简报文字编辑。只压缩给定segments中的超长段落，每段压缩至maxLength字以内（含标点）。currentLength为实际字数。保留原文核心事实、关键数字、时间、主体及计划或已发生的状态，不增加新事实，不机械截断，不输出省略号代替正文。每段返回原id与压缩后的text，不修改或新增其他段落。只输出JSON，格式示例：${JSON.stringify({ segments: [{ id: segments[0].id, text: '压缩后的正文' }] })}。`;
+  return {
+    system,
+    input: { segments: segments.map(({ acceptedMaxLength, ...segment }) => segment) },
+    schema,
+  };
 }
 
 export function applyBriefLengthRepair<T extends Draft>(

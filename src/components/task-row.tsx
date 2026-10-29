@@ -262,7 +262,9 @@ export function TaskRow({ task }: { task: ManagedTask }) {
                       资讯ID：{detail.article.id} · 来源：{detail.article.source_name}
                     </p>
                     <p>
-                      发布时间：
+                      {detail.article.published_precision === 'observed'
+                        ? '采集时间：'
+                        : '发布时间：'}
                       {detail.article.published_precision === 'day'
                         ? taskStamp(detail.article.published_at).slice(0, 10) + '（时刻未披露）'
                         : taskStamp(detail.article.published_at)}
@@ -312,6 +314,7 @@ export function TaskRow({ task }: { task: ManagedTask }) {
                             unscheduled: '未排期',
                             skipped: '正常跳过',
                             error: '处理异常',
+                            blocked: '整期未出刊',
                             ready: '待发布',
                             published: '已刊登',
                           }[section.status] ?? section.status}

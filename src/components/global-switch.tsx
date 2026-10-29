@@ -1,5 +1,6 @@
 'use client';
 import { useActionState } from 'react';
+import { Switch } from './switch.tsx';
 import { globalSwitchAction } from '../app/actions.ts';
 export function GlobalSwitch({
   setting,
@@ -15,16 +16,7 @@ export function GlobalSwitch({
     <form action={action} className="source-toggle-form global-switch">
       <input type="hidden" name="setting" value={setting} />
       <input type="hidden" name="enabled" value={String(!enabled)} />
-      <button
-        type="submit"
-        role="switch"
-        aria-label={label}
-        aria-checked={enabled}
-        disabled={pending}
-        className="source-switch"
-      >
-        <span />
-      </button>
+      <Switch type="submit" aria-label={label} checked={enabled} disabled={pending} size="medium" />
       <span>
         {label}
         {pending ? ' · 保存中' : ''}

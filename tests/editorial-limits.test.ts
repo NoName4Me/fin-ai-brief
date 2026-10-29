@@ -35,7 +35,9 @@ test('按栏目标题摘要合计检查容差，10%内免压缩，超过才压�
   const overflow = items.map((i, index) => (index ? { ...i, summary: i.summary + '字' } : i));
   const repair = dailyLengthRepair(overflow, events, rules, 10)!;
   assert.ok(repair);
-  assert.equal(repair.input.sections[0].limit, 110);
+  assert.equal(repair.input.sections[0].budget, 100);
+  assert.equal('limit' in repair.input.sections[0], false);
+  assert.doesNotMatch(repair.system, /容差|limit/);
   assert.equal(repair.schema.safeParse({ items }).success, true);
   assert.equal(repair.schema.safeParse({ items: overflow }).success, false);
   assert.equal(repair.schema.safeParse({ items: items.slice(0, 1) }).success, false);

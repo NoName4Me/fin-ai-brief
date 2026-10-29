@@ -5,7 +5,7 @@ try {
   for (const source of financeSources) {
     const row = await pool.query(
       `INSERT INTO sources(name,url,format,industry_id,enabled,interval_minutes,next_fetch_at)
-      VALUES($1,$2,$3,'finance',true,30,now()+interval '30 minutes') ON CONFLICT(url) DO UPDATE SET name=EXCLUDED.name RETURNING id`,
+      VALUES($1,$2,$3,'finance',true,60,now()+interval '60 minutes') ON CONFLICT(url) DO UPDATE SET name=EXCLUDED.name RETURNING id`,
       [source.name, source.url, source.format],
     );
     try {

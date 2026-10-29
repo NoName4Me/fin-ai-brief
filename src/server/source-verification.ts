@@ -1,10 +1,15 @@
+import { loadWebItems } from './web-sources.ts';
+import {
+  officialListItems,
+  readSourceDetail,
+  UnsupportedSourceContentError,
+} from './source-details.ts';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { db } from './db.ts';
+import { db, pool } from './db.ts';
 import { sources } from './schema.ts';
 import { fetchSource } from './fetch.ts';
 import { cleanText, parseRssItems, articleInput } from './collect.ts';
-import { isJiqizhixinRss } from './source-access.ts';
 import { financeItems, financeKind } from './finance-sources.ts';
 import { parseHtmlItems } from './html-source.ts';
 import { isAihotItemsUrl, parseAihotItems } from './aihot.ts';
@@ -48,12 +53,6 @@ export async function verifySource(id: string, fetcher = fetchSource) {
   let note = '';
   try {
     const config = await getSettings();
-    if (
-      isJiqizhixinRss(endpoint) &&
-      Math.max(source.lastFetchedAt?.getTime() ?? 0, source.verifiedAt?.getTime() ?? 0) >
-        Date.now() - 3600000
-    )
-      throw new Error('机器之心每60分钟最多请求一次，请稍后再验证');
     if (!endpoint || format === 'manual') {
       if (!/^https?:\/\//i.test(source.originAddress)) {
         status = 'pending';
@@ -71,38 +70,69 @@ export async function verifySource(id: string, fetcher = fetchSource) {
       }
     }
     if (endpoint && format !== 'manual') {
-      const body = await fetcher(endpoint, {
-        structuredContext: { now: new Date(), dailyTime: config.dailyTime },
-      });
-      if (!body) throw new Error('未取得可验证的内容');
-      const items = structuredKind(endpoint)
-        ? structuredItems(endpoint, body)
-        : financeKind(endpoint)
-          ? await financeItems(endpoint, body, {
-              fetcher,
-              clean: cleanText,
-              rss: parseRssItems,
-              now: new Date(),
-              exists: async () => false,
-            })
-          : format === 'rss'
-            ? await parseRssItems(body)
-            : format === 'html'
-              ? parseHtmlItems(body, endpoint, cleanText)
-              : isAihotItemsUrl(endpoint)
-                ? parseAihotItems(body)
-                : z
-                    .array(articleInput.omit({ sourceName: true, industryId: true }))
-                    .max(100)
-                    .parse(JSON.parse(body));
-      const valid = items.filter(
+      const samples = [];
+      let imageOnly = 0,
+        detailSuccess = 0;
+      for (const entry of [endpoint, ...source.additionalUrls]) {
+        const body = await fetcher(entry, {
+          structuredContext: { now: new Date(), dailyTime: config.dailyTime },
+        });
+        if (!body) throw new Error('未取得可验证的内容');
+        const items = structuredKind(entry)
+          ? structuredItems(entry, body)
+          : financeKind(entry)
+            ? await financeItems(entry, body, {
+                fetcher,
+                clean: cleanText,
+                rss: parseRssItems,
+                now: new Date(),
+                exists: async () => false,
+              })
+            : format === 'rss'
+              ? await parseRssItems(body)
+              : format === 'html'
+                ? (officialListItems(body, entry) ??
+                  (await loadWebItems(body, entry, fetcher)) ??
+                  parseHtmlItems(body, entry, cleanText))
+                : isAihotItemsUrl(entry)
+                  ? parseAihotItems(body)
+                  : z
+                      .array(articleInput.omit({ sourceName: true, industryId: true }))
+                      .max(100)
+                      .parse(JSON.parse(body));
+        if (source.readDetails) {
+          for (const item of items
+            .filter(
+              (v: { publishedAt: string }) =>
+                Date.parse(v.publishedAt) >= Date.now() - 7 * 86400000 &&
+                Date.parse(v.publishedAt) <= Date.now(),
+            )
+            .slice(0, 3)) {
+            if ('contentComplete' in item && item.contentComplete) {
+              detailSuccess++;
+              continue;
+            }
+            const existing = await pool.query('SELECT 1 FROM articles WHERE url=$1', [item.url]);
+            if (!existing.rowCount) {
+              try {
+                Object.assign(item, await readSourceDetail(item.url, fetcher));
+                detailSuccess++;
+              } catch (error) {
+                if (!(error instanceof UnsupportedSourceContentError)) throw error;
+                imageOnly++;
+              }
+            }
+          }
+        }
+        if (!items.length) throw new Error('采集入口未解析到资讯');
+        samples.push(...items);
+      }
+      if (imageOnly && !detailSuccess) throw new Error('抽查详情页仅含图片，没有可读取的文字正文');
+      const valid = samples.filter(
         (item) => articleInput.omit({ sourceName: true, industryId: true }).safeParse(item).success,
       );
       if (!valid.length) throw new Error('未解析到含标题、原文链接和明确发布时间的有效条目');
-      status =
-        source.verificationStatus === 'approved' && endpoint === source.url
-          ? 'approved'
-          : 'technical';
+      status = 'approved';
       const latest = Math.max(...valid.map((v) => Date.parse(v.publishedAt)));
       const withSummary = valid.filter((v) => {
         const summary = v.excerpt.trim();
@@ -115,14 +145,13 @@ export async function verifySource(id: string, fetcher = fetchSource) {
         );
       }).length;
       const stale = latest < Date.now() - 90 * 86400000;
-      const thin = withSummary < valid.length / 2;
-      if (stale || thin) status = 'held';
-      note = `解析${valid.length}条；最新发布时间${valid
+      const thin = !source.readDetails && withSummary < valid.length / 2;
+      note = `${imageOnly ? `跳过${imageOnly}条纯图片资讯；` : ''}解析${valid.length}条；最新发布时间${valid
         .map((v) => v.publishedAt)
         .sort()
         .at(
           -1,
-        )}；有效摘要${withSummary}条。${stale ? '条目已超过90天，暂不选用此入口。' : thin ? '有效摘要不足，待补齐采集内容后再选用。' : '技术验证不代表内容评估通过。'}\n${valid
+        )}；有效摘要${withSummary}条。${stale ? '条目已超过90天，时效性需人工核查。' : thin ? '有效摘要不足，建议补齐正文读取。' : '采集验证通过。'}\n${valid
         .slice(0, 5)
         .map((v) => `${v.title}\n${v.excerpt.slice(0, 120)}\n${v.url}`)
         .join('\n')}`;
@@ -130,7 +159,6 @@ export async function verifySource(id: string, fetcher = fetchSource) {
   } catch (error) {
     status = 'failed';
     note = error instanceof Error ? error.message : '验证请求失败';
-    if (note.includes('每60分钟')) throw error;
     if (source.verificationNote) note += `\n上次记录：${source.verificationNote.slice(0, 1500)}`;
   }
   // Do not overwrite a configuration edited while the request was in flight.
@@ -140,6 +168,8 @@ export async function verifySource(id: string, fetcher = fetchSource) {
       !current ||
       current.url !== source.url ||
       current.format !== source.format ||
+      current.readDetails !== source.readDetails ||
+      JSON.stringify(current.additionalUrls) !== JSON.stringify(source.additionalUrls) ||
       current.originAddress !== source.originAddress ||
       current.verificationStatus !== source.verificationStatus ||
       current.verificationNote !== source.verificationNote

@@ -72,7 +72,7 @@ test('今日要览在栏目表格内编辑并保存', async ({ page }) => {
     await row
       .getByLabel('今日要览栏目要求', { exact: true })
       .fill('优先突出金融机构需要关注的影响');
-    await page.getByRole('button', { name: '保存栏目与篇幅' }).click();
+    await page.getByRole('button', { name: '保存' }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await expect(row.getByLabel('今日要览上限', { exact: true })).toHaveValue('4');
@@ -87,7 +87,7 @@ test('今日要览在栏目表格内编辑并保存', async ({ page }) => {
     ]).toEqual([4, 180, '今日重点', 2, 15, '优先突出金融机构需要关注的影响']);
     await page.screenshot({ path: '.data/highlights-inline-row.png', fullPage: true });
     await row.getByLabel('今日要览删除').click();
-    await page.getByRole('button', { name: '保存栏目与篇幅' }).click();
+    await page.getByRole('button', { name: '保存' }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await expect
       .poll(
@@ -96,7 +96,7 @@ test('今日要览在栏目表格内编辑并保存', async ({ page }) => {
       )
       .toBe(true);
     await page.getByRole('button', { name: '恢复要览', exact: true }).click();
-    await page.getByRole('button', { name: '保存栏目与篇幅' }).click();
+    await page.getByRole('button', { name: '保存' }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await expect
       .poll(
@@ -111,7 +111,7 @@ test('今日要览在栏目表格内编辑并保存', async ({ page }) => {
     await expect(page.getByLabel('最多下调分数')).toBeVisible();
     await page.screenshot({ path: '.data/rating-relaxation-desktop.png', fullPage: true });
     await page.getByLabel('最多下调分数').fill('0.4');
-    await page.getByRole('button', { name: '保存评分规则' }).click();
+    await page.getByRole('button', { name: '保存' }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     const saved = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
     expect(saved.ratingRelaxationEnabled).toBe(true);
