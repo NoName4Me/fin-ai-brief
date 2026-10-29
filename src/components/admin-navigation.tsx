@@ -10,6 +10,7 @@ const editorial: Item[] = [
 ];
 const source: Item[] = [
   { href: '/admin/sources', label: '信源管理' },
+  { href: '/admin/wechat', label: '公众号采集' },
   { href: '/admin/sources/monitor', label: '信源监控' },
 ];
 export function AdminNavigation() {

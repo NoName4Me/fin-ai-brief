@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { db } from './db.ts';
-import { sources } from './schema.ts';
+import { sources, wechatAccounts } from './schema.ts';
 import { getSettings } from './settings.ts';
 import { validateRemoteUrl } from './fetch.ts';
 import { validateHtmlSourceUrl } from './html-source.ts';
@@ -16,7 +16,7 @@ export const sourceConfigSchema = z.object({
   name: z.string().trim().min(1).max(200),
   originAddress: z.string().trim().max(2000),
   url: z.url().max(2000).nullable(),
-  format: z.enum(['rss', 'json', 'html', 'manual']),
+  format: z.enum(['rss', 'json', 'html', 'manual', 'wechat']),
   additionalUrls: z.array(z.url().max(2000)).max(9).default([]),
   readDetails: z.boolean().default(false),
   sections: z
@@ -31,6 +31,10 @@ export const sourceConfigSchema = z.object({
   autoInterval: z.boolean(),
   minIntervalMinutes: z.number().int().min(60).max(1440),
   maxIntervalMinutes: z.number().int().min(60).max(1440),
+  wechatFakeid: z.string().trim().max(200).default(''),
+  wechatNickname: z.string().trim().max(200).default(''),
+  wechatAlias: z.string().trim().max(200).default(''),
+  wechatAvatarUrl: z.string().trim().max(2000).default(''),
 });
 export function allowedSourceSections(configured: string[], all: string[]) {
   return configured.length ? all.filter((s) => configured.includes(s)) : all;
@@ -45,7 +49,17 @@ export function assertSourceCanEnable(source: {
     throw new Error('请先完成采集验证，并在详情中标为“可用”');
 }
 export async function saveSourceConfig(id: string | undefined, input: unknown) {
-  const value = sourceConfigSchema.parse(input);
+  const parsed = sourceConfigSchema.parse(input);
+  const { wechatFakeid, wechatNickname, wechatAlias, wechatAvatarUrl, ...sourceInput } = parsed;
+  const isWechat = parsed.format === 'wechat';
+  if (isWechat && (!wechatFakeid || !wechatNickname)) throw new Error('请搜索并选择要采集的公众号');
+  const value = {
+    ...sourceInput,
+    url: isWechat ? 'https://mp.weixin.qq.com/' : sourceInput.url,
+    additionalUrls: isWechat ? [] : sourceInput.additionalUrls,
+    readDetails: isWechat ? true : sourceInput.readDetails,
+  };
+  const wechatCatalogKey = isWechat ? `wechat:${wechatFakeid}` : null;
   const config = await getSettings();
   if (
     value.sections.some(
@@ -72,7 +86,7 @@ export async function saveSourceConfig(id: string | undefined, input: unknown) {
     await validateRemoteUrl(url);
     validateHtmlSourceUrl(url);
   }
-  if (value.url) {
+  if (value.url && !isWechat) {
     if (!previous || previous.url !== value.url) await validateRemoteUrl(value.url);
     if (value.format === 'html') validateHtmlSourceUrl(value.url);
     if (value.format === 'json' && isAihotItemsUrl(value.url)) validateAihotUrl(value.url);
@@ -80,50 +94,110 @@ export async function saveSourceConfig(id: string | undefined, input: unknown) {
   if (value.verificationStatus === 'approved') {
     assertSourceCanEnable(value);
   }
-  if (id) {
-    z.uuid().parse(id);
-    return db.transaction(async (tx) => {
-      const [old] = await tx.select().from(sources).where(eq(sources.id, id)).for('update');
-      if (!old) throw new Error('信源不存在');
-      const endpointChanged =
-        old.url !== value.url ||
-        old.format !== value.format ||
-        JSON.stringify(old.additionalUrls) !== JSON.stringify(value.additionalUrls) ||
-        old.readDetails !== value.readDetails;
-      // Replacing an endpoint invalidates the previous verification and turns collection off.
-      const status = endpointChanged ? 'pending' : value.verificationStatus;
-      const enabled = old.enabled && !endpointChanged && status === 'approved';
+  try {
+    if (id) {
+      z.uuid().parse(id);
+      return await db.transaction(async (tx) => {
+        const [old] = await tx.select().from(sources).where(eq(sources.id, id)).for('update');
+        if (!old) throw new Error('信源不存在');
+        const catalogKey = isWechat
+          ? wechatCatalogKey
+          : old.format === 'wechat'
+            ? null
+            : old.catalogKey;
+        if (isWechat) {
+          const [duplicate] = await tx
+            .select({ sourceId: wechatAccounts.sourceId })
+            .from(wechatAccounts)
+            .where(eq(wechatAccounts.fakeid, wechatFakeid));
+          if (duplicate && duplicate.sourceId !== id) throw new Error('该公众号已添加');
+        }
+        const endpointChanged =
+          old.url !== value.url ||
+          old.format !== value.format ||
+          old.catalogKey !== catalogKey ||
+          JSON.stringify(old.additionalUrls) !== JSON.stringify(value.additionalUrls) ||
+          old.readDetails !== value.readDetails;
+        // Replacing an endpoint invalidates the previous verification and turns collection off.
+        const status = endpointChanged ? 'pending' : value.verificationStatus;
+        const enabled = old.enabled && !endpointChanged && status === 'approved';
+        const [saved] = await tx
+          .update(sources)
+          .set({
+            ...value,
+            catalogKey,
+            verificationStatus: status,
+            enabled,
+            verifiedAt:
+              endpointChanged || status === 'pending'
+                ? null
+                : status !== old.verificationStatus ||
+                    value.verificationNote !== old.verificationNote
+                  ? new Date()
+                  : old.verifiedAt,
+            ...(endpointChanged
+              ? { etag: null, nextFetchAt: null, lastError: null, verificationNote: '' }
+              : {}),
+          })
+          .where(eq(sources.id, id))
+          .returning();
+        if (old.format === 'wechat' && !isWechat)
+          await tx.delete(wechatAccounts).where(eq(wechatAccounts.sourceId, id));
+        if (isWechat)
+          await tx
+            .insert(wechatAccounts)
+            .values({
+              fakeid: wechatFakeid,
+              nickname: wechatNickname,
+              alias: wechatAlias,
+              avatarUrl: wechatAvatarUrl,
+              sourceId: id,
+            })
+            .onConflictDoUpdate({
+              target: wechatAccounts.sourceId,
+              set: {
+                fakeid: wechatFakeid,
+                nickname: wechatNickname,
+                alias: wechatAlias,
+                avatarUrl: wechatAvatarUrl,
+              },
+            });
+        return saved;
+      });
+    }
+    return await db.transaction(async (tx) => {
+      if (isWechat) {
+        const [duplicate] = await tx
+          .select({ sourceId: wechatAccounts.sourceId })
+          .from(wechatAccounts)
+          .where(eq(wechatAccounts.fakeid, wechatFakeid));
+        if (duplicate) throw new Error('该公众号已添加');
+      }
       const [saved] = await tx
-        .update(sources)
-        .set({
+        .insert(sources)
+        .values({
           ...value,
-          verificationStatus: status,
-          enabled,
-          verifiedAt:
-            endpointChanged || status === 'pending'
-              ? null
-              : status !== old.verificationStatus || value.verificationNote !== old.verificationNote
-                ? new Date()
-                : old.verifiedAt,
-          ...(endpointChanged
-            ? { etag: null, nextFetchAt: null, lastError: null, verificationNote: '' }
-            : {}),
+          catalogKey: wechatCatalogKey,
+          industryId: 'ai',
+          enabled: false,
+          verifiedAt: value.verificationStatus === 'pending' ? null : new Date(),
         })
-        .where(eq(sources.id, id))
         .returning();
+      if (isWechat)
+        await tx.insert(wechatAccounts).values({
+          fakeid: wechatFakeid,
+          nickname: wechatNickname,
+          alias: wechatAlias,
+          avatarUrl: wechatAvatarUrl,
+          sourceId: saved.id,
+        });
       return saved;
     });
+  } catch (error) {
+    if (typeof error === 'object' && error && 'code' in error && error.code === '23505')
+      throw new Error(isWechat ? '该公众号已添加' : '信源标识已存在');
+    throw error;
   }
-  const [saved] = await db
-    .insert(sources)
-    .values({
-      ...value,
-      industryId: 'ai',
-      enabled: false,
-      verifiedAt: value.verificationStatus === 'pending' ? null : new Date(),
-    })
-    .returning();
-  return saved;
 }
 export async function toggleSource(id: string, enabled: boolean) {
   z.uuid().parse(id);

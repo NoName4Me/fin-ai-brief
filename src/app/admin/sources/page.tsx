@@ -1,9 +1,8 @@
-import { Switch } from '../../../components/switch.tsx';
 import Link from 'next/link';
 import { requireAdmin } from '../../../server/auth.ts';
 import { asc } from 'drizzle-orm';
 import { db, pool } from '../../../server/db.ts';
-import { sources } from '../../../server/schema.ts';
+import { sources, wechatAccounts } from '../../../server/schema.ts';
 import {
   sourceAction,
   sourceRemoveAction,
@@ -17,10 +16,14 @@ import { SourceManagementDialog } from '../../../components/source-management-di
 import { GlobalSwitch } from '../../../components/global-switch.tsx';
 import { getSettings } from '../../../server/settings.ts';
 import { verificationLabels } from '../../../server/source-config.ts';
+import { SourceCollectionFields } from '../../../components/source-collection-fields.tsx';
+import { getWechatAuthStatus } from '../../../server/wechat.ts';
+import type { WechatAccount } from '../../../modules/wechat/types.ts';
 const formatLabels: Record<string, string> = {
   rss: 'RSS / Atom',
   json: '公开接口',
   html: '网页',
+  wechat: '微信公众号',
   manual: '未知',
 };
 const date = (value: Date | null) =>
@@ -28,9 +31,15 @@ const date = (value: Date | null) =>
 function Fields({
   row,
   sections,
+  account,
+  wechatConnected,
+  wechatExpired,
 }: {
   row?: typeof sources.$inferSelect;
   sections: { name: string }[];
+  account?: WechatAccount;
+  wechatConnected: boolean;
+  wechatExpired: boolean;
 }) {
   return (
     <>
@@ -58,39 +67,12 @@ function Fields({
         ))}
         <p className="form-hint">不选表示通用，参与所有栏目的候选。</p>
       </fieldset>
-      <fieldset className="source-collection source-field-wide">
-        <legend>采集方式</legend>
-        <label>
-          采集格式
-          <select name="format" defaultValue={row?.format ?? 'manual'}>
-            <option value="manual">未知</option>
-            <option value="rss">RSS / Atom</option>
-            <option value="json">公开接口 / JSON</option>
-            <option value="html">网页 / HTML</option>
-          </select>
-        </label>
-        <label className="check source-detail-option">
-          <Switch
-            name="readDetails"
-            aria-label="读取详情页"
-            size="small"
-            defaultChecked={row?.readDetails ?? false}
-          />
-          读取详情页
-        </label>
-        <label className="source-field-wide">
-          <span>
-            采集入口 <small className="muted">（多入口一行一个）</small>
-          </span>
-          <textarea
-            aria-label="采集入口"
-            name="urls"
-            defaultValue={[row?.url, ...(row?.additionalUrls ?? [])].filter(Boolean).join('\n')}
-            rows={3}
-            maxLength={20009}
-          />
-        </label>
-      </fieldset>
+      <SourceCollectionFields
+        row={row}
+        account={account}
+        wechatConnected={wechatConnected}
+        wechatExpired={wechatExpired}
+      />
       <fieldset className="source-rhythm source-field-wide">
         <legend>采集节奏</legend>
         <label>
@@ -163,13 +145,24 @@ function Fields({
 export default async function Sources({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
   const query = await searchParams;
-  const config = await getSettings();
+  const [config, wechatAuth, configuredWechatAccounts] = await Promise.all([
+    getSettings(),
+    getWechatAuthStatus(),
+    db.select().from(wechatAccounts),
+  ]);
   const sections = config.sections.filter((s) => s.kind === 'fixed');
   const rows = await db
     .select()
     .from(sources)
     .orderBy(asc(sources.sortOrder), asc(sources.createdAt), asc(sources.id));
   const selected = rows.find((row) => row.id === query.detail);
+  const selectedWechat = configuredWechatAccounts.find((row) => row.sourceId === selected?.id);
+  const selectedWechatAccount = selectedWechat && {
+    fakeid: selectedWechat.fakeid,
+    nickname: selectedWechat.nickname,
+    alias: selectedWechat.alias,
+    avatarUrl: selectedWechat.avatarUrl,
+  };
   const enabledFilter = query.enabled === 'true' || query.enabled === 'false' ? query.enabled : '';
   const sectionFilter =
     typeof query.section === 'string' &&
@@ -242,7 +235,11 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
             className="stack-form source-config-form"
             id="source-config-form"
           >
-            <Fields sections={sections} />
+            <Fields
+              sections={sections}
+              wechatConnected={wechatAuth.connected}
+              wechatExpired={wechatAuth.expired}
+            />
           </form>
           <footer className="source-management-footer">
             <button className="solid-button" form="source-config-form">
@@ -278,7 +275,13 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
             className="stack-form source-config-form"
             id="source-config-form"
           >
-            <Fields row={selected} sections={sections} />
+            <Fields
+              row={selected}
+              sections={sections}
+              account={selectedWechatAccount}
+              wechatConnected={wechatAuth.connected}
+              wechatExpired={wechatAuth.expired}
+            />
           </form>
           <footer className="source-management-footer">
             <div className="row-actions">

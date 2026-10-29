@@ -15,6 +15,7 @@ import { parseHtmlItems } from './html-source.ts';
 import { isAihotItemsUrl, parseAihotItems } from './aihot.ts';
 import { structuredItems, structuredKind } from './structured-sources.ts';
 import { getSettings } from './settings.ts';
+import { readWechatSourceDetail, wechatSourceItems } from './wechat.ts';
 
 export function advertisedFeeds(html: string, base: string) {
   return [...html.matchAll(/<link\b[^>]*>/gi)]
@@ -74,32 +75,37 @@ export async function verifySource(id: string, fetcher = fetchSource) {
       let imageOnly = 0,
         detailSuccess = 0;
       for (const entry of [endpoint, ...source.additionalUrls]) {
-        const body = await fetcher(entry, {
-          structuredContext: { now: new Date(), dailyTime: config.dailyTime },
-        });
-        if (!body) throw new Error('未取得可验证的内容');
-        const items = structuredKind(entry)
-          ? structuredItems(entry, body)
-          : financeKind(entry)
-            ? await financeItems(entry, body, {
-                fetcher,
-                clean: cleanText,
-                rss: parseRssItems,
-                now: new Date(),
-                exists: async () => false,
-              })
-            : format === 'rss'
-              ? await parseRssItems(body)
-              : format === 'html'
-                ? (officialListItems(body, entry) ??
-                  (await loadWebItems(body, entry, fetcher)) ??
-                  parseHtmlItems(body, entry, cleanText))
-                : isAihotItemsUrl(entry)
-                  ? parseAihotItems(body)
-                  : z
-                      .array(articleInput.omit({ sourceName: true, industryId: true }))
-                      .max(100)
-                      .parse(JSON.parse(body));
+        let items;
+        if (format === 'wechat') {
+          items = await wechatSourceItems(id);
+        } else {
+          const body = await fetcher(entry, {
+            structuredContext: { now: new Date(), dailyTime: config.dailyTime },
+          });
+          if (!body) throw new Error('未取得可验证的内容');
+          items = structuredKind(entry)
+            ? structuredItems(entry, body)
+            : financeKind(entry)
+              ? await financeItems(entry, body, {
+                  fetcher,
+                  clean: cleanText,
+                  rss: parseRssItems,
+                  now: new Date(),
+                  exists: async () => false,
+                })
+              : format === 'rss'
+                ? await parseRssItems(body)
+                : format === 'html'
+                  ? (officialListItems(body, entry) ??
+                    (await loadWebItems(body, entry, fetcher)) ??
+                    parseHtmlItems(body, entry, cleanText))
+                  : isAihotItemsUrl(entry)
+                    ? parseAihotItems(body)
+                    : z
+                        .array(articleInput.omit({ sourceName: true, industryId: true }))
+                        .max(100)
+                        .parse(JSON.parse(body));
+        }
         if (source.readDetails) {
           for (const item of items
             .filter(
@@ -115,7 +121,12 @@ export async function verifySource(id: string, fetcher = fetchSource) {
             const existing = await pool.query('SELECT 1 FROM articles WHERE url=$1', [item.url]);
             if (!existing.rowCount) {
               try {
-                Object.assign(item, await readSourceDetail(item.url, fetcher));
+                Object.assign(
+                  item,
+                  format === 'wechat'
+                    ? await readWechatSourceDetail(item.url)
+                    : await readSourceDetail(item.url, fetcher),
+                );
                 detailSuccess++;
               } catch (error) {
                 if (!(error instanceof UnsupportedSourceContentError)) throw error;
@@ -168,6 +179,7 @@ export async function verifySource(id: string, fetcher = fetchSource) {
       !current ||
       current.url !== source.url ||
       current.format !== source.format ||
+      current.catalogKey !== source.catalogKey ||
       current.readDetails !== source.readDetails ||
       JSON.stringify(current.additionalUrls) !== JSON.stringify(source.additionalUrls) ||
       current.originAddress !== source.originAddress ||
