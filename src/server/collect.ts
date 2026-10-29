@@ -21,7 +21,6 @@ import { fetchSource, SourceHttpError, type SourceFetchOptions } from './fetch.t
 import { parseAihotItems, validateAihotUrl, isAihotItemsUrl } from './aihot.ts';
 import { structuredItems, structuredKind } from './structured-sources.ts';
 import { provenanceSchema, type Provenance } from './types.ts';
-import { readWechatSourceDetail, wechatSourceItems } from './wechat.ts';
 export const articleInput = z.object({
   title: z.string().trim().min(1).max(500),
   url: z
@@ -147,13 +146,12 @@ async function collectEndpoint(
         : stored.etag,
   };
   if (!source?.enabled) throw new Error('信源已停用或不存在');
-  if (source.format !== 'wechat' && (!source.url || source.format === 'manual'))
-    throw new Error('信源尚无可用采集入口');
+  if (!source.url || source.format === 'manual') throw new Error('信源尚无可用采集入口');
   const {
     rows: [run],
   } = await pool.query(
     'INSERT INTO collection_runs(source_id,source_name,url) VALUES($1,$2,$3) RETURNING id',
-    [id, source.name, source.url ?? `wechat://${id}`],
+    [id, source.name, source.url],
   );
   async function success(inserted: number, result: unknown) {
     const rhythm = nextInterval(source, { inserted });
@@ -174,8 +172,8 @@ async function collectEndpoint(
     );
   }
   try {
-    if (source.format === 'html' && rankingKind(source.url!)) {
-      const snapshotUrl = rankingSnapshotUrl(source.url!, now);
+    if (source.format === 'html' && rankingKind(source.url)) {
+      const snapshotUrl = rankingSnapshotUrl(source.url, now);
       const {
         rows: [existing],
       } = await pool.query('SELECT title,url,published_at FROM articles WHERE url=$1', [
@@ -203,22 +201,19 @@ async function collectEndpoint(
         return { fetched: 1, inserted: 0, unchanged: true };
       }
     }
-    const aihot = source.format === 'json' && isAihotItemsUrl(source.url!);
-    if (aihot) validateAihotUrl(source.url!);
-    if (source.format === 'html') validateHtmlSourceUrl(source.url!);
+    const aihot = source.format === 'json' && isAihotItemsUrl(source.url);
+    if (aihot) validateAihotUrl(source.url);
+    if (source.format === 'html') validateHtmlSourceUrl(source.url);
     let etag: string | null = source.etag;
-    const text =
-      source.format === 'wechat'
-        ? null
-        : await fetcher(source.url!, {
-            etag: source.etag,
-            structuredContext: { now, dailyTime: config.dailyTime },
-            onHeaders: (headers) => {
-              etag = headers.etag;
-            },
-          });
+    const text = await fetcher(source.url, {
+      etag: source.etag,
+      structuredContext: { now, dailyTime: config.dailyTime },
+      onHeaders: (headers) => {
+        etag = headers.etag;
+      },
+    });
     const nextFetchAt = new Date(Date.now() + source.intervalMinutes * 60_000);
-    if (source.format !== 'wechat' && text === null) {
+    if (text === null) {
       await db
         .update(sources)
         .set({ lastFetchedAt: new Date(), lastError: null, nextFetchAt })
@@ -246,10 +241,8 @@ async function collectEndpoint(
       outcome: 'invalid' | 'outside_window';
     }[] = [];
     const listingUrls = new Set<string>();
-    if (source.format === 'wechat') {
-      items = await wechatSourceItems(id);
-    } else if (financeKind(source.url!)) {
-      items = await financeItems(source.url!, text!, {
+    if (financeKind(source.url)) {
+      items = await financeItems(source.url, text, {
         fetcher,
         clean: cleanText,
         rss,
@@ -286,18 +279,18 @@ async function collectEndpoint(
         },
       });
     } else if (aihot) {
-      items = parseAihotItems(text!);
+      items = parseAihotItems(text);
     } else if (source.format === 'html') {
       items =
-        officialListItems(text!, source.url!, now) ??
-        (await loadWebItems(text!, source.url!, fetcher, now)) ??
-        parseHtmlItems(text!, source.url!, cleanText, now);
-    } else if (structuredKind(source.url!)) {
-      items = structuredItems(source.url!, text!);
+        officialListItems(text, source.url, now) ??
+        (await loadWebItems(text, source.url, fetcher, now)) ??
+        parseHtmlItems(text, source.url, cleanText, now);
+    } else if (structuredKind(source.url)) {
+      items = structuredItems(source.url, text);
     } else if (source.format === 'rss') {
-      items = await rss(text!);
+      items = await rss(text);
     } else {
-      const raw: unknown = JSON.parse(text!);
+      const raw: unknown = JSON.parse(text);
       if (!Array.isArray(raw) || raw.length > 100) throw new Error('信源条目须为不超过100条的数组');
       items = [];
       for (const entry of raw) {
@@ -364,12 +357,7 @@ async function collectEndpoint(
       }
       if (source.readDetails && !item.contentComplete) {
         try {
-          Object.assign(
-            item,
-            source.format === 'wechat'
-              ? await readWechatSourceDetail(item.url)
-              : await readSourceDetail(item.url, fetcher),
-          );
+          Object.assign(item, await readSourceDetail(item.url, fetcher));
         } catch (error) {
           if (error instanceof UnsupportedSourceContentError) {
             await recordCollectionItem(run.id, id, item, 'invalid', now);
@@ -384,7 +372,6 @@ async function collectEndpoint(
       }
       if (
         !source.readDetails &&
-        source.url &&
         !['www.pbc.gov.cn', 'www.cac.gov.cn', 'www.nfra.gov.cn'].includes(
           new URL(source.url).hostname,
         ) &&
@@ -439,7 +426,7 @@ async function collectEndpoint(
     return { fetched: items.length, inserted };
   } catch (error) {
     const rhythm = nextInterval(source, { failed: true });
-    const snapshotRetry = source.format === 'html' && rankingKind(source.url!);
+    const snapshotRetry = source.format === 'html' && rankingKind(source.url);
     const retryMinutes = snapshotRetry ? 60 : rhythm.interval;
     await pool.query(
       "UPDATE collection_runs SET state='failed',finished_at=now(),error=$2 WHERE id=$1",

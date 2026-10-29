@@ -110,10 +110,6 @@ export async function sourceAction(form: FormData) {
       autoInterval: form.has('autoInterval'),
       minIntervalMinutes: Number(text(form, 'minIntervalMinutes') || 60),
       maxIntervalMinutes: Number(text(form, 'maxIntervalMinutes') || 240),
-      wechatFakeid: text(form, 'wechatFakeid'),
-      wechatNickname: text(form, 'wechatNickname'),
-      wechatAlias: text(form, 'wechatAlias'),
-      wechatAvatarUrl: text(form, 'wechatAvatarUrl'),
     });
   });
 }

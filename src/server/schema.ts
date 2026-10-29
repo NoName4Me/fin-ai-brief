@@ -53,33 +53,6 @@ export const sources = pgTable('sources', {
   lastError: text('last_error'),
   createdAt: at('created_at').defaultNow().notNull(),
 });
-export const wechatCredentials = pgTable('wechat_credentials', {
-  id: integer().primaryKey().default(1),
-  secret: text().notNull(),
-  nickname: text().notNull().default(''),
-  accountFakeid: text('account_fakeid').notNull().default(''),
-  expiresAt: at('expires_at').notNull(),
-  createdAt: at('created_at').defaultNow().notNull(),
-  updatedAt: at('updated_at').defaultNow().notNull(),
-});
-export const wechatLoginSessions = pgTable('wechat_login_sessions', {
-  id: uuid().primaryKey(),
-  secret: text().notNull(),
-  expiresAt: at('expires_at').notNull(),
-  createdAt: at('created_at').defaultNow().notNull(),
-});
-export const wechatAccounts = pgTable('wechat_accounts', {
-  id: uuid().defaultRandom().primaryKey(),
-  fakeid: text().notNull().unique(),
-  nickname: text().notNull(),
-  alias: text().notNull().default(''),
-  avatarUrl: text('avatar_url').notNull().default(''),
-  sourceId: uuid('source_id')
-    .notNull()
-    .unique()
-    .references(() => sources.id, { onDelete: 'cascade' }),
-  createdAt: at('created_at').defaultNow().notNull(),
-});
 export const articles = pgTable(
   'articles',
   {
