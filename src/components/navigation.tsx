@@ -14,9 +14,11 @@ export function Header() {
     <>
       <header className={`app-header ${admin ? 'admin-header' : 'reader-header'}`}>
         <Link href={admin ? '/admin' : '/'} className="brand">
-          <div>
-            <div className="brand-name">{admin ? '数智参阅 管理台' : '数智参阅'}</div>
-          </div>
+          <span className="brand-wordmark">
+            <span className="brand-wordmark-dark">数智</span>
+            <span className="brand-wordmark-light">参阅</span>
+          </span>
+          {admin && <span className="brand-admin-label">管理台</span>}
         </Link>
         {!admin && (
           <nav className="primary-nav" aria-label="主导航">

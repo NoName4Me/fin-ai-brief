@@ -147,6 +147,42 @@ time {
   font: 700 28px/1.3 var(--serif);
   letter-spacing: 1.2px;
 }
+.brand-wordmark {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--blue);
+  font: 650 26px/1.3 var(--sans);
+  letter-spacing: 2px;
+  color: var(--blue);
+}
+.brand-wordmark::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  bottom: -5px;
+  height: 2px;
+  background: var(--blue);
+}
+.brand-wordmark-dark,
+.brand-wordmark-light {
+  padding: 3px 5px 4px 7px;
+}
+.brand-wordmark-dark {
+  background: var(--blue);
+  color: #fff;
+}
+.brand-admin-label {
+  font-size: 14px;
+  color: var(--muted);
+}
+@media (max-width: 650px) {
+  .brand-wordmark {
+    font-size: 23px;
+    letter-spacing: 1.5px;
+  }
+}
 .brand-sub {
   font-size: 13px;
   letter-spacing: 1.1px;
