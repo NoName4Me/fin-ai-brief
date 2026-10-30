@@ -1,14 +1,21 @@
 import type { BriefContent } from '../server/types.ts';
 import { dateLabel, timeLabel } from '../server/periods.ts';
-import { orderedSources, sourceName } from '../server/source-presentation.ts';
+import { orderedSources, sourceName, sourceNames } from '../server/source-presentation.ts';
 import { SourceDialog } from './source-dialog.tsx';
-export function SourceRow({ item }: { item: BriefContent['items'][number] }) {
-  const sources = orderedSources(item.sources);
+export function SourceRow({
+  item,
+}: {
+  item: Pick<BriefContent['items'][number], 'title' | 'sources'>;
+}) {
+  const sources = orderedSources(item.sources).filter(
+    (source, index, all) => all.findIndex((other) => other.url === source.url) === index,
+  );
+  const names = sourceNames(sources);
   return (
     <div className="source-row">
       <span>
-        {sourceName(sources[0].name)}
-        {sources.length > 1 ? ' 等' : ''}
+        {names[0] ?? '来源'}
+        {names.length > 1 ? ' 等' : ''}
       </span>
       <span className="sep">/</span>
       <SourceDialog title={item.title}>

@@ -6,8 +6,9 @@ import {
   sourceOverlap,
 } from '../../../../server/source-metrics.ts';
 import { pool } from '../../../../server/db.ts';
+import { getSettings } from '../../../../server/settings.ts';
 import { taskStamp } from '../../../../server/task-labels.ts';
-import { localDate, validDate } from '../../../../server/periods.ts';
+import { localDate, validDate, publicationCycle } from '../../../../server/periods.ts';
 import { sourceReviewAction } from '../../../actions.ts';
 import { Notice, type Query } from '../../../../components/notice.tsx';
 const verdicts = {
@@ -56,6 +57,10 @@ const filters: Record<string, string> = {
 export default async function Page({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
   const query = await searchParams;
+  const cycleStart =
+    query.status === 'cycle_error'
+      ? publicationCycle(new Date(), (await getSettings()).dailyTime).start
+      : null;
   const days = query.days === '7' ? 7 : 30;
   const date =
     typeof query.date === 'string' && validDate(query.date) && query.date <= localDate()
@@ -70,12 +75,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
   const enabledFilter = ['disabled', 'all'].includes(String(query.enabled))
     ? String(query.enabled)
     : 'enabled';
-  const statusFilter = ['abnormal', 'healthy', 'zero'].includes(String(query.status))
+  const statusFilter = ['abnormal', 'healthy', 'zero', 'cycle_error'].includes(String(query.status))
     ? String(query.status)
     : '';
-  const sort = ['selected', 'discovered', 'repeated', 'relevant', 'recent'].includes(
-    String(query.sort),
-  )
+  const sort = ['selected', 'discovered', 'relevant', 'recent'].includes(String(query.sort))
     ? String(query.sort)
     : 'order';
   const metrics = data.metrics
@@ -84,20 +87,17 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
         (enabledFilter === 'all' || (enabledFilter === 'disabled' ? !s.enabled : s.enabled)) &&
         (!search || s.name.toLowerCase().includes(search.toLowerCase())) &&
         (!statusFilter ||
-          (statusFilter === 'abnormal'
-            ? ['failed', 'retry', 'overdue'].includes(s.source_state)
-            : statusFilter === 'healthy'
-              ? s.source_state === 'healthy'
-              : s.discovered > 0 && s.selected === 0)),
+          (statusFilter === 'cycle_error'
+            ? !!s.last_error && !!s.last_fetched_at && s.last_fetched_at >= cycleStart!
+            : statusFilter === 'abnormal'
+              ? ['failed', 'retry', 'overdue'].includes(s.source_state)
+              : statusFilter === 'healthy'
+                ? s.source_state === 'healthy'
+                : s.discovered > 0 && s.selected === 0)),
     )
     .sort((a, b) => {
       if (sort === 'selected') return b.selected - a.selected || b.discovered - a.discovered;
       if (sort === 'discovered') return b.discovered - a.discovered;
-      if (sort === 'repeated')
-        return (
-          b.repeated_items / Math.max(1, b.observed_items) -
-            a.repeated_items / Math.max(1, a.observed_items) || b.observed_items - a.observed_items
-        );
       if (sort === 'relevant') return b.relevant - a.relevant;
       if (sort === 'recent')
         return (b.last_fetched_at?.getTime() ?? 0) - (a.last_fetched_at?.getTime() ?? 0);
@@ -410,47 +410,46 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
         </>
       ) : (
         <>
+          <nav className="period-options" aria-label="统计周期">
+            {[7, 30].map((d) => (
+              <Link key={d} href={`?days=${d}`} aria-current={days === d ? 'page' : undefined}>
+                近{d}天
+              </Link>
+            ))}
+          </nav>
           <div className="monitor-toolbar">
-            <nav className="period-options" aria-label="统计周期">
-              {[7, 30].map((d) => (
-                <Link key={d} href={`?days=${d}`} aria-current={days === d ? 'page' : undefined}>
-                  近{d}天
-                </Link>
-              ))}
-            </nav>
-            <Link href="/admin/sources">信源管理</Link>
+            <form className="inline-form monitor-filters" aria-label="信源监控筛选">
+              <input type="hidden" name="days" value={days} />
+              <select name="enabled" aria-label="启用状态" defaultValue={enabledFilter}>
+                <option value="enabled">仅启用</option>
+                <option value="disabled">仅停用</option>
+                <option value="all">全部信源</option>
+              </select>
+              <select name="status" aria-label="质量状态" defaultValue={statusFilter}>
+                <option value="">全部状态</option>
+                <option value="abnormal">采集异常</option>
+                <option value="cycle_error">本轮采集异常</option>
+                <option value="healthy">运行正常</option>
+                <option value="zero">日报零采用</option>
+              </select>
+              <select name="sort" aria-label="排序方式" defaultValue={sort}>
+                <option value="order">默认顺序</option>
+                <option value="selected">按日报采用</option>
+                <option value="discovered">按首次发现</option>
+                <option value="relevant">按筛选通过</option>
+                <option value="recent">按最近采集</option>
+              </select>
+              <input
+                type="search"
+                name="q"
+                aria-label="搜索信源"
+                placeholder="搜索信源"
+                defaultValue={search}
+                maxLength={200}
+              />
+              <button className="solid-button">筛选</button>
+            </form>
           </div>
-          <form className="inline-form monitor-filters" aria-label="信源监控筛选">
-            <input type="hidden" name="days" value={days} />
-            <select name="enabled" aria-label="启用状态" defaultValue={enabledFilter}>
-              <option value="enabled">仅启用</option>
-              <option value="disabled">仅停用</option>
-              <option value="all">全部信源</option>
-            </select>
-            <select name="status" aria-label="质量状态" defaultValue={statusFilter}>
-              <option value="">全部状态</option>
-              <option value="abnormal">采集异常</option>
-              <option value="healthy">运行正常</option>
-              <option value="zero">日报零采用</option>
-            </select>
-            <select name="sort" aria-label="排序方式" defaultValue={sort}>
-              <option value="order">默认顺序</option>
-              <option value="selected">按日报采用</option>
-              <option value="discovered">按首次发现</option>
-              <option value="repeated">按重复率</option>
-              <option value="relevant">按筛选通过</option>
-              <option value="recent">按最近采集</option>
-            </select>
-            <input
-              type="search"
-              name="q"
-              aria-label="搜索信源"
-              placeholder="搜索信源"
-              defaultValue={search}
-              maxLength={200}
-            />
-            <button className="solid-button">筛选</button>
-          </form>
           <div className="monitor-summary">
             <span>启用 {data.metrics.filter((s) => s.enabled).length}</span>
             <span>
@@ -469,14 +468,23 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
           </div>
           {overlaps.length > 0 && (
             <section className="monitor-overlap" aria-labelledby="monitor-overlap-title">
-              <h2 id="monitor-overlap-title">信源重合</h2>
+              <h2
+                id="monitor-overlap-title"
+                title="按本周期首次发现且筛选通过的独立事件统计，同一事件的多篇报道只计一次；展示共同覆盖至少3个事件的信源对"
+              >
+                信源同题覆盖
+              </h2>
               <div>
                 {overlaps.map((pair) => (
                   <p key={`${pair.left_id}:${pair.right_id}`}>
                     <strong>共同 {pair.shared} 个事件</strong>
                     <span>
-                      {pair.left_name} {percent(pair.shared, pair.left_events)} · {pair.right_name}{' '}
-                      {percent(pair.shared, pair.right_events)}
+                      {pair.left_name} 被 {pair.right_name} 覆盖：{pair.shared}/{pair.left_events}（
+                      {percent(pair.shared, pair.left_events)}）
+                    </span>
+                    <span>
+                      {pair.right_name} 被 {pair.left_name} 覆盖：{pair.shared}/{pair.right_events}
+                      （{percent(pair.shared, pair.right_events)}）
                     </span>
                   </p>
                 ))}
@@ -496,15 +504,23 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
                     '信源',
                     '状态',
                     '首次发现',
-                    '重复率',
                     '筛选通过',
-                    '通过率',
+                    '筛选通过率',
                     '合格事件',
                     '独家覆盖',
                     '日报采用',
                     '最近采集',
                   ].map((t) => (
-                    <th key={t}>{t}</th>
+                    <th
+                      key={t}
+                      title={
+                        t === '筛选通过率'
+                          ? '筛选通过 ÷（通过＋淘汰），不含待处理和失败'
+                          : undefined
+                      }
+                    >
+                      {t}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -533,7 +549,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
                           <dd>{percent(s.succeeded_runs, s.succeeded_runs + s.failed_runs)}</dd>
                           <dt>处理失败率</dt>
                           <dd>{percent(s.failed, s.relevant + s.ignored + s.failed)}</dd>
-                          <dt>重复条目</dt>
+                          <dt>重复抓取旧链接</dt>
                           <dd>
                             {s.repeated_items} / {s.observed_items}
                           </dd>
@@ -559,13 +575,16 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
                     <td>
                       <Link href={`?source=${s.id}&view=period&days=${days}`}>{s.discovered}</Link>
                     </td>
-                    <td>{s.observed_items ? percent(s.repeated_items, s.observed_items) : '—'}</td>
                     <td>
                       <Link href={`?source=${s.id}&view=period&days=${days}&result=processed`}>
                         {s.relevant}
                       </Link>
                     </td>
-                    <td>{percent(s.relevant, s.relevant + s.ignored)}</td>
+                    <td
+                      title={`通过 ${s.relevant} / 已完成筛选 ${s.relevant + s.ignored}；不含待处理和失败`}
+                    >
+                      {percent(s.relevant, s.relevant + s.ignored)}
+                    </td>
                     <td>
                       <Link href={`?source=${s.id}&view=period&days=${days}&result=qualified`}>
                         {s.qualified}

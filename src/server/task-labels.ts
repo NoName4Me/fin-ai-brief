@@ -7,6 +7,7 @@ export const stageNames: Record<string, string> = {
   review: '疑难归组与事实复核',
   save: '保存事件与新增事实',
   edition: '栏目选题与出刊记录',
+  title_revision: '期刊标题修订',
 };
 export const stageDescriptions: Record<string, string> = {
   task: '整次处理的外层执行记录',
@@ -55,8 +56,7 @@ export const taskTypes = { collect: '采集', generate: '出刊', process: '资�
 export function failureExplanation(error: string | null | undefined) {
   if (!error) return '';
   const detail = error.replace(/^[^：]{1,30}失败：/, '');
-  if (/job timed out/i.test(detail))
-    return '队列等待 15 分钟仍未收到任务结束信号，已判定超时。';
+  if (/job timed out/i.test(detail)) return '队列等待 15 分钟仍未收到任务结束信号，已判定超时。';
   if (/aborted due to timeout|timed?\s*out|timeout/i.test(detail))
     return '模型请求等待 180 秒后仍未返回，被系统中止';
   if (/HTTP\s+429/i.test(detail)) return '模型服务返回限流，稍后自动重试。';

@@ -1,3 +1,4 @@
+import { cleanBriefTitle } from '../../../server/brief-title.ts';
 import { SourceManagementDialog } from '../../../components/source-management-dialog.tsx';
 import { PublicationSettingsForm } from '../../../components/settings-forms.tsx';
 import { requireAdmin } from '../../../server/auth.ts';
@@ -7,7 +8,6 @@ import { db } from '../../../server/db.ts';
 import { briefs } from '../../../server/schema.ts';
 import { getSettings } from '../../../server/settings.ts';
 import { localDate, dateLabel } from '../../../server/periods.ts';
-import { kindNames, type Kind } from '../../../server/types.ts';
 import { generateAction, publishAction, backfillAction } from '../../actions.ts';
 import { Notice, type Query } from '../../../components/notice.tsx';
 export default async function Publications({ searchParams }: { searchParams: Promise<Query> }) {
@@ -17,6 +17,10 @@ export default async function Publications({ searchParams }: { searchParams: Pro
     db.select().from(briefs).orderBy(desc(briefs.periodDate)).limit(50),
     getSettings(),
   ]);
+  const regenerating =
+    query.configure === 'regenerate' && typeof query.issue === 'string'
+      ? rows.find((row) => row.id === query.issue && row.kind === 'daily')
+      : undefined;
   return (
     <>
       <Notice query={await searchParams} />
@@ -68,12 +72,27 @@ export default async function Publications({ searchParams }: { searchParams: Pro
           </form>
         </SourceManagementDialog>
       )}
+      {regenerating && (
+        <SourceManagementDialog title="重新生成" closeHref="/admin/publications">
+          <form action={generateAction} className="stack-form settings-dialog-form">
+            <p>{dateLabel(regenerating.periodDate)}</p>
+            <input type="hidden" name="direct" value="true" />
+            <input type="hidden" name="kind" value={regenerating.kind} />
+            <input type="hidden" name="date" value={regenerating.periodDate} />
+            <label className="check">
+              <input type="checkbox" name="reprocess" />
+              先重新处理资讯
+            </label>
+            <button className="solid-button">确认重新生成</button>
+          </form>
+        </SourceManagementDialog>
+      )}
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>日期 / 类型</th>
-              <th>简报</th>
+              <th>出刊日期/期号</th>
+              <th>标题</th>
               <th>状态</th>
               <th>操作</th>
             </tr>
@@ -84,36 +103,38 @@ export default async function Publications({ searchParams }: { searchParams: Pro
                 <td>
                   {dateLabel(row.periodDate)}
                   <br />
-                  <span className="muted">{kindNames[row.kind as Kind]}</span>
+                  <span className="muted">
+                    {row.issueNumber ? `第${String(row.issueNumber).padStart(3, '0')}期` : '待编期'}
+                  </span>
                 </td>
-                <td>{(row.draft ?? row.published)?.title}</td>
+                <td>
+                  <Link href={row.published ? `/briefs/${row.id}` : `/admin/briefs/${row.id}`}>
+                    {cleanBriefTitle((row.published ?? row.draft)?.title ?? '')}
+                  </Link>
+                </td>
                 <td>
                   {row.draft ? '待审核' : row.published ? '已发布' : '待生成'}
                   {row.draft && row.published && <small>原正式版仍可阅读</small>}
                 </td>
                 <td>
                   <div className="row-actions">
+                    {row.published && <Link href={`/admin/briefs/${row.id}`}>编辑</Link>}
                     {row.draft && (
                       <>
-                        <Link href={`/admin/briefs/${row.id}`}>阅读待审稿</Link>
+                        {!row.published && <Link href={`/admin/briefs/${row.id}`}>编辑</Link>}
                         <form action={publishAction}>
                           <input type="hidden" name="id" value={row.id} />
                           <button className="solid-button">审核并发布</button>
                         </form>
                       </>
                     )}
-                    {row.published && <Link href={`/briefs/${row.id}`}>正式版</Link>}
                     {row.kind === 'daily' && (
-                      <form action={generateAction}>
-                        <input type="hidden" name="direct" value="true" />
-                        <input type="hidden" name="kind" value={row.kind} />
-                        <input type="hidden" name="date" value={row.periodDate} />
-                        <label className="check">
-                          <input type="checkbox" name="reprocess" />
-                          先重新处理资讯
-                        </label>
-                        <button className="quiet-button">重新生成</button>
-                      </form>
+                      <Link
+                        href={`/admin/publications?configure=regenerate&issue=${row.id}`}
+                        scroll={false}
+                      >
+                        重新生成
+                      </Link>
                     )}
                   </div>
                 </td>

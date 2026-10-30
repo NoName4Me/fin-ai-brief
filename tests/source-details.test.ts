@@ -415,3 +415,39 @@ test('TLDR 完整摘要直接入库，启用详情时也不额外请求原文', 
   const [article] = await db.select().from(articles);
   assert.match(article.excerpt, /新模型能力/);
 });
+
+test('中信金融资产公告采集深入详情，按发布日期过滤且重复采集不再抓正文', async () => {
+  const url = 'https://www.famc.citic/hrxw/hrzs/index.shtml';
+  const [source] = await db
+    .insert(sources)
+    .values({
+      name: '中信金融资产·采购公告',
+      url,
+      format: 'html',
+      industryId: 'ai',
+      enabled: true,
+      readDetails: true,
+    })
+    .returning();
+  const detail = 'https://www.famc.citic/hrxw/hrzs/2026/96601.shtml';
+  const calls: string[] = [];
+  const fetcher = async (input: string) => {
+    calls.push(input);
+    return input === url
+      ? `<div class="jgml_list"><ul><li class="list_text5">2026/10/28</li><li class="list_text6"><a title="AI项目运营管理系统采购公告" href="${detail}">公告</a></li></ul><ul><li class="list_text5">2026/09/01</li><li class="list_text6"><a href="/hrxw/hrzs/2026/90000.shtml">旧公告</a></li></ul></div>`
+      : '<div class="blzcwz_title2">AI项目运营管理系统采购公告<dd>2026-10-28</dd></div><div class="blzcwz_text">项目建设内容包括AI开放接口能力，提供MCP服务及标准化开放接口，支持智能体平台调用，要求与模型管控系统对接。</div>';
+  };
+  const now = new Date('2026-10-30T00:00:00Z');
+  await collectSource(source.id, fetcher, now, { manual: true });
+  const [article] = await db.select().from(articles);
+  assert.equal(article.title, 'AI项目运营管理系统采购公告');
+  assert.match(article.excerpt, /MCP服务/);
+  assert.equal(calls.filter((u) => u === detail).length, 1);
+  assert.equal(
+    calls.some((u) => u.includes('90000')),
+    false,
+  );
+  await collectSource(source.id, fetcher, now, { manual: true });
+  assert.equal((await db.select().from(articles)).length, 1);
+  assert.equal(calls.filter((u) => u === detail).length, 1);
+});

@@ -133,7 +133,12 @@ export async function modelJSON<T>(
   system: string,
   input: unknown,
   schema: z.ZodType<T>,
-  options: { subject?: string; maxTokens?: number; validationContext?: unknown } = {},
+  options: {
+    subject?: string;
+    maxTokens?: number;
+    validationContext?: unknown;
+    cacheNonce?: string;
+  } = {},
 ) {
   const base = requireModelConfig();
   const settings = await getSettings();
@@ -141,6 +146,7 @@ export async function modelJSON<T>(
   const config = { ...base, model };
   const maxTokens = options.maxTokens ?? 12000;
   const key = fingerprint({
+    ...(options.cacheNonce === undefined ? {} : { cacheNonce: options.cacheNonce }),
     purpose,
     system,
     input,

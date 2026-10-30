@@ -12,13 +12,13 @@ if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL
 before(migrate);
 after(() => pool.end());
 
-test('总览按北京时间统计入库，区分信源失败、首采、逾期与暂停，展示真实出刊状态', async () => {
+test('总览按配置出刊周期统计入库，区分信源失败、首采、逾期与暂停，展示真实出刊状态', async () => {
   const original = await getSettings();
   const now = new Date('2035-01-02T04:00:00Z');
   const ids = Array.from({ length: 7 }, () => randomUUID());
   const issueId = randomUUID();
   try {
-    await saveSettings({ ...original, collectionEnabled: true });
+    await saveSettings({ ...original, collectionEnabled: true, dailyTime: '08:00' });
     const baseline = await adminOverview(now);
     for (const [index, state] of [
       'healthy',
@@ -45,9 +45,9 @@ test('总览按北京时间统计入库，区分信源失败、首采、逾期�
       );
     }
     for (const [index, createdAt] of [
-      '2035-01-01T15:59:59Z',
-      '2035-01-01T16:00:00Z',
-      '2035-01-02T16:00:00Z',
+      '2035-01-01T23:59:59Z',
+      '2035-01-02T00:00:00Z',
+      '2035-01-02T12:00:00Z',
     ].entries()) {
       await pool.query(
         `INSERT INTO articles(title,url,excerpt,published_at,source_name,industry_id,state,created_at)
@@ -61,6 +61,7 @@ test('总览按北京时间统计入库，区分信源失败、首采、逾期�
     );
     const overview = await adminOverview(now);
     assert.equal(overview.counts.incoming, baseline.counts.incoming + 1);
+    assert.equal(overview.exceptions.since.toISOString(), '2035-01-02T00:00:00.000Z');
     assert.equal(overview.status, '待审核');
     assert.equal(overview.sources.length, baseline.sources.length + 5);
     for (const [index, state] of ['healthy', 'failed', 'retry', 'new', 'overdue'].entries())

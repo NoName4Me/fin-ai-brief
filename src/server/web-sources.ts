@@ -221,7 +221,10 @@ export function parseWebItems(html: string, input: string, now = new Date()): We
       });
     });
   } else if (profiles[u.hostname]) {
-    const p = profiles[u.hostname];
+    const p =
+      u.hostname === 'www.famc.citic' && /^\/hrxw\/hrzs\//.test(u.pathname)
+        ? { cards: '.jgml_list > ul', anchor: '.list_text6 a[href]', date: '.list_text5' }
+        : profiles[u.hostname];
     $(p.cards).each((_, el) => {
       const row = $(el),
         a = row.find(p.anchor).first(),
@@ -229,6 +232,12 @@ export function parseWebItems(html: string, input: string, now = new Date()): We
       if (!href) return;
       const url = new URL(href, u);
       if (url.origin !== u.origin) return;
+      if (
+        u.hostname === 'www.famc.citic' &&
+        /^\/hrxw\/hrzs\//.test(u.pathname) &&
+        !/^\/hrxw\/hrzs\/\d{4}\/\d+\.shtml$/.test(url.pathname)
+      )
+        return;
       const date = webDate(p.date ? row.find(p.date).text() : '', now) || fromPath(url.href);
       if (!date) return;
       const title = (a.attr('title') || a.text()).trim();

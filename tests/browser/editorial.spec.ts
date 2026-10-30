@@ -12,7 +12,7 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await page.goto('/admin/editorial');
     await expect(page).toHaveURL(/\/editorial\/columns$/);
     const columns = page.getByRole('region', { name: '栏目配置', exact: true });
-    await expect(columns.locator('tbody tr')).toHaveCount(
+    await expect(columns.locator('[data-column-id],[data-column-kind]')).toHaveCount(
       previous.sections.length + (previous.highlightsDeleted ? 0 : 1),
     );
     await expect(page.getByRole('region', { name: '评分指标配置', exact: true })).toHaveCount(0);
@@ -25,20 +25,21 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await page.getByLabel('技术前沿辅助关键词').fill('部署；智能体');
     await page.getByLabel('周度观察字数预算').fill('700');
     await page.getByLabel('每期最多事件数').fill('25');
-    await page.getByLabel('简报主标题字数上限').fill('40');
-    await page.getByRole('button', { name: '新增栏目', exact: true }).click();
+    await page.getByLabel('期刊大标题字数上限').fill('40');
+    await page.getByLabel('标题写作要求').fill('突出具体机构与已发生变化，保留事实边界。');
+    await page.getByRole('button', { name: '添加栏目', exact: true }).click();
     await page.getByLabel('新栏目名称', { exact: true }).fill('工程实践');
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await expect(page.getByLabel('周度观察出刊星期')).toHaveValue('周二、周四');
     await page.getByRole('button', { name: '关闭通知', exact: true }).click();
-    await page.screenshot({ path: '.data/admin-columns-desktop.png', fullPage: true });
+    await page.screenshot({ path: '.data/admin-columns-desktop.png', fullPage: false });
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
       false,
     );
-    await page.screenshot({ path: '.data/admin-columns-mobile.png', fullPage: true });
+    await page.screenshot({ path: '.data/admin-columns-mobile.png', fullPage: false });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole('link', { name: '评分规则', exact: true }).click();
     await expect(page.getByRole('region', { name: '栏目配置', exact: true })).toHaveCount(0);
@@ -74,6 +75,7 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     const saved = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
     expect(saved.maxItems).toBe(25);
     expect(saved.briefTitleMaxLength).toBe(40);
+    expect(saved.briefTitlePrompt).toContain('具体机构');
     expect(saved.highlightRating).toBe(4.6);
     expect(saved.tags).toEqual(previous.tags);
     expect(saved.sections.find((s: { name: string }) => s.name === '技术前沿').keywords).toBe(

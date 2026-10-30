@@ -1,31 +1,29 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { orderedSources, sourceName, sourceNames } from '../src/server/source-presentation.ts';
-
-test('读者来源名称去除采集方式后缀，保留实质性名称说明', () => {
-  for (const name of [
-    '新华网（网页）',
-    '新华网(RSS)',
-    '新华网（RSS · 排除企业/客户案例）',
-    '新华网（网页）（RSS）',
-  ])
-    assert.equal(sourceName(name), '新华网');
-  assert.equal(sourceName('Wiz：Research（安全研究）'), 'Wiz：Research（安全研究）');
-});
-test('来源排序将X和Twitter放最后，保留所有链接且不改动原始快照', () => {
-  const sources = [
-    { name: 'X: Person', url: 'https://x.com/person/status/1' },
-    { name: '新华社（RSS）', url: 'https://example.invalid/first' },
-    { name: '某机构（网页）', url: 'https://example.invalid/second' },
-    { name: '另一来源', url: 'https://mobile.twitter.com/person/status/2' },
-    { name: '新华社（网页）', url: 'https://example.invalid/third' },
-  ];
-  const ordered = orderedSources(sources);
-  assert.deepEqual(
-    ordered.map((source) => source.url),
-    [sources[1].url, sources[2].url, sources[4].url, sources[0].url, sources[3].url],
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { SourceRow } from '../src/components/brief-story.tsx';
+test('同媒体的多篇依据合并为一个来源名，弹窗保留不同文章并去除相同链接', () => {
+  const first = {
+    name: '虎嗅',
+    url: 'https://example.invalid/one',
+    title: '第一篇依据',
+    publishedAt: '2026-10-29T01:00:00Z',
+  };
+  const second = {
+    ...first,
+    name: '虎嗅（网页）',
+    url: 'https://example.invalid/two',
+    title: '第二篇依据',
+  };
+  const html = renderToStaticMarkup(
+    createElement(SourceRow, {
+      item: { title: '数据一图／观点摘编', sources: [first, second, first] },
+    }),
   );
-  assert.equal(ordered.length, sources.length);
-  assert.equal(sources[0].name, 'X: Person');
-  assert.deepEqual(sourceNames(sources), ['新华社', '某机构', 'X: Person', '另一来源']);
+  assert.equal((html.split('<dialog')[0].match(/虎嗅/g) ?? []).length, 1);
+  assert.match(html, /来源与依据/);
+  assert.match(html, /第一篇依据/);
+  assert.match(html, /第二篇依据/);
+  assert.equal((html.match(/href="https:\/\/example.invalid\/one"/g) ?? []).length, 1);
 });

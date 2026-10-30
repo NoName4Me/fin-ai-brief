@@ -3,7 +3,8 @@ import { latestEditionTask } from './edition-history.ts';
 import { pool } from './db.ts';
 import { getSettings } from './settings.ts';
 import { modelUsage } from './model.ts';
-import { localDate } from './periods.ts';
+import { localDate, publicationCycle } from './periods.ts';
+import { runtimeExceptions } from './runtime-exceptions.ts';
 
 interface EditionSection {
   section: string;
@@ -42,10 +43,9 @@ async function latestGeneration(date: string) {
 }
 export async function adminOverview(now = new Date()) {
   const date = localDate(now);
-  const start = new Date(`${date}T00:00:00+08:00`);
-  const end = new Date(start.getTime() + 86400000);
-  const [config, usage, counts, health, issues, sections, generation] = await Promise.all([
-    getSettings(),
+  const config = await getSettings();
+  const { start, end } = publicationCycle(now, config.dailyTime);
+  const [usage, counts, health, issues, sections, generation] = await Promise.all([
     modelUsage(),
     pool.query<{
       published: number;
@@ -58,19 +58,19 @@ export async function adminOverview(now = new Date()) {
       failed: number;
       drafts: number;
     }>(
-      `WITH incoming_today AS (
+      `WITH incoming_cycle AS (
         SELECT count(*)::int total,
           count(*) FILTER (WHERE state='processed')::int relevant,
           count(*) FILTER (WHERE state='ignored')::int ignored,
           count(*) FILTER (WHERE state='pending')::int pending,
           count(*) FILTER (WHERE state='failed')::int failed
-        FROM articles WHERE created_at >= $1 AND created_at < $2
+        FROM articles WHERE created_at >= $1 AND created_at <= $2
       ) SELECT
         (SELECT count(*)::int FROM briefs WHERE kind='daily' AND published IS NOT NULL) published,
         i.total incoming,i.relevant incoming_relevant,i.ignored incoming_ignored,i.pending incoming_pending,i.failed incoming_failed,
         (SELECT count(*)::int FROM articles WHERE state='pending') pending,
         (SELECT count(*)::int FROM articles WHERE state='failed') failed,
-        (SELECT count(*)::int FROM briefs WHERE kind='daily' AND draft IS NOT NULL) drafts FROM incoming_today i`,
+        (SELECT count(*)::int FROM briefs WHERE kind='daily' AND draft IS NOT NULL) drafts FROM incoming_cycle i`,
       [start, end],
     ),
     pool.query<{ id: string; name: string; state: string; last_error: string | null }>(
@@ -98,6 +98,7 @@ export async function adminOverview(now = new Date()) {
     ),
     latestGeneration(date),
   ]);
+  const exceptions = await runtimeExceptions(now, config.dailyTime);
   const editionTask = sections.rows[0]
     ? await latestEditionTask(sections.rows[0].period_date)
     : null;
@@ -143,6 +144,7 @@ export async function adminOverview(now = new Date()) {
   }));
   return {
     date,
+    exceptions,
     config,
     usage,
     counts: counts.rows[0],

@@ -50,12 +50,12 @@ type DailyInput = {
 function written(input: DailyInput) {
   return {
     title: 'AI能力与治理进展',
-    items: input.selected.map((e) => ({
+    items: (input.selected ?? []).map((e) => ({
       eventId: e.id,
       title: '工具发布更新',
       summary: '机构公布更新计划，保留使用条件。',
     })),
-    highlights: input.selected
+    highlights: (input.selected ?? [])
       .filter((e) => e.rating >= 4.3)
       .slice(0, 5)
       .map((e) => ({ eventId: e.id, text: '工具发布更新' })),
@@ -486,8 +486,12 @@ test('超预算时系统只压缩对应栏目，保留其他内容并复用初�
   await seed('2026-10-21T13:00:00Z', topAssessment, '工具与开源');
   const policy = await seed('2026-10-21T14:00:00Z', topAssessment, '政策与监管');
   let calls = 0;
+  let repairs = 0;
   globalThis.fetch = async (_url, init) => {
     calls++;
+    const prompt = JSON.parse(String(init?.body)).messages[0].content;
+    if (prompt.includes('当前阶段：本期标题')) return reply({ title: '测试标题' });
+    if (prompt.includes('当前阶段：今日要览')) return reply({ highlights: [] });
     const input = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
     assert.doesNotMatch(
       JSON.parse(String(init?.body)).messages[0].content,
@@ -507,6 +511,11 @@ test('超预算时系统只压缩对应栏目，保留其他内容并复用初�
     }
     assert.equal(input.sections.length, 1);
     assert.equal(input.sections[0].name, '工具与开源');
+    repairs++;
+    assert.equal(input.sections[0].items[0].maxLength, 100);
+    if (repairs === 1) return reply({ items: input.sections[0].items });
+    const messages = JSON.parse(String(init?.body)).messages;
+    assert.match(messages.at(-1).content, /当前.*字，建议不超过100字/);
     return reply({
       items: input.sections[0].items.map((i: { eventId: string; title: string }) => ({
         ...i,
@@ -515,7 +524,7 @@ test('超预算时系统只压缩对应栏目，保留其他内容并复用初�
     });
   };
   const saved = await generateBrief('daily', '2026-10-22');
-  assert.equal(calls, 2);
+  assert.equal(calls, 6);
   assert.equal(
     saved.draft!.items.find((i) => i.eventId === policy.id)!.summary,
     '政策摘要保持原样。',
@@ -524,7 +533,7 @@ test('超预算时系统只压缩对应栏目，保留其他内容并复用初�
   assert.ok(tools.reduce((n, i) => n + [...(i.title + i.summary)].length, 0) <= 200);
   assert.equal((await previewBrief('daily', '2026-10-22')).cached, true);
   await generateBrief('daily', '2026-10-22');
-  assert.equal(calls, 2);
+  assert.equal(calls, 6);
 });
 test('不满栏目下限仍出短刊，网页邮件共享星级、要览和来源', async () => {
   await seed();
@@ -598,14 +607,14 @@ test('重处理后的日报更新仍遵循人工审核开关', async () => {
   assert.equal((await pool.query('SELECT count(*)::int n FROM deliveries')).rows[0].n, 0);
 });
 test('周一轮动可以引用七天材料，普通日报仍只引用一天材料', async () => {
-  await saveSettings({ ...(await getSettings()), rotationsEnabled: true });
+  await saveSettings({ ...(await getSettings()), rotationsEnabled: true, startDate: '2026-10-19' });
   const first = await seed('2026-10-20T12:00:00Z');
   const second = await seed('2026-10-22T12:00:00Z');
   const today = await seed('2026-10-25T12:00:00Z');
   globalThis.fetch = async (_url, init) => {
     const input = inputFrom(init);
-    assert.equal(input.selected.length, 1);
-    assert.equal(input.selected[0].id, today.id);
+    if (!input.rotationMaterials) return reply(written(input));
+    assert.equal(input.rotationMaterials[0].events.length, 3);
     const v = written(input);
     v.rotations = [
       {
@@ -622,4 +631,67 @@ test('周一轮动可以引用七天材料，普通日报仍只引用一天材�
     (await pool.query("SELECT status FROM edition_runs WHERE section='一周观察'")).rows[0].status,
     'ready',
   );
+});
+
+test('栏目失败仅重试该栏，已成功栏目不重复生成', async () => {
+  await seed('2026-10-21T12:00:00Z', topAssessment, '工具与开源');
+  await seed('2026-10-21T13:00:00Z', topAssessment, '政策与监管');
+  const calls = new Map<string, number>();
+  let fail = true;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    const input = JSON.parse(body.messages[1].content);
+    const stage = body.messages[0].content.match(/当前阶段：(.+?)。/)[1];
+    calls.set(stage, (calls.get(stage) ?? 0) + 1);
+    if (stage === '工具与开源' && fail) return new Response('', { status: 503 });
+    return reply(written(input));
+  };
+  await assert.rejects(generateBrief('daily', '2026-10-22'), /工具与开源/);
+  assert.equal(calls.get('政策与监管'), 1);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM briefs')).rows[0].n, 0);
+  assert.equal((await previewBrief('daily', '2026-10-22')).cached, false);
+  fail = false;
+  await generateBrief('daily', '2026-10-22');
+  assert.equal(calls.get('政策与监管'), 1);
+  assert.equal(calls.get('工具与开源'), 2);
+  assert.equal((await previewBrief('daily', '2026-10-22')).cached, true);
+});
+
+test('要览错误ID重试仅重做要览，候选只含达标正文', async () => {
+  const event = await seed();
+  await seed('2026-10-21T13:00:00Z', assessment, '政策与监管');
+  const calls = new Map<string, number>();
+  let fail = true;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    const input = JSON.parse(body.messages[1].content);
+    const stage = body.messages[0].content.match(/当前阶段：(.+?)。/)[1];
+    calls.set(stage, (calls.get(stage) ?? 0) + 1);
+    if (stage === '今日要览') {
+      assert.deepEqual(
+        input.selected.map((e: { id: string }) => e.id),
+        [event.id],
+      );
+      assert.equal(input.items.length, 1);
+      if (body.messages.length > 2)
+        assert.match(body.messages.at(-1).content, /highlights.0.eventId/);
+      return reply({
+        highlights: [
+          {
+            eventId: fail ? '00000000-0000-4000-8000-000000000001' : event.id,
+            text: '合格正文摘要',
+          },
+        ],
+      });
+    }
+    return reply(written(input));
+  };
+  await assert.rejects(generateBrief('daily', '2026-10-22'), /事件ID.*无效/);
+  assert.equal(calls.get('今日要览'), 2);
+  fail = false;
+  const saved = await generateBrief('daily', '2026-10-22');
+  assert.equal(calls.get('工具与开源'), 1);
+  assert.equal(calls.get('本期标题'), 1);
+  assert.equal(calls.get('今日要览'), 3);
+  assert.equal(saved.draft!.highlights!.length, 1);
 });

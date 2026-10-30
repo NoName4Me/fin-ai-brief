@@ -162,7 +162,7 @@ export function renderEmail(
     })
     .join('');
   const renderRotation = (r: NonNullable<BriefContent['rotations']>[number]) =>
-    `<div style="margin:30px 0;"><h2 style="font-size:20px;color:${accent};">${escapeHtml(r.name)}</h2>${paragraph(escapeHtml(r.text).replace(/\n/g, '<br>'), 'line-height:2;')}${paragraph(r.sources.map((source) => `<a href="${escapeHtml(source.url)}" style="color:${accent}">${escapeHtml(source.name)}</a>`).join(' / '), 'margin-top:12px;font-size:12px;')}</div>`;
+    `<div style="margin:30px 0;"><h2 style="font-size:20px;color:${accent};">${escapeHtml(r.displayName ?? r.name)}</h2>${paragraph(escapeHtml(r.text).replace(/\n/g, '<br>'), 'line-height:2;')}${paragraph(r.sources.map((source) => `<a href="${escapeHtml(source.url)}" style="color:${accent}">${escapeHtml(source.name)}</a>`).join(' / '), 'margin-top:12px;font-size:12px;')}</div>`;
   const rotationMarkup = (content.rotations ?? []).map(renderRotation).join('');
   const bodySections = aiDaily
     ? dailySections(content)

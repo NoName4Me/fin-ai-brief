@@ -13,7 +13,7 @@ test('匿名管理访问被拦截，审核开关与额度可以保存', async ({
   await expect(page).toHaveURL(/\/login/);
   await login(page);
   await page.getByText('编辑规则', { exact: true }).click();
-  await page.getByRole('link', { name: '栏目与篇幅', exact: true }).click();
+  await page.getByRole('link', { name: '整刊配置', exact: true }).click();
   await expect(page.getByLabel('政策与监管字数预算')).toHaveValue('250');
   await expect(page.locator('textarea[name="keywords"]')).toHaveCount(0);
   await expect(page.getByLabel('行业', { exact: true })).toHaveCount(0);

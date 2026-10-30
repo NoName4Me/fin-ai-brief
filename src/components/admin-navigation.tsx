@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 
 type Item = { href: string; label: string };
 const editorial: Item[] = [
-  { href: '/admin/editorial/columns', label: '栏目与篇幅' },
+  { href: '/admin/editorial/columns', label: '整刊配置' },
   { href: '/admin/editorial/ratings', label: '评分规则' },
   { href: '/admin/editorial/content', label: '收录与写作' },
 ];

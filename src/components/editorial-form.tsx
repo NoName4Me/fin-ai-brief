@@ -115,28 +115,56 @@ export function EditorialForm({
       {showColumns && <input type="hidden" name="sections" value={JSON.stringify(sections)} />}
       {showRatings && <input type="hidden" name="ratingRules" value={JSON.stringify(ratings)} />}
       {showColumns && (
-        <section aria-label="栏目与篇幅" className="editorial-group">
+        <section aria-label="整刊配置" className="editorial-group">
           <input type="hidden" name="highlightsConfig" value="1" />
           <input type="hidden" name="highlightsDeleted" value={String(highlightsDeleted)} />
-          <header className="editorial-group-header column-actions">
-            <button
-              type="button"
-              className="solid-button"
-              onClick={addSection}
-              disabled={sections.length >= 30}
-            >
-              新增栏目
-            </button>
-            {highlightsDeleted && (
-              <button
-                type="button"
-                className="quiet-button"
-                onClick={() => setHighlightsDeleted(false)}
-              >
-                恢复要览
-              </button>
-            )}
-          </header>
+          <div className="publication-constraints">
+            <label>
+              字数超额容差（%）
+              <input
+                name="budgetTolerancePercent"
+                type="number"
+                min={0}
+                max={50}
+                defaultValue={config.budgetTolerancePercent}
+                required
+              />
+            </label>
+            <label>
+              每期最多事件数
+              <input
+                name="maxItems"
+                type="number"
+                min={2}
+                max={50}
+                defaultValue={config.maxItems}
+                required
+              />
+            </label>
+          </div>
+          <div className="publication-title-settings">
+            <label>
+              期刊大标题字数上限
+              <input
+                name="briefTitleMaxLength"
+                type="number"
+                min={1}
+                max={200}
+                defaultValue={config.briefTitleMaxLength}
+                required
+              />
+            </label>
+            <label>
+              标题写作要求
+              <textarea
+                name="briefTitlePrompt"
+                rows={4}
+                maxLength={6000}
+                defaultValue={config.briefTitlePrompt}
+                required
+              />
+            </label>
+          </div>
           <div
             className="table-wrap editorial-table-wrap"
             role="region"
@@ -255,14 +283,15 @@ export function EditorialForm({
                     data-column-id={section.id}
                     data-drop-target={dropTarget === section.id || undefined}
                     onDragOver={(event) => {
-                      if (dragging.current) {
+                      if (dragging.current || event.dataTransfer.types.includes('text/plain')) {
                         event.preventDefault();
                         setDropTarget(section.id);
                       }
                     }}
                     onDrop={(event) => {
                       event.preventDefault();
-                      if (dragging.current) moveSection(dragging.current, section.id);
+                      const source = dragging.current || event.dataTransfer.getData('text/plain');
+                      if (source) moveSection(source, section.id);
                       dragging.current = null;
                       setDropTarget(null);
                     }}
@@ -467,40 +496,19 @@ export function EditorialForm({
               </tbody>
             </table>
           </div>
-          <div className="editorial-thresholds editorial-publication-limits">
-            <label>
-              字数超额容差（%）
-              <input
-                name="budgetTolerancePercent"
-                type="number"
-                min={0}
-                max={50}
-                defaultValue={config.budgetTolerancePercent}
-                required
-              />
-            </label>
-            <label>
-              每期最多事件数
-              <input
-                name="maxItems"
-                type="number"
-                min={2}
-                max={50}
-                defaultValue={config.maxItems}
-                required
-              />
-            </label>
-            <label>
-              简报主标题字数上限
-              <input
-                name="briefTitleMaxLength"
-                type="number"
-                min={1}
-                max={200}
-                defaultValue={config.briefTitleMaxLength}
-                required
-              />
-            </label>
+          <div className="row-actions">
+            <button type="button" onClick={addSection} disabled={sections.length >= 30}>
+              添加栏目
+            </button>
+            {highlightsDeleted && (
+              <button
+                type="button"
+                className="quiet-button"
+                onClick={() => setHighlightsDeleted(false)}
+              >
+                恢复要览
+              </button>
+            )}
           </div>
         </section>
       )}

@@ -22,7 +22,14 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 60000,
     env: {
-      MODEL_CALLS_ENABLED: 'false',
+      MODEL_CALLS_ENABLED: process.env.TEST_MODEL_CALLS_ENABLED ?? 'false',
+      ...(process.env.TEST_LLM_BASE_URL
+        ? {
+            LLM_BASE_URL: process.env.TEST_LLM_BASE_URL,
+            LLM_API_KEY: 'test-only',
+            LLM_MODEL: 'test-only',
+          }
+        : {}),
       MAIL_ENABLED: 'false',
       NEXT_DIST_DIR: '.data/next-browser',
     },

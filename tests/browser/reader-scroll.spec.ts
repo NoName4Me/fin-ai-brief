@@ -56,11 +56,8 @@ test('今日要览在栏目表格内编辑并保存', async ({ page }) => {
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await expect(page).toHaveURL(/\/admin$/);
     await page.goto('/admin/editorial/columns');
-    const limits = page.locator('.editorial-publication-limits input');
-    const boxes = await limits.evaluateAll((nodes) =>
-      nodes.map((n) => n.getBoundingClientRect().top),
-    );
-    expect(new Set(boxes).size).toBe(1);
+    await expect(page.getByLabel('字数超额容差（%）')).toBeVisible();
+    await expect(page.getByLabel('标题写作要求')).toBeVisible();
     const row = page.locator('table tbody tr[data-column-kind="highlights"]');
     await expect(row.getByLabel('今日要览名称')).toHaveValue('今日要览');
     await row.getByLabel('今日要览名称').fill('今日重点');

@@ -142,3 +142,26 @@ test('CVSource 读取服务端嵌入数据，不执行脚本', () => {
   assert.equal(items[0].url, 'https://www.cvsource.com.cn/report/report123');
   assert.equal(items[0].excerpt, '报告摘要');
 });
+
+test('中信金融资产公司通告按公告行绑定日期并深入详情，排除新闻及导航', async () => {
+  const url = 'https://www.famc.citic/hrxw/hrzs/index.shtml';
+  const html = `<a href="/hrxw/hrzs/index.shtml">公司通告</a>
+    <div class="jgml_list"><ul><li class="list_text5">2026/10/28</li>
+      <li class="list_text6"><a href="/hrxw/hrzs/2026/96601.shtml" title="OA系统维护服务采购前公示">缩略标题…</a></li></ul>
+      <ul><li class="list_text5">2026/10/26</li><li class="list_text6"><a href="/hrxw/hrzs/2026/96581.shtml" title="国产服务器采购成交结果公告">结果</a></li></ul>
+      <ul><li class="list_text5"></li><li class="list_text6"><a href="/hrxw/hrzs/2026/99999.shtml">无日期公告</a></li></ul>
+      <ul><li class="list_text5">2026/10/28</li><li class="list_text6"><a href="https://example.invalid/other.shtml">外站条目</a></li></ul></div>`;
+  const items = parseWebItems(html, url, now)!;
+  assert.equal(items.length, 2);
+  assert.equal(items[0].title, 'OA系统维护服务采购前公示');
+  assert.equal(items[0].publishedAt, '2026-10-28T00:00:00+08:00');
+  assert.equal(items[1].publishedAt, '2026-10-26T00:00:00+08:00');
+  const detail = await readSourceDetail(
+    items[0].url,
+    async () =>
+      '<nav>导航</nav><div class="blzcwz_title2"><p><strong>OA系统维护服务采购前公示</strong></p><dd>2026-10-28</dd></div><div class="blzcwz_text"><p>项目名称：采购OA系统维护服务项目。</p><p>包括系统维护、安全补丁升级和定期巡检，供应商为泛微网络科技股份有限公司。</p></div><footer>联系方式</footer>',
+  );
+  assert.equal(detail.title, items[0].title);
+  assert.match(detail.excerpt, /安全补丁升级/);
+  assert.doesNotMatch(detail.excerpt, /导航|联系方式/);
+});

@@ -21,13 +21,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     adminOverview(),
     period ? dashboardCharts(period) : Promise.resolve(null),
   ]);
-  const healthy = data.sources.filter((source) => source.state === 'healthy').length;
-  const abnormal = data.sources.filter((source) =>
-    ['failed', 'retry', 'overdue'].includes(source.state),
-  ).length;
   const otherSourceStates = [
     { state: 'new', label: '待首采' },
     { state: 'paused', label: '采集暂停' },
+    { state: 'overdue', label: '调度逾期' },
   ]
     .map((item) => ({
       ...item,
@@ -36,7 +33,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     .filter((item) => item.count > 0);
   const latestDate = data.sections[0]?.period_date;
   const sectionErrors = data.sections.filter((section) => section.status === 'error');
-  const pendingTotal = data.counts.pending + data.counts.failed + abnormal + data.counts.drafts;
+  const currentSectionErrors = sectionErrors.filter((section) => section.period_date === data.date);
   return (
     <div className="admin-overview">
       <Notice query={query} />
@@ -59,77 +56,63 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         <DashboardCharts data={charts} />
       ) : (
         <>
-          <dl className="overview-totals">
-            <div>
-              <dt>今日新增入库</dt>
-              <dd>
-                <Link href="/admin/articles">
-                  <span className="overview-number">{data.counts.incoming}</span>
-                  <small>篇</small>
-                </Link>
-                <span className="overview-card-detail">
-                  <span>有效 {data.counts.incoming_relevant}</span>
-                  <span>淘汰 {data.counts.incoming_ignored}</span>
-                  <span>待处理 {data.counts.incoming_pending}</span>
-                  {data.counts.incoming_failed > 0 && (
-                    <span className="overview-problem">失败 {data.counts.incoming_failed}</span>
-                  )}
+          <section
+            className="overview-section overview-collection"
+            aria-labelledby="collection-title"
+          >
+            <div className="overview-section-heading">
+              <h2 id="collection-title">本轮采集</h2>
+              <span className="muted">{taskStamp(data.exceptions.since).slice(5, 16)} 至今</span>
+            </div>
+            <dl className="overview-cycle-metrics">
+              <div>
+                <dt>新增资讯</dt>
+                <dd>
+                  <Link href="/admin/articles">
+                    {data.counts.incoming}
+                    <small>篇</small>
+                  </Link>
+                </dd>
+              </div>
+              <div>
+                <dt>当前异常信源</dt>
+                <dd className={data.exceptions.collection ? 'overview-problem' : undefined}>
+                  <Link href="/admin/sources/monitor?status=cycle_error">
+                    {data.exceptions.collection}
+                    <small>个</small>
+                  </Link>
+                </dd>
+              </div>
+            </dl>
+            <p className="form-hint">
+              启用信源 {data.sources.length}
+              {otherSourceStates.map((item) => (
+                <span key={item.state}>
+                  {' '}
+                  · {item.label} {item.count}
                 </span>
-              </dd>
-            </div>
-            <div>
-              <dt>待处理事项</dt>
-              <dd>
-                <Link href="/admin/articles">
-                  <span className={`overview-number${pendingTotal ? ' overview-problem' : ''}`}>
-                    {pendingTotal}
-                  </span>
-                  <small>项</small>
-                </Link>
-                <span className="overview-card-detail">
-                  <span>资讯 {data.counts.pending + data.counts.failed}</span>
-                  <span>信源 {abnormal}</span>
-                  <span>待审核 {data.counts.drafts}</span>
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt>启用信源 {data.sources.length}</dt>
-              <dd>
-                <Link href="/admin/sources/monitor" className="overview-source-numbers">
-                  <span>
-                    <span className="overview-number overview-healthy-number">{healthy}</span>
-                    <small>正常</small>
-                  </span>
-                  <span>
-                    <span className={`overview-number${abnormal ? ' overview-problem' : ''}`}>
-                      {abnormal}
-                    </span>
-                    <small>异常</small>
-                  </span>
-                </Link>
-                {otherSourceStates.length > 0 && (
-                  <span className="overview-card-detail">
-                    {otherSourceStates.map((item) => (
-                      <span key={item.state}>
-                        {item.label} {item.count}
-                      </span>
-                    ))}
-                  </span>
-                )}
-              </dd>
-            </div>
-          </dl>
+              ))}
+              {' · '}
+              <Link href="/admin/sources/monitor">信源监控</Link>
+            </p>
+            <p className="form-hint">
+              上一周期曾异常：采集 {data.exceptions.previous.collection}、处理{' '}
+              {data.exceptions.previous.processing}、出刊 {data.exceptions.previous.generation}
+            </p>
+          </section>
           <div className="overview-columns">
             <section className="overview-section" aria-labelledby="today-title">
               <div className="overview-section-heading">
-                <h2 id="today-title">今日出刊</h2>
+                <h2 id="today-title">本期出刊</h2>
                 <Link href="/admin/publications">出刊管理</Link>
               </div>
               <p className="overview-edition-state">
                 {data.status}
-                {sectionErrors.length > 0 && (
-                  <span className="overview-problem"> · {sectionErrors.length} 个栏目异常</span>
+                {currentSectionErrors.length > 0 && (
+                  <span className="overview-problem">
+                    {' '}
+                    · {currentSectionErrors.length} 个栏目异常
+                  </span>
                 )}
               </p>
               {data.today?.title && <p>{data.today.title}</p>}
@@ -188,7 +171,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                         </strong>
                       </span>
                       {sectionErrors.length > 0 && (
-                        <span className="overview-problem">
+                        <span className={latestDate === data.date ? 'overview-problem' : 'muted'}>
                           异常 <strong>{sectionErrors.length}</strong>
                         </span>
                       )}
@@ -198,7 +181,11 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                         {sectionErrors.slice(0, 3).map((section) => (
                           <li key={section.section}>
                             <span>{section.section}</span>
-                            <span className="overview-problem">{section.reason}</span>
+                            <span
+                              className={latestDate === data.date ? 'overview-problem' : 'muted'}
+                            >
+                              {section.reason}
+                            </span>
                           </li>
                         ))}
                       </ul>
@@ -212,7 +199,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             <section className="overview-section" aria-labelledby="pending-title">
               <div className="overview-section-heading">
                 <h2 id="pending-title">
-                  待处理<small>全部积压</small>
+                  待办<small>全部积压</small>
                 </h2>
                 <Link href="/admin/articles">任务管理</Link>
               </div>
@@ -230,12 +217,6 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                   <dd className={data.counts.failed ? 'overview-problem' : undefined}>
                     {data.counts.failed} 篇
                   </dd>
-                </div>
-                <div>
-                  <dt>
-                    <Link href="/admin/sources/monitor?status=abnormal">采集异常信源</Link>
-                  </dt>
-                  <dd className={abnormal ? 'overview-problem' : undefined}>{abnormal} 个</dd>
                 </div>
                 <div>
                   <dt>

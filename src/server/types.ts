@@ -1,3 +1,4 @@
+import { defaultTitlePrompt } from './title-writing.ts';
 import { z } from 'zod';
 import { cleanBriefTitle } from './brief-title.ts';
 import {
@@ -115,7 +116,12 @@ export const briefContentSchema = z.object({
     .optional(),
   rotations: z
     .array(
-      z.object({ name: z.string(), text: z.string(), sources: z.array(sourceRefSchema).min(1) }),
+      z.object({
+        name: z.string(),
+        displayName: z.string().trim().min(1).max(40).optional(),
+        text: z.string(),
+        sources: z.array(sourceRefSchema).min(1),
+      }),
     )
     .max(30)
     .optional(),
@@ -203,6 +209,7 @@ export const settingsSchema = z.preprocess(
       financeSummaryMaxLength: z.number().int().min(1).max(1000).default(140),
       financeOverviewMaxLength: z.number().int().min(1).max(1000).default(120),
       briefLengthTolerancePercent: z.number().int().min(0).max(50).default(10),
+      briefTitlePrompt: z.string().trim().min(1).max(6000).default(defaultTitlePrompt),
       briefTitleMaxLength: z.number().int().min(1).max(200).default(36),
       weeklyDay: z.number().int().min(0).max(6).default(1),
       monthlyDay: z.number().int().min(1).max(31).default(1),
@@ -277,6 +284,7 @@ export const defaultSettings: Settings = {
   taskRetryLimit: 1,
   processingConcurrency: 3,
   briefTitleMaxLength: 36,
+  briefTitlePrompt: defaultTitlePrompt,
   financeSummaryMaxLength: 140,
   financeOverviewMaxLength: 120,
   briefLengthTolerancePercent: 10,

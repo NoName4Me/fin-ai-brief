@@ -55,6 +55,7 @@ export async function saveEditorialConfig(input: {
   reviewEnabled?: boolean;
   maxItems?: number;
   briefTitleMaxLength?: number;
+  briefTitlePrompt?: string;
 }) {
   const { sql } = await import('drizzle-orm');
   const { sources } = await import('./schema.ts');
@@ -97,6 +98,7 @@ export async function saveEditorialConfig(input: {
       'reviewEnabled',
       'maxItems',
       'briefTitleMaxLength',
+      'briefTitlePrompt',
     ] as const;
     const patch = Object.fromEntries(
       keys.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]),

@@ -22,7 +22,7 @@ test('管理台品牌、右上退出、菜单高亮及所有业务页无大块�
   for (const [path, label] of [
     ['/admin/articles', '任务管理'],
     ['/admin/sources', '信源管理'],
-    ['/admin/editorial', '栏目与篇幅'],
+    ['/admin/editorial', '整刊配置'],
     ['/admin/editorial/ratings', '评分规则'],
     ['/admin/editorial/content', '收录与写作'],
     ['/admin/sources/import', '任务管理'],

@@ -36,6 +36,11 @@ export function rangeFor(kind: Kind, date: string, time: string, config: Schedul
   }
   return { start, end };
 }
+export function publicationCycle(now: Date, dailyTime: string) {
+  const today = rangeFor('daily', localDate(now), dailyTime);
+  const start = now >= today.end ? today.end : today.start;
+  return { start, end: now, previousStart: new Date(start.getTime() - 86400000) };
+}
 export function duePeriods(
   now: Date,
   setting:

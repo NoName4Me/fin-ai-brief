@@ -9,8 +9,8 @@ test('配置归位、栏目要求与关键词、拖拽保存及轮动自动规�
     await page.getByLabel('管理员密码').fill(process.env.ADMIN_PASSWORD!);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await expect(page).toHaveURL(/\/admin$/);
-    await expect(page.getByRole('heading', { name: '待处理全部积压' })).toBeVisible();
-    await expect(page.getByRole('link', { name: '采集失败信源' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '待办全部积压' })).toBeVisible();
+    await expect(page.getByText('当前异常信源', { exact: true })).toBeVisible();
     const nav = page.getByRole('navigation', { name: '管理导航' });
     await expect(nav.getByRole('link', { name: '系统设置', exact: true })).toBeVisible();
     await expect(nav.getByRole('link', { name: '出刊设置', exact: true })).toHaveCount(0);
@@ -40,10 +40,21 @@ test('配置归位、栏目要求与关键词、拖拽保存及轮动自动规�
     await page.getByLabel('一周观察间隔周数').fill('2');
     const rows = page
       .getByRole('region', { name: '栏目配置', exact: true })
-      .locator('tbody tr[data-column-id]');
+      .locator('[data-column-id]');
     const source = rows.last();
     const movedName = await source.locator('input[aria-label$="名称"]').inputValue();
-    await source.getByRole('button', { name: /排序，使用上下方向键调整/ }).dragTo(rows.first());
+    const handle = source.getByRole('button', { name: /排序，使用上下方向键调整/ });
+    await handle.scrollIntoViewIfNeeded();
+    const from = await handle.boundingBox();
+    if (!from) throw new Error('排序手柄不可见');
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2 - 15, { steps: 4 });
+    await rows.first().scrollIntoViewIfNeeded();
+    const target = await rows.first().boundingBox();
+    if (!target) throw new Error('目标栏目不可见');
+    await page.mouse.move(target.x + 30, target.y + 30, { steps: 6 });
+    await page.mouse.up();
     await expect(rows.first().locator('input[aria-label$="名称"]')).toHaveValue(movedName);
     await page.getByRole('button', { name: '保存' }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');

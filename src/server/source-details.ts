@@ -260,7 +260,13 @@ export async function readSourceDetail(
   }
   const $ = load(html!);
   const pdf = $('#pdfAdd1').text().trim() || $('a[href$=".pdf"]').first().attr('href');
-  const originalTitle = $('h1,.article_title,.detail-title h3').first().text().trim();
+  const titleNode = $(
+    u.hostname === 'www.famc.citic' ? '.blzcwz_title2' : 'h1,.article_title,.detail-title h3',
+  )
+    .first()
+    .clone();
+  if (u.hostname === 'www.famc.citic') titleNode.find('dd').remove();
+  const originalTitle = titleNode.text().replace(/\s+/g, ' ').trim();
   $(
     'script,style,nav,header,footer,iframe,.share,.print,[style*="display:none"],[style*="display: none"]',
   ).remove();

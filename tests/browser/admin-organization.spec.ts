@@ -21,7 +21,7 @@ test('补刊、手工导入和发送记录归位，旧入口保留查询参数',
     await expect(page).toHaveURL(/\/admin\/settings\?/);
     await expect(page.getByRole('status')).toHaveText('入口已迁移');
     await expect(page.getByLabel('资讯处理并发数')).toHaveCount(0);
-    await expect(page.getByLabel('简报主标题字数上限')).toHaveCount(0);
+    await expect(page.getByLabel('期刊大标题字数上限')).toHaveCount(0);
     await expect(page.getByRole('button', { name: '补刊', exact: true })).toHaveCount(0);
     await page.goto('/admin/settings/runtime');
     await expect(page.getByLabel('资讯处理并发数')).toBeVisible();

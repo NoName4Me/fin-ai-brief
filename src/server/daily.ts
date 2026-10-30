@@ -9,9 +9,10 @@ import { weeklyMaterials } from './weekly-review.ts';
 import { assessmentSchema, ratingForEditorial, fixedSections, rotationRules } from './editorial.ts';
 import { briefContentSchema, briefTitleSchema } from './types.ts';
 import { modelJSON, inspectModelRequest } from './model.ts';
-import { fingerprint } from './processing-log.ts';
+import { fingerprint, BudgetWait } from './processing-log.ts';
 import { persistBrief, PendingArticles } from './briefs.ts';
 import { dailyLengthRepair } from './daily-length.ts';
+import { dailyTitleRequest } from './daily-title.ts';
 
 const writtenSchema = z.object({
   title: briefTitleSchema,
@@ -132,10 +133,11 @@ async function prepareDaily(date: string) {
   );
   const system = `你是数智参阅编辑。${config.editorialPrompt}榜单快照按采集时点陈述，不能当作模型或项目在当日发布；首次快照不推断排名变化。 只使用提供的材料，不添加外部事实或投资建议。区分计划、研究结果、机构自述与已证实事实。
 输出{title,items:[{eventId,title,summary}],highlights:[{eventId,text}],rotations:[{name,text,eventIds}]}。
-title不重复刊名，不添加“数智参阅｜”前缀，最多${config.briefTitleMaxLength}字。items必须覆盖给定当日selected事件且各一次，不增加或删除事件。每个栏目遵守其description。每个栏目内title+summary合计不得超过budget字。短刊允许少于条数目标，不凑稿。不强求行动建议。
+title不重复刊名，不添加“数智参阅｜”前缀，最多${config.briefTitleMaxLength}字。items必须覆盖给定当日selected事件且各一次，不增加或删除事件。每个栏目遵守其description。每个栏目内title+summary合计不得超过budget字，按selected每条maxLength控制标题与摘要合计字数（含标点、数字与英文字符）。短刊允许少于条数目标，不凑稿。不强求行动建议。
 highlights${config.highlightsEnabled && !config.highlightsDeleted ? `是“${config.highlightsName}”，只从当日items中rating>=${highlightRating}的事件选${config.highlightsMinItems}至${config.highlightsMaxItems}条，总计不超过${config.highlightsBudget}字。${config.highlightsPrompt}` : '已关闭，必须输出空数组'}。不足时少选，不凑条数。不得编造事件ID。
 轮动只写scheduled=true且证据足够的栏目，参考每项keywords并遵守description及minItems/maxItems（引用不同事件数）和budget，正文不得超过budget字。资料不足时省略，不使用当日窗口之外的材料冒充当日新闻。引用对应rotationMaterials给定事件ID，所有事实、机构、数字和案例必须来自最终eventIds引用的材料；不要写入未引用事件或编造图表。所有正文纯文本。`;
   const input = {
+    titleWriting: { maxLength: config.briefTitleMaxLength, prompt: config.briefTitlePrompt },
     date,
     range,
     sections,
@@ -154,6 +156,10 @@ highlights${config.highlightsEnabled && !config.highlightsDeleted ? `是“${con
       id: e.id,
       section: e.section,
       rating: e.rating,
+      maxLength: Math.floor(
+        sections.find((s) => s.name === e.section)!.budget /
+          selected.filter((other) => other.section === e.section).length,
+      ),
       materials: material.inputEvents.find((v) => v.id === e.id),
     })),
     rotationMaterials: rotationMaterials.map((r) => ({
@@ -200,36 +206,165 @@ highlights${config.highlightsEnabled && !config.highlightsDeleted ? `是“${con
       0,
   };
 }
-export async function previewDaily(date: string) {
-  const p = await prepareDaily(date);
-  const hasMaterials =
-    p.selected.length || p.rotationMaterials.some((r) => r.materials?.selected.length);
-  const request = hasMaterials
-    ? await inspectModelRequest('brief', p.system, p.input, 12000, p.config.budgetTolerancePercent)
-    : { key: fingerprint(p.input), model: '无需生成', cached: true };
-  if (hasMaterials && request.cached) {
-    const { rows } = await pool.query('SELECT response FROM model_calls WHERE request_key=$1', [
-      request.key,
-    ]);
-    const written = writtenSchema.parse(rows[0].response);
+class DailyWritingError extends Error {
+  constructor(
+    readonly stages: string[],
+    messages: string[],
+  ) {
+    super(messages.join('\n'));
+  }
+}
+// Each stage has its own request key; a failed stage never invalidates completed columns.
+async function writeDaily(p: Awaited<ReturnType<typeof prepareDaily>>, preview = false) {
+  const empty = { title: '数智参阅', items: [], highlights: [], rotations: [] };
+  type Written = z.infer<typeof writtenSchema>;
+  let draft: Written = empty;
+  let cached = true;
+  const failures: string[] = [];
+  const failedStages: string[] = [];
+  async function run<T>(name: string, system: string, input: unknown, schema: z.ZodType<T>) {
+    const prompt = `${system}\n当前阶段：${name}。仅输出本阶段要求的字段，不输出其他栏目。`;
+    const context = p.config.budgetTolerancePercent;
+    if (preview) {
+      const request = await inspectModelRequest('brief', prompt, input, 12000, context);
+      const { rows } = await pool.query(
+        "SELECT response FROM model_calls WHERE request_key=$1 AND state='succeeded'",
+        [request.key],
+      );
+      const parsed = schema.safeParse(rows[0]?.response);
+      if (!parsed.success) {
+        cached = false;
+        return undefined;
+      }
+      return parsed.data;
+    }
+    try {
+      return await modelJSON('brief', prompt, input, schema, {
+        subject: `brief:daily:${p.input.date}`,
+        maxTokens: 12000,
+        validationContext: context,
+      });
+    } catch (error) {
+      if (error instanceof BudgetWait) throw error;
+      failedStages.push(name);
+      failures.push(`${name}：${error instanceof Error ? error.message : '生成失败'}`);
+      return undefined;
+    }
+  }
+  for (const section of p.sections) {
+    const selected = p.input.selected.filter((e) => e.section === section.name);
+    if (!selected.length) continue;
+    const schema = writtenSchema.pick({ items: true }).superRefine((v, ctx) => {
+      const ids = v.items.map((i) => i.eventId);
+      if (
+        ids.length !== selected.length ||
+        new Set(ids).size !== ids.length ||
+        ids.some((id) => !selected.some((e) => e.id === id))
+      )
+        ctx.addIssue({ code: 'custom', message: '模型返回无效或重复的事件引用，或遗漏已选事件' });
+    });
+    const result = await run(
+      section.name,
+      `你是数智参阅编辑。${p.config.editorialPrompt}只使用给定材料，保留事实归属与不确定性。输出{items:[{eventId,title,summary}]}。必须覆盖selected且各一次，严格复制eventId。遵守栏目description和budget，标题与摘要含标点、英文字符合计按每条maxLength控制。榜单采集时间不代表发布或排名变化。`,
+      { date: p.input.date, sections: [section], selected },
+      schema,
+    );
+    if (!result) continue;
     const repair = dailyLengthRepair(
-      written.items,
+      result.items,
       p.selected,
-      p.sections,
+      [section],
       p.config.budgetTolerancePercent,
     );
-    if (repair)
-      request.cached = (
-        await inspectModelRequest(
-          'brief',
-          repair.system,
-          repair.input,
-          12000,
-          p.config.budgetTolerancePercent,
-        )
-      ).cached;
+    if (repair) {
+      const repaired = await run(section.name, repair.system, repair.input, repair.schema);
+      if (!repaired) continue;
+      draft.items.push(...repaired.items);
+    } else draft.items.push(...result.items);
   }
-  return { ...request, count: p.selected.length, range: p.range };
+  for (const rule of p.rotationMaterials) {
+    if (!rule.scheduled || !rule.materials?.selected.length) continue;
+    const schema = writtenSchema.pick({ rotations: true }).superRefine((v, ctx) => {
+      if (v.rotations.length > 1) ctx.addIssue({ code: 'custom', message: '只能返回当前轮动栏目' });
+      for (const r of v.rotations) {
+        if (
+          r.name !== rule.name ||
+          [...r.text].length > budgetLimit(rule.budget, p.config.budgetTolerancePercent) ||
+          new Set(r.eventIds).size !== r.eventIds.length ||
+          r.eventIds.length < rule.minItems ||
+          r.eventIds.length > rule.maxItems ||
+          r.eventIds.some((id) => !rule.materials!.selected.some((e) => e.id === id))
+        )
+          ctx.addIssue({ code: 'custom', message: `${rule.name}轮动引用无效或超过字数预算` });
+      }
+    });
+    const result = await run(
+      rule.name,
+      `你是数智参阅编辑。${p.config.editorialPrompt}输出{rotations:[{name,text,eventIds}]}。仅根据当前rotationMaterials生成，遵守description、keywords、budget及引用数minItems/maxItems。所有事实必须来自eventIds引用材料，不能把采集时点当作发布时间。资料不足可返回空数组。`,
+      {
+        date: p.input.date,
+        rotationMaterials: [p.input.rotationMaterials.find((r) => r.name === rule.name)],
+      },
+      schema,
+    );
+    if (result) draft.rotations.push(...result.rotations);
+  }
+  if (!cached || failures.length) {
+    if (failures.length) throw new DailyWritingError(failedStages, failures);
+    return { draft, cached: false };
+  }
+  const selected = p.input.selected.filter((e) => e.rating >= p.highlightRating);
+  if (p.config.highlightsEnabled && !p.config.highlightsDeleted && selected.length) {
+    const schema = writtenSchema.pick({ highlights: true }).superRefine((v, ctx) => {
+      for (const message of highlightErrors(v.highlights, p.config))
+        ctx.addIssue({ code: 'custom', message });
+      const ids = v.highlights.map((h) => h.eventId);
+      if (new Set(ids).size !== ids.length)
+        ctx.addIssue({ code: 'custom', message: '要览事件重复' });
+      for (const [index, h] of v.highlights.entries())
+        if (!selected.some((e) => e.id === h.eventId))
+          ctx.addIssue({
+            code: 'custom',
+            path: ['highlights', index, 'eventId'],
+            message: `事件ID ${h.eventId}无效，请严格复制selected中给定的ID：${selected.map((e) => e.id).join('、')}`,
+          });
+    });
+    const result = await run(
+      p.config.highlightsName,
+      `你是数智参阅编辑。输出{highlights:[{eventId,text}]}。只能摘要给定已完成正文，逐字复制selected中的eventId，不能拼接或改写ID。选${p.config.highlightsMinItems}至${p.config.highlightsMaxItems}条，不足时少选，不凑数，总计不超过${p.config.highlightsBudget}字。${p.config.highlightsPrompt}`,
+      {
+        highlightRating: p.highlightRating,
+        selected: selected.map(({ id, rating }) => ({ id, rating })),
+        items: draft.items.filter((i) => selected.some((e) => e.id === i.eventId)),
+      },
+      schema,
+    );
+    if (result) draft.highlights = result.highlights;
+  }
+  if (failures.length) throw new DailyWritingError(failedStages, failures);
+  if (draft.items.length || draft.rotations.length) {
+    const request = dailyTitleRequest(
+      { items: draft.items, rotations: draft.rotations, highlights: draft.highlights },
+      p.config.briefTitleMaxLength,
+      p.config.briefTitlePrompt,
+    );
+    const result = await run('本期标题', request.system, request.input, request.schema);
+    if (result) draft.title = result.title;
+  }
+  if (failures.length) throw new DailyWritingError(failedStages, failures);
+  return { draft, cached };
+}
+export async function previewDaily(date: string) {
+  const p = await prepareDaily(date);
+  const request = await inspectModelRequest(
+    'brief',
+    p.system,
+    p.input,
+    12000,
+    p.config.budgetTolerancePercent,
+  );
+  const { cached } = await writeDaily(p, true);
+  return { ...request, cached, count: p.selected.length, range: p.range };
 }
 export async function generateDaily(
   date: string,
@@ -305,29 +440,8 @@ export async function generateDaily(
           fail(`${r.name}引用事件数不符合栏目配置`);
       }
     });
-    let written = hasMaterials
-      ? await modelJSON('brief', p.system, p.input, validation, {
-          subject: `brief:daily:${date}`,
-          maxTokens: 12000,
-          validationContext: p.config.budgetTolerancePercent,
-        })
-      : { title: '数智参阅', items: [], highlights: [], rotations: [] };
-    const repair = dailyLengthRepair(
-      written.items,
-      p.selected,
-      p.sections,
-      p.config.budgetTolerancePercent,
-    );
-    if (repair) {
-      const result = await modelJSON('brief', repair.system, repair.input, repair.schema, {
-        subject: `brief:daily:${date}`,
-        maxTokens: 12000,
-        validationContext: p.config.budgetTolerancePercent,
-      });
-      const replacement = new Map(result.items.map((i) => [i.eventId, i]));
-      written = { ...written, items: written.items.map((i) => replacement.get(i.eventId) ?? i) };
-      validation.parse(written);
-    }
+    const { draft: written } = await writeDaily(p);
+    validation.parse(written);
     const sourceRef = (a: (typeof p.material.refs)[number]) => ({
       title: a.title,
       name: a.sourceName,
@@ -492,13 +606,19 @@ export async function generateDaily(
         : [];
       const failure = explainEditionRecord({
         section: name,
-        status: unscheduled ? 'unscheduled' : 'error',
+        status: unscheduled
+          ? 'unscheduled'
+          : error instanceof DailyWritingError && !error.stages.includes(name)
+            ? 'blocked'
+            : 'error',
         candidate_count: candidates.length,
         selected_count: 0,
         reason: unscheduled
           ? '本期未排期或已关闭'
           : error instanceof Error
-            ? error.message
+            ? error instanceof DailyWritingError && !error.stages.includes(name)
+              ? `整期等待${error.stages.join('、')}完成；本栏目未发生独立错误，成功结果已缓存`
+              : error.message
             : '生成异常',
       });
       await recordEdition(

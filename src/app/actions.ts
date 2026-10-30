@@ -15,6 +15,7 @@ import { saveSettingsPatch, saveEditorialConfig } from '../server/settings.ts';
 import { enqueue } from '../server/queue.ts';
 import { requestGeneration } from '../server/generation-requests.ts';
 import { publishBrief } from '../server/briefs.ts';
+import { reviseBriefTitle } from '../server/brief-title-revision.ts';
 import { importArticle } from '../server/collect.ts';
 import { kindSchema } from '../server/types.ts';
 
@@ -179,6 +180,9 @@ export async function editorialAction(form: FormData) {
               ? { budgetTolerancePercent: Number(text(form, 'budgetTolerancePercent')) }
               : {}),
             ...(form.has('maxItems') ? { maxItems: Number(text(form, 'maxItems')) } : {}),
+            ...(form.has('briefTitlePrompt')
+              ? { briefTitlePrompt: text(form, 'briefTitlePrompt') }
+              : {}),
             ...(form.has('briefTitleMaxLength')
               ? { briefTitleMaxLength: Number(text(form, 'briefTitleMaxLength')) }
               : {}),
@@ -265,6 +269,17 @@ export async function generateAction(form: FormData) {
           .regex(/^[a-f0-9]{64}$/)
           .parse(text(form, 'expectedKey'));
     await requestGeneration(kind, date, { force, expectedKey });
+  });
+}
+export async function briefTitleAction(form: FormData) {
+  const id = z.uuid().parse(text(form, 'id'));
+  const target = z.enum(['draft', 'published']).parse(text(form, 'target'));
+  await perform(`/admin/briefs/${id}?version=${target}`, async () => {
+    await reviseBriefTitle(
+      id,
+      target,
+      text(form, 'operation') === 'generate' ? undefined : text(form, 'title'),
+    );
   });
 }
 export async function publishAction(form: FormData) {

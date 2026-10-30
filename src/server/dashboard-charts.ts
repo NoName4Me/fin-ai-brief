@@ -108,26 +108,14 @@ function sourceRows(metrics: SourceMetric[]) {
     .slice(0, 5)
     .map(({ id, name, selected }) => ({ id, name, selected }));
   const lowEfficiency = metrics
-    .filter(
-      (source) =>
-        source.enabled &&
-        source.observed_items >= 10 &&
-        ((source.discovered >= 10 && source.selected === 0) ||
-          source.repeated_items / source.observed_items >= 0.8),
-    )
-    .sort(
-      (a, b) =>
-        b.repeated_items / b.observed_items - a.repeated_items / a.observed_items ||
-        b.discovered - a.discovered,
-    )
+    .filter((source) => source.enabled && source.discovered >= 10 && source.selected === 0)
+    .sort((a, b) => b.discovered - a.discovered)
     .slice(0, 5)
     .map((source) => ({
       id: source.id,
       name: source.name,
       discovered: source.discovered,
       selected: source.selected,
-      repeated: source.repeated_items,
-      observed: source.observed_items,
     }));
   return { contributions, lowEfficiency };
 }

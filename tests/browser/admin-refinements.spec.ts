@@ -48,7 +48,9 @@ test('管理页操作、每日采集明细与评价、任务分页在桌面和�
     await expect(page.getByRole('heading', { name: '运行状态' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '采集与内容贡献' })).toHaveCount(0);
     await expect(page.getByLabel('启用状态')).toHaveValue('enabled');
-    await expect(page.getByRole('columnheader', { name: '重复率', exact: true })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: '重复采集率', exact: true })).toHaveCount(
+      0,
+    );
     await page.getByLabel('搜索信源').fill('核查信源');
     await page.getByRole('button', { name: '筛选', exact: true }).click();
     await expect(page.locator('.source-monitor-table tbody tr')).toHaveCount(1);
@@ -75,14 +77,9 @@ test('管理页操作、每日采集明细与评价、任务分页在桌面和�
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    const ratingsTop = (await page
-      .getByRole('button', { name: '新增指标', exact: true })
-      .boundingBox())!.y;
     await page.screenshot({ path: '.data/refined-ratings-desktop.png', fullPage: true });
     await page.goto('/admin/editorial/columns');
-    expect(
-      (await page.getByRole('button', { name: '新增栏目', exact: true }).boundingBox())!.y,
-    ).toBe(ratingsTop);
+    await expect(page.getByRole('button', { name: '添加栏目', exact: true })).toBeVisible();
     await page.goto(`/admin/articles?q=${marker}`);
     await expect(page.locator('table[aria-label="任务列表"] tbody > tr')).toHaveCount(50);
     await expect(page.getByRole('navigation', { name: '任务分页' })).toContainText('共105条');

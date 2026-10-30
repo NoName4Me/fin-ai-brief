@@ -31,15 +31,6 @@ export function DailyBrief({
               <h1>{content.title}</h1>
             </div>
             <div className="edition-meta" aria-label="日报出刊信息">
-              <time className="edition-calendar" dateTime={date}>
-                <span className="edition-calendar-month">
-                  {date.slice(0, 4)}年{Number(date.slice(5, 7))}月
-                </span>
-                <span className="edition-calendar-day">{date.slice(-2)}</span>
-                <span className="edition-calendar-weekday">
-                  {weekday(date).replace('周', '星期')}
-                </span>
-              </time>
               <time className="edition-calendar-compact" dateTime={date}>
                 {dateLabel(date)}　{weekday(date).replace('周', '星期')}
               </time>
@@ -99,16 +90,12 @@ export function DailyBrief({
                 id={`rotation-${group.name}`}
               >
                 <header className="chapter-heading">
-                  <h2>{group.name}</h2>
+                  <h2>{group.displayName ?? group.name}</h2>
                 </header>
                 <p className="rotation-copy">{group.text}</p>
-                <div className="source-row">
-                  {group.sources.map((s) => (
-                    <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer">
-                      {s.name}
-                    </a>
-                  ))}
-                </div>
+                <SourceRow
+                  item={{ title: group.displayName ?? group.name, sources: group.sources }}
+                />
               </section>
             ),
           )}
@@ -130,7 +117,7 @@ export function DailyBrief({
                   group.kind === 'fixed'
                     ? sectionAnchor('ai', group.name)
                     : `rotation-${group.name}`,
-                label: group.name,
+                label: group.kind === 'rotation' ? (group.displayName ?? group.name) : group.name,
               })),
             ]}
           />

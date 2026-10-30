@@ -250,7 +250,9 @@ test('暂停指标后按新权重重新筛选旧资讯，旧的低总分不能�
   let modelInput: any;
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body));
-    modelInput = JSON.parse(body.messages[1].content);
+    const input = JSON.parse(body.messages[1].content);
+    if (!input.selected) return reply({ title: 'AI工具更新' });
+    modelInput = input;
     return reply({
       title: 'AI工具更新',
       items: modelInput.selected.map((e: any) => ({
@@ -405,6 +407,7 @@ test('新增轮动栏目按自定义排期、事件数和预算出刊，超预�
   await saveSettings({
     ...settings,
     rotationsEnabled: true,
+    startDate: '2026-10-19',
     sections: [
       ...settings.sections.map((s) => (s.kind === 'rotation' ? { ...s, enabled: false } : s)),
       rotation,
@@ -417,10 +420,21 @@ test('新增轮动栏目按自定义排期、事件数和预算出刊，超预�
   let request: any;
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body));
-    request = JSON.parse(body.messages[1].content);
+    const input = JSON.parse(body.messages[1].content);
+    if (input.rotationMaterials) request = input;
+    else
+      return reply({
+        title: 'AI工具更新',
+        items: (input.selected ?? []).map((e: any) => ({
+          eventId: e.id,
+          title: '工具更新',
+          summary: 'AI工具公布更新。',
+        })),
+        highlights: [],
+      });
     return reply({
       title: 'AI工具更新',
-      items: request.selected.map((e: any) => ({
+      items: (request.selected ?? []).map((e: any) => ({
         eventId: e.id,
         title: '工具更新',
         summary: 'AI工具公布更新。',
@@ -429,7 +443,7 @@ test('新增轮动栏目按自定义排期、事件数和预算出刊，超预�
       rotations: [
         {
           name: rotation.name,
-          text: tooLong ? '长'.repeat(81) : '工具公布了新的AI部署方法。',
+          text: tooLong ? '长'.repeat(100) : '工具公布了新的AI部署方法。',
           eventIds: request.rotationMaterials
             .find((r: any) => r.name === rotation.name)
             .events.map((e: any) => e.id),

@@ -203,7 +203,7 @@ test('真实队列消费者完成重处理、归组与日报更新，原刊保�
           }
       : {
           title: 'AI工具进展',
-          items: input.selected.map((e: { id: string }) => ({
+          items: (input.selected ?? []).map((e: { id: string }) => ({
             eventId: e.id,
             title: 'AI工具更新',
             summary: '机构公布工具更新，保留使用条件。',
@@ -236,7 +236,7 @@ test('真实队列消费者完成重处理、归组与日报更新，原刊保�
   assert.equal(current.state, 'completed', current.error ?? '批次未完成');
   assert.equal(current.processed, 1);
   assert.equal(current.ignored, 1);
-  assert.equal(calls, 3);
+  assert.equal(calls, 5);
   const brief = (
     await pool.query("SELECT published FROM briefs WHERE kind='daily' AND period_date='2026-10-22'")
   ).rows[0];

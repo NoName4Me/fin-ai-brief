@@ -58,3 +58,26 @@ test('要览只控制总预算与容差，不限制单条；旧小条数配置�
     false,
   );
 });
+
+test('压缩请求给出逐条字数预算和实际字数，重试指出每条超额', () => {
+  const ids = [randomUUID(), randomUUID()];
+  const items = ids.map((eventId) => ({ eventId, title: '标题', summary: '文'.repeat(120) }));
+  const repair = dailyLengthRepair(
+    items,
+    ids.map((id) => ({ id, section: '工具' })),
+    [{ name: '工具', budget: 200 }],
+  )!;
+  const section = repair.input.sections[0];
+  assert.equal(section.currentLength, 244);
+  assert.equal(section.items[0].currentLength, 122);
+  assert.equal(
+    section.items.reduce((n, i) => n + i.maxLength, 0),
+    200,
+  );
+  const parsed = repair.schema.safeParse({ items });
+  assert.equal(parsed.success, false);
+  if (!parsed.success) {
+    assert.match(parsed.error.message, /122字/);
+    assert.match(parsed.error.message, /100字/);
+  }
+});

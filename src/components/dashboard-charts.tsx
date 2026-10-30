@@ -180,7 +180,7 @@ export function DashboardCharts({ data }: { data: ChartData }) {
       <section className="overview-section" aria-labelledby="content-conversion">
         <div className="overview-section-heading">
           <h2 id="content-conversion">内容转化</h2>
-          <span className="ranking-caption">资讯处理为文章口径，合格与采用为独立事件口径</span>
+          <span className="ranking-caption">同一件事有多篇报道，合格事件和日报采用只计一次</span>
         </div>
         <dl className="conversion-steps">
           {[
@@ -322,10 +322,10 @@ export function DashboardCharts({ data }: { data: ChartData }) {
         </section>
         <section className="overview-section" aria-labelledby="low-efficiency-sources">
           <div className="overview-section-heading">
-            <h2 id="low-efficiency-sources">低效信源</h2>
+            <h2 id="low-efficiency-sources">待评估信源</h2>
             <Link href="/admin/sources/monitor">信源监控</Link>
           </div>
-          <p className="ranking-caption">重复率不低于 80%，或采集较多但日报零采用</p>
+          <p className="ranking-caption">首次发现至少 10 条，尚未被日报采用</p>
           <ul className="efficiency-list">
             {data.lowEfficiency.map((source) => (
               <li key={source.id}>
@@ -335,13 +335,12 @@ export function DashboardCharts({ data }: { data: ChartData }) {
                   {source.name}
                 </Link>
                 <span>
-                  重复 {percent((source.repeated / source.observed) * 100)} · 首次发现{' '}
-                  {source.discovered} · 采用 {source.selected}
+                  首次发现 {source.discovered} · 采用 {source.selected}
                 </span>
               </li>
             ))}
           </ul>
-          {!data.lowEfficiency.length && <p className="ranking-empty">暂无明显低效信源。</p>}
+          {!data.lowEfficiency.length && <p className="ranking-empty">暂无待评估信源。</p>}
         </section>
       </div>
       <div className="overview-runtime">
