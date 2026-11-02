@@ -10,10 +10,11 @@ export async function EditorialSettingsPage({
   section: 'columns' | 'ratings' | 'content';
 }) {
   await requireAdmin();
+  const { modelConnection: _connection, ...config } = await getSettings();
   return (
     <>
       <Notice query={await searchParams} />
-      <EditorialForm key={section} section={section} config={await getSettings()} />
+      <EditorialForm key={section} section={section} config={config} />
     </>
   );
 }

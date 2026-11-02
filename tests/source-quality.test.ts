@@ -20,12 +20,12 @@ beforeEach(async () => {
 after(async () => {
   await pool.end();
 });
-const now = new Date('2026-10-29T04:00:00Z');
+const now = new Date();
 const item = {
   title: 'AI工具公布更新',
   url: 'https://example.invalid/shared',
   excerpt: '正式公布工具及使用条件。',
-  publishedAt: '2026-10-29T01:00:00Z',
+  publishedAt: new Date(now.getTime() - 3 * 3600_000).toISOString(),
 };
 async function source(name: string) {
   return (
@@ -64,8 +64,16 @@ test('过期、未来和无效条目留采集痕迹，但不新增原始资讯�
   const id = await source('过滤源');
   await collect(id, [item]);
   await collect(id, [
-    { ...item, url: 'https://example.invalid/old', publishedAt: '2026-10-21T00:00:00Z' },
-    { ...item, url: 'https://example.invalid/future', publishedAt: '2026-10-30T00:00:00Z' },
+    {
+      ...item,
+      url: 'https://example.invalid/old',
+      publishedAt: new Date(now.getTime() - 8 * 86400_000).toISOString(),
+    },
+    {
+      ...item,
+      url: 'https://example.invalid/future',
+      publishedAt: new Date(now.getTime() + 86400_000).toISOString(),
+    },
     { title: '缺少日期', url: 'https://example.invalid/bad' },
   ]);
   assert.equal((await pool.query('SELECT count(*)::int n FROM articles')).rows[0].n, 1);

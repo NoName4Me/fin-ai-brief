@@ -5,7 +5,12 @@ import { redirect } from 'next/navigation';
 import { requireAdmin } from '../../server/auth.ts';
 import { adminOverview } from '../../server/admin-overview.ts';
 import { taskStamp } from '../../server/task-labels.ts';
+import { rangeFor } from '../../server/periods.ts';
 import { Notice, type Query } from '../../components/notice.tsx';
+
+function cycleLabel(start: Date, end: Date) {
+  return `${taskStamp(start).slice(0, 16)}—${taskStamp(end).slice(0, 16)}`;
+}
 
 export default async function Dashboard({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
@@ -31,45 +36,48 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       count: data.sources.filter((source) => source.state === item.state).length,
     }))
     .filter((item) => item.count > 0);
-  const latestDate = data.sections[0]?.period_date;
   const sectionErrors = data.sections.filter((section) => section.status === 'error');
-  const currentSectionErrors = sectionErrors.filter((section) => section.period_date === data.date);
+  const latestCycle = data.latestPublished
+    ? rangeFor('daily', data.latestPublished.period_date, data.config.dailyTime)
+    : null;
   return (
     <div className="admin-overview">
       <Notice query={query} />
       <div className="overview-heading">
-        <span>{data.date} · 北京时间</span>
+        <span>今日 {data.date}</span>
         <nav className="overview-tabs" aria-label="看板周期">
           <Link href="/admin" aria-current={!period ? 'page' : undefined}>
-            今日
+            当前周期
           </Link>
           <Link href="/admin?view=7" aria-current={period === 7 ? 'page' : undefined}>
-            近7天
+            近7天趋势
           </Link>
           <Link href="/admin?view=30" aria-current={period === 30 ? 'page' : undefined}>
-            近30天
+            近30天趋势
           </Link>
         </nav>
-        <span>{charts ? `${charts.range.start} 至 ${charts.range.end}` : '运行与待办'}</span>
+        <span>
+          {charts
+            ? `${charts.range.start} 至 ${charts.range.end}`
+            : cycleLabel(data.cycle.start, data.cycle.end)}
+        </span>
       </div>
       {charts ? (
         <DashboardCharts data={charts} />
       ) : (
         <>
-          <section
-            className="overview-section overview-collection"
-            aria-labelledby="collection-title"
-          >
+          <section className="overview-section overview-actions" aria-labelledby="actions-title">
             <div className="overview-section-heading">
-              <h2 id="collection-title">本轮采集</h2>
-              <span className="muted">{taskStamp(data.exceptions.since).slice(5, 16)} 至今</span>
+              <h2 id="actions-title">
+                异常与待办<small>当前生产周期</small>
+              </h2>
             </div>
-            <dl className="overview-cycle-metrics">
+            <dl className="overview-action-metrics">
               <div>
-                <dt>新增资讯</dt>
-                <dd>
-                  <Link href="/admin/articles">
-                    {data.counts.incoming}
+                <dt>处理失败资讯</dt>
+                <dd className={data.counts.failed ? 'overview-problem' : undefined}>
+                  <Link href="/admin/articles?type=process&state=failed">
+                    {data.counts.failed}
                     <small>篇</small>
                   </Link>
                 </dd>
@@ -83,49 +91,62 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                   </Link>
                 </dd>
               </div>
+              <div>
+                <dt>待处理资讯</dt>
+                <dd>
+                  <Link href="/admin/articles?type=process&state=created">
+                    {data.counts.pending}
+                    <small>篇</small>
+                  </Link>
+                </dd>
+              </div>
+              <div>
+                <dt>待审核日报</dt>
+                <dd>
+                  <Link href="/admin/publications">
+                    {data.counts.drafts}
+                    <small>期</small>
+                  </Link>
+                </dd>
+              </div>
             </dl>
-            <p className="form-hint">
-              启用信源 {data.sources.length}
-              {otherSourceStates.map((item) => (
-                <span key={item.state}>
-                  {' '}
-                  · {item.label} {item.count}
-                </span>
-              ))}
-              {' · '}
-              <Link href="/admin/sources/monitor">信源监控</Link>
-            </p>
-            <p className="form-hint">
-              上一周期曾异常：采集 {data.exceptions.previous.collection}、处理{' '}
-              {data.exceptions.previous.processing}、出刊 {data.exceptions.previous.generation}
-            </p>
           </section>
           <div className="overview-columns">
             <section className="overview-section" aria-labelledby="today-title">
               <div className="overview-section-heading">
-                <h2 id="today-title">本期出刊</h2>
+                <h2 id="today-title">
+                  下一期出刊<small>{data.nextIssueDate}刊</small>
+                </h2>
                 <Link href="/admin/publications">出刊管理</Link>
               </div>
               <p className="overview-edition-state">
                 {data.status}
-                {currentSectionErrors.length > 0 && (
-                  <span className="overview-problem">
-                    {' '}
-                    · {currentSectionErrors.length} 个栏目异常
-                  </span>
+                {sectionErrors.length > 0 && (
+                  <span className="overview-problem"> · {sectionErrors.length} 个栏目异常</span>
                 )}
               </p>
-              {data.today?.title && <p>{data.today.title}</p>}
-              {data.today?.is_published && (
-                <p className="form-hint">发布时间 {taskStamp(data.today.published_at)}</p>
+              {data.currentIssue?.title && <p>{data.currentIssue.title}</p>}
+              {data.currentIssue?.is_published && (
+                <p className="form-hint">发布时间 {taskStamp(data.currentIssue.published_at)}</p>
               )}
               {data.generationError && <p className="overview-problem">{data.generationError}</p>}
-              <div className="row-actions">
-                {data.today?.has_draft && (
-                  <Link href={`/admin/briefs/${data.today.id}`}>审核待审稿</Link>
+              <div className="row-actions overview-edition-actions">
+                {data.currentIssue?.has_draft && (
+                  <Link
+                    className="overview-primary-action"
+                    href={`/admin/briefs/${data.currentIssue.id}`}
+                  >
+                    审核待审稿
+                  </Link>
                 )}
-                {data.today?.is_published && (
-                  <Link href={`/briefs/${data.today.id}`}>阅读正式版</Link>
+                {data.currentIssue?.is_published && (
+                  <Link
+                    className="overview-primary-action"
+                    href={`/briefs/${data.currentIssue.id}`}
+                    target="_blank"
+                  >
+                    阅读正式版
+                  </Link>
                 )}
                 <Link href="/admin/articles?type=generate">查看出刊任务</Link>
               </div>
@@ -134,105 +155,151 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                 {data.config.dailyEnabled ? '自动出刊已开启' : '自动出刊已暂停'} ·{' '}
                 {data.config.autoPublish ? '自动发布' : '人工审核后发布'}
               </p>
-              <div className="today-section-status">
-                <div className="overview-section-heading">
-                  <h3>最近一期栏目{latestDate && <small>{latestDate}</small>}</h3>
-                  <Link href={data.editionTask?.href ?? '/admin/articles?type=generate'}>
-                    选题明细
-                  </Link>
-                </div>
-                {data.editionTask && (
-                  <p className="form-hint edition-result-origin">
-                    {data.editionTask.label} · {taskStamp(data.editionTask.at)}
-                  </p>
-                )}
-                {data.sections.length ? (
-                  <>
-                    <div className="overview-health">
-                      <span>
-                        有内容{' '}
-                        <strong>
-                          {data.sections.filter((section) => section.selected_count > 0).length}
-                        </strong>
-                      </span>
-                      <span>
-                        正常留空{' '}
-                        <strong>
-                          {data.sections.filter((section) => section.status === 'skipped').length}
-                        </strong>
-                      </span>
-                      <span>
-                        未排期{' '}
-                        <strong>
-                          {
-                            data.sections.filter((section) => section.status === 'unscheduled')
-                              .length
-                          }
-                        </strong>
-                      </span>
-                      {sectionErrors.length > 0 && (
-                        <span className={latestDate === data.date ? 'overview-problem' : 'muted'}>
-                          异常 <strong>{sectionErrors.length}</strong>
-                        </span>
-                      )}
-                    </div>
+              {!!data.sections.length && (
+                <div className="today-section-status">
+                  <div className="overview-section-heading">
+                    <h3>本期栏目</h3>
+                    <Link href={data.editionTask?.href ?? '/admin/articles?type=generate'}>
+                      选题明细
+                    </Link>
+                  </div>
+                  {data.editionTask && (
+                    <p className="form-hint edition-result-origin">
+                      {data.editionTask.label} · {taskStamp(data.editionTask.at)}
+                    </p>
+                  )}
+                  <div className="overview-health">
+                    <span>
+                      有内容{' '}
+                      <strong>
+                        {data.sections.filter((section) => section.selected_count > 0).length}
+                      </strong>
+                    </span>
+                    <span>
+                      正常留空{' '}
+                      <strong>
+                        {data.sections.filter((section) => section.status === 'skipped').length}
+                      </strong>
+                    </span>
+                    <span>
+                      未排期{' '}
+                      <strong>
+                        {data.sections.filter((section) => section.status === 'unscheduled').length}
+                      </strong>
+                    </span>
                     {sectionErrors.length > 0 && (
-                      <ul className="overview-alerts">
-                        {sectionErrors.slice(0, 3).map((section) => (
-                          <li key={section.section}>
-                            <span>{section.section}</span>
-                            <span
-                              className={latestDate === data.date ? 'overview-problem' : 'muted'}
-                            >
-                              {section.reason}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
+                      <span className="overview-problem">
+                        异常 <strong>{sectionErrors.length}</strong>
+                      </span>
                     )}
-                  </>
-                ) : (
-                  <p className="muted">暂无出刊记录。</p>
-                )}
-              </div>
+                  </div>
+                  {sectionErrors.length > 0 && (
+                    <ul className="overview-alerts">
+                      {sectionErrors.slice(0, 3).map((section) => (
+                        <li key={section.section}>
+                          <span>{section.section}</span>
+                          <span className="overview-problem">{section.reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </section>
-            <section className="overview-section" aria-labelledby="pending-title">
+            <section className="overview-section" aria-labelledby="latest-title">
               <div className="overview-section-heading">
-                <h2 id="pending-title">
-                  待办<small>全部积压</small>
+                <h2 id="latest-title">
+                  最近出刊
+                  {data.latestPublished && <small>{data.latestPublished.period_date}刊</small>}
                 </h2>
-                <Link href="/admin/articles">任务管理</Link>
+                <Link href="/admin/publications">全部刊期</Link>
               </div>
-              <dl className="overview-list">
-                <div>
-                  <dt>
-                    <Link href="/admin/articles?type=process&state=created">待处理资讯</Link>
-                  </dt>
-                  <dd>{data.counts.pending} 篇</dd>
-                </div>
-                <div>
-                  <dt>
-                    <Link href="/admin/articles?type=process&state=failed">处理失败资讯</Link>
-                  </dt>
-                  <dd className={data.counts.failed ? 'overview-problem' : undefined}>
-                    {data.counts.failed} 篇
-                  </dd>
-                </div>
-                <div>
-                  <dt>
-                    <Link href="/admin/publications">待审核日报</Link>
-                  </dt>
-                  <dd>{data.counts.drafts} 期</dd>
-                </div>
-              </dl>
+              {data.latestPublished && latestCycle ? (
+                <>
+                  <p className="overview-edition-title">{data.latestPublished.title}</p>
+                  <p className="form-hint">
+                    内容覆盖 {cycleLabel(latestCycle.start, latestCycle.end)}
+                  </p>
+                  <p className="form-hint">
+                    发布时间 {taskStamp(data.latestPublished.published_at)}
+                  </p>
+                  <div className="row-actions overview-edition-actions">
+                    <Link
+                      className="overview-primary-action"
+                      href={`/briefs/${data.latestPublished.id}`}
+                      target="_blank"
+                    >
+                      阅读正式版
+                    </Link>
+                  </div>
+                </>
+              ) : (
+                <p className="muted">暂无正式出刊。</p>
+              )}
             </section>
           </div>
+          <section
+            className="overview-section overview-collection"
+            aria-labelledby="collection-title"
+          >
+            <div className="overview-section-heading">
+              <h2 id="collection-title">本轮采集</h2>
+              <span className="muted">截至 {taskStamp(data.exceptions.until).slice(5, 16)}</span>
+            </div>
+            <dl className="overview-cycle-metrics">
+              <div>
+                <dt>新增资讯</dt>
+                <dd>
+                  <Link href="/admin/articles">
+                    {data.counts.incoming}
+                    <small>篇</small>
+                  </Link>
+                </dd>
+              </div>
+              <div>
+                <dt>有效资讯</dt>
+                <dd>
+                  {data.counts.incoming_relevant}
+                  <small>篇</small>
+                </dd>
+              </div>
+              <div>
+                <dt>未入选</dt>
+                <dd>
+                  {data.counts.incoming_ignored}
+                  <small>篇</small>
+                </dd>
+              </div>
+              <div>
+                <dt>启用信源</dt>
+                <dd>
+                  <Link href="/admin/sources/monitor">
+                    {data.sources.length}
+                    <small>个</small>
+                  </Link>
+                </dd>
+              </div>
+            </dl>
+            {otherSourceStates.length > 0 && (
+              <p className="form-hint">
+                {otherSourceStates.map((item, index) => (
+                  <span key={item.state}>
+                    {index > 0 && ' · '}
+                    {item.label} {item.count}
+                  </span>
+                ))}
+              </p>
+            )}
+          </section>
           <div className="overview-runtime">
             <span>
-              模型调用：今日 {data.usage.used} / {data.usage.limit} 次，剩余 {data.usage.remaining}{' '}
-              次
+              模型调用：今日 {data.usage.used} / {data.usage.limit} 次 · 本期 token 用量（
+              {data.nextIssueDate}） {data.tokenUsage.current.toLocaleString('zh-CN')}
+              {' · '}上期（{data.latestPublished?.period_date ?? '—'}）{' '}
+              {data.tokenUsage.previous === null
+                ? '—'
+                : data.tokenUsage.previous.toLocaleString('zh-CN')}
             </span>
-            <Link href="/admin/settings">系统设置</Link>
           </div>
         </>
       )}

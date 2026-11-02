@@ -23,8 +23,7 @@ npm run dev
 - `DATABASE_URL`：独立数据库，账号需要建表和创建pg-boss schema的权限。
 - `ADMIN_PASSWORD`：至少12位；`APP_SECRET`：至少32位，用于退订签名，部署后保持稳定。
 - `SITE_URL`：收件人可访问的站点地址，本地为`http://localhost:3100`。
-- `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`：兼容接口根地址、密钥和实际模型标识；根地址不含`/chat/completions`。
-- `MODEL_CALLS_ENABLED=true`允许模型请求；自动采集在管理台开启。每日调用额度在出刊设置维护，失败请求也占次数，成功缓存不重复计次。
+- 模型 API 地址、API Key、模型名称、调用开关和每日额度在管理端「系统设置」统一保存；API 地址不含 `/chat/completions`。旧环境配置在首次启动迁入，后续以管理端设置为准。失败请求也占次数，成功缓存不重复计次。
 
 本机管理员密码保存在忽略提交的`.data/local-admin.txt`，运行连接和密钥留在本地`.env`。
 

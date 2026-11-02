@@ -9,7 +9,7 @@ test('配置归位、栏目要求与关键词、拖拽保存及轮动自动规�
     await page.getByLabel('管理员密码').fill(process.env.ADMIN_PASSWORD!);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await expect(page).toHaveURL(/\/admin$/);
-    await expect(page.getByRole('heading', { name: '待办全部积压' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /异常与待办/ })).toBeVisible();
     await expect(page.getByText('当前异常信源', { exact: true })).toBeVisible();
     const nav = page.getByRole('navigation', { name: '管理导航' });
     await expect(nav.getByRole('link', { name: '系统设置', exact: true })).toBeVisible();
@@ -31,7 +31,7 @@ test('配置归位、栏目要求与关键词、拖拽保存及轮动自动规�
     await expect(page.getByLabel('起刊日期')).toHaveCount(0);
     await expect(page.getByLabel('原始资讯保留天数')).toBeVisible();
     await page.getByLabel('每日调用次数上限').fill('101');
-    await page.getByRole('button', { name: '保存模型额度' }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
     await page.goto('/admin/editorial/columns');
     await expect(page.getByLabel('政策与监管栏目要求')).not.toHaveValue('');
     await page.getByLabel('政策与监管辅助关键词').fill('生成式AI；备案');

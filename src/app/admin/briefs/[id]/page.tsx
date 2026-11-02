@@ -9,6 +9,8 @@ import { kindSchema } from '../../../../server/types.ts';
 import { BriefEditor } from '../../../../components/brief-editor.tsx';
 import { revisionVersion } from '../../../../server/brief-editing.ts';
 import { Notice, type Query } from '../../../../components/notice.tsx';
+import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 export default async function Review({
   params,
   searchParams,
@@ -32,6 +34,12 @@ export default async function Review({
   return (
     <>
       <Notice query={query} />
+      <div className="back-link brief-editor-back">
+        <Link href="/admin/publications">
+          <ArrowLeft className="icon" strokeWidth={1.75} aria-hidden="true" />
+          取消
+        </Link>
+      </div>
       <BriefEditor
         key={id}
         id={id}

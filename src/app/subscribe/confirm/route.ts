@@ -4,9 +4,11 @@ import { confirmSubscription } from '../../../server/subscription-confirmation.t
 export async function GET(request: Request) {
   const token = new URL(request.url).searchParams.get('token') ?? '';
   const status = await confirmSubscription(token);
-  const target = new URL('/subscribe/confirmed', request.url);
-  target.searchParams.set('status', status);
-  const response = NextResponse.redirect(target);
+  // Keep the browser's public origin; Next's internal request URL may use localhost.
+  const response = new NextResponse(null, {
+    status: 303,
+    headers: { Location: `/subscribe/confirmed?${new URLSearchParams({ status })}` },
+  });
   response.headers.set('Cache-Control', 'no-store');
   response.headers.set('Referrer-Policy', 'no-referrer');
   return response;

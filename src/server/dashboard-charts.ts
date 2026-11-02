@@ -65,29 +65,68 @@ function dailyTrend(range: Range, discoveries: SourceDiscovery[]) {
 }
 
 async function subscriptionTrend(range: Range, now: Date) {
-  const { rows } = await pool.query<{ subscribed_at: Date; unsubscribed_at: Date | null }>(
-    'SELECT subscribed_at,unsubscribed_at FROM subscriptions',
-  );
+  const [{ rows }, { rows: confirmations }] = await Promise.all([
+    pool.query<{ email: string; subscribed_at: Date; unsubscribed_at: Date | null }>(
+      'SELECT email,subscribed_at,unsubscribed_at FROM subscriptions',
+    ),
+    pool.query<{
+      email: string;
+      requested_at: Date;
+      expires_at: Date;
+      confirmed_at: Date | null;
+    }>('SELECT email,requested_at,expires_at,confirmed_at FROM subscription_confirmations'),
+  ]);
   const activeAt = (at: Date) =>
     rows.filter(
       (row) => row.subscribed_at < at && (!row.unsubscribed_at || row.unsubscribed_at >= at),
     ).length;
-  const trend: { date: string; added: number; cancelled: number; total: number }[] = [];
+  const activeFor = (email: string, at: Date) =>
+    rows.some(
+      (row) =>
+        row.email === email &&
+        row.subscribed_at < at &&
+        (!row.unsubscribed_at || row.unsubscribed_at >= at),
+    );
+  const confirmationStateAt = (at: Date) => {
+    const unconfirmed = confirmations.filter((row) => !row.confirmed_at || row.confirmed_at > at);
+    return {
+      pending: unconfirmed.filter(
+        (row) => row.requested_at < at && row.expires_at > at && !activeFor(row.email, at),
+      ).length,
+      expired: unconfirmed.filter(
+        (row) => row.requested_at < at && row.expires_at <= at && !activeFor(row.email, at),
+      ).length,
+    };
+  };
+  const trend: {
+    date: string;
+    added: number;
+    cancelled: number;
+    total: number;
+    pending: number;
+    expired: number;
+    unconfirmed: number;
+  }[] = [];
   for (let start = new Date(range.start); start < range.end;) {
     const end = new Date(start);
     end.setUTCDate(end.getUTCDate() + 1);
+    const stateAt = end > now ? now : end;
+    const unconfirmed = confirmationStateAt(stateAt);
     trend.push({
       date: localDate(start),
       added: rows.filter((row) => row.subscribed_at >= start && row.subscribed_at < end).length,
       cancelled: rows.filter(
         (row) => row.unsubscribed_at && row.unsubscribed_at >= start && row.unsubscribed_at < end,
       ).length,
-      total: activeAt(end),
+      total: activeAt(stateAt),
+      ...unconfirmed,
+      unconfirmed: unconfirmed.pending + unconfirmed.expired,
     });
     start = end;
   }
   const added = trend.reduce((sum, day) => sum + day.added, 0);
   const cancelled = trend.reduce((sum, day) => sum + day.cancelled, 0);
+  const currentConfirmationState = confirmationStateAt(now);
   return {
     trend,
     added,
@@ -95,6 +134,9 @@ async function subscriptionTrend(range: Range, now: Date) {
     net: added - cancelled,
     current: activeAt(now),
     start: activeAt(range.start),
+    pending: currentConfirmationState.pending,
+    expired: currentConfirmationState.expired,
+    unconfirmed: currentConfirmationState.pending + currentConfirmationState.expired,
   };
 }
 

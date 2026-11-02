@@ -62,8 +62,9 @@ export function failureExplanation(error: string | null | undefined) {
   if (/HTTP\s+429/i.test(detail)) return '模型服务返回限流，稍后自动重试。';
   if (/HTTP\s+5\d\d/i.test(detail)) return '模型服务返回服务端错误。';
   if (/等待共用模型请求超时/i.test(detail)) return '相同输入的模型请求等待超时';
-  if (/模型事实依据不在来源摘要中/.test(detail))
-    return '模型给出的事实摘录无法在来源摘要中逐字匹配。';
+  const evidenceFailure = detail.match(/模型(?:第(\d+)条)?事实依据不在来源摘要中/);
+  if (evidenceFailure)
+    return `模型给出的${evidenceFailure[1] ? `第 ${evidenceFailure[1]} 条` : ''}事实摘录无法在来源摘要中逐字匹配。`;
   if (/模型返回了无效事件引用/.test(detail)) return '模型引用了候选列表之外的已有事件。';
   if (/模型返回了未配置栏目/.test(detail)) return '模型返回的栏目不在该信源允许的范围内。';
   if (/达到上限/.test(detail)) return '模型输出达到 token 上限，内容不完整。';

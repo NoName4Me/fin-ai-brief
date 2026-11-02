@@ -10,6 +10,7 @@ import { getSettings } from '../../../server/settings.ts';
 import { localDate, dateLabel } from '../../../server/periods.ts';
 import { generateAction, publishAction, backfillAction } from '../../actions.ts';
 import { Notice, type Query } from '../../../components/notice.tsx';
+import { CalendarPlus, RefreshCw, Settings2, Send } from 'lucide-react';
 export default async function Publications({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
   const query = await searchParams;
@@ -26,6 +27,7 @@ export default async function Publications({ searchParams }: { searchParams: Pro
       <Notice query={await searchParams} />
       <div className="admin-page-actions">
         <Link className="solid-button" href="/admin/publications?configure=backfill" scroll={false}>
+          <CalendarPlus className="icon" strokeWidth={1.75} aria-hidden="true" />
           手动补刊
         </Link>
         <Link
@@ -33,6 +35,7 @@ export default async function Publications({ searchParams }: { searchParams: Pro
           href="/admin/publications?configure=publication"
           scroll={false}
         >
+          <Settings2 className="icon" strokeWidth={1.75} aria-hidden="true" />
           出刊设置
         </Link>
       </div>
@@ -68,7 +71,10 @@ export default async function Publications({ searchParams }: { searchParams: Pro
                 required
               />
             </label>
-            <button className="solid-button">补刊</button>
+            <button className="solid-button">
+              <CalendarPlus className="icon" strokeWidth={1.75} aria-hidden="true" />
+              补刊
+            </button>
           </form>
         </SourceManagementDialog>
       )}
@@ -83,7 +89,10 @@ export default async function Publications({ searchParams }: { searchParams: Pro
               <input type="checkbox" name="reprocess" />
               先重新处理资讯
             </label>
-            <button className="solid-button">确认重新生成</button>
+            <button className="solid-button">
+              <RefreshCw className="icon" strokeWidth={1.75} aria-hidden="true" />
+              确认重新生成
+            </button>
           </form>
         </SourceManagementDialog>
       )}
@@ -91,7 +100,8 @@ export default async function Publications({ searchParams }: { searchParams: Pro
         <table>
           <thead>
             <tr>
-              <th>出刊日期/期号</th>
+              <th>期号</th>
+              <th>出刊日期</th>
               <th>标题</th>
               <th>状态</th>
               <th>操作</th>
@@ -101,14 +111,15 @@ export default async function Publications({ searchParams }: { searchParams: Pro
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  {dateLabel(row.periodDate)}
-                  <br />
-                  <span className="muted">
-                    {row.issueNumber ? `第${String(row.issueNumber).padStart(3, '0')}期` : '待编期'}
-                  </span>
+                  {row.issueNumber ? `第${String(row.issueNumber).padStart(3, '0')}期` : '待编期'}
                 </td>
+                <td>{dateLabel(row.periodDate)}</td>
                 <td>
-                  <Link href={row.published ? `/briefs/${row.id}` : `/admin/briefs/${row.id}`}>
+                  <Link
+                    href={row.published ? `/briefs/${row.id}` : `/admin/briefs/${row.id}`}
+                    target={row.published ? '_blank' : undefined}
+                    rel={row.published ? 'noopener noreferrer' : undefined}
+                  >
                     {cleanBriefTitle((row.published ?? row.draft)?.title ?? '')}
                   </Link>
                 </td>
@@ -124,7 +135,10 @@ export default async function Publications({ searchParams }: { searchParams: Pro
                         {!row.published && <Link href={`/admin/briefs/${row.id}`}>编辑</Link>}
                         <form action={publishAction}>
                           <input type="hidden" name="id" value={row.id} />
-                          <button className="solid-button">审核并发布</button>
+                          <button className="solid-button">
+                            <Send className="icon" strokeWidth={1.75} aria-hidden="true" />
+                            审核并发布
+                          </button>
                         </form>
                       </>
                     )}

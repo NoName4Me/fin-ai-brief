@@ -195,7 +195,7 @@ test('真实队列消费者完成重处理、归组与日报更新，原刊保�
             facts: [
               {
                 statement: '机构公布工具更新',
-                evidence: '机构公布工具更新',
+                evidenceIds: ['S1'],
                 status: 'announced',
                 entities: [],
               },

@@ -4,6 +4,7 @@ import { saveBriefEditAction, rewriteBriefFieldAction } from '../app/brief-edit-
 import { fieldValue, replaceField, type EditField } from '../server/brief-edit-fields.ts';
 import type { BriefContent, Kind } from '../server/types.ts';
 import { Brief } from './brief.tsx';
+import { Eye, PencilLine, Save, Send, Sparkles } from 'lucide-react';
 
 type Candidate = { field: EditField; text: string; snapshot: string };
 function EditableText({
@@ -64,17 +65,7 @@ function EditableText({
           disabled={pending}
           onClick={onRewrite}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            aria-hidden="true"
-          >
-            <path d="m14 3 1.8 5.2L21 10l-5.2 1.8L14 17l-1.8-5.2L7 10l5.2-1.8L14 3ZM5 14l1.2 3.8L10 19l-3.8 1.2L5 24l-1.2-3.8L0 19l3.8-1.2L5 14Z" />
-          </svg>
+          <Sparkles className="icon" strokeWidth={1.75} aria-hidden="true" />
         </button>
       </div>
       <small className="brief-edit-count">{[...value].length} 字</small>
@@ -258,9 +249,15 @@ export function BriefEditor({
             aria-pressed={preview}
             onClick={() => setPreview(!preview)}
           >
+            {preview ? (
+              <PencilLine className="icon" strokeWidth={1.75} aria-hidden="true" />
+            ) : (
+              <Eye className="icon" strokeWidth={1.75} aria-hidden="true" />
+            )}
             {preview ? '继续编辑' : '预览'}
           </button>
           <button type="button" disabled={pending} onClick={() => save('save')}>
+            <Save className="icon" strokeWidth={1.75} aria-hidden="true" />
             保存修订稿
           </button>
           <button
@@ -269,6 +266,7 @@ export function BriefEditor({
             disabled={pending}
             onClick={() => save('publish')}
           >
+            <Send className="icon" strokeWidth={1.75} aria-hidden="true" />
             {hasPublished ? '更新正式版' : '审核并发布'}
           </button>
         </div>

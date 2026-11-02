@@ -5,7 +5,6 @@ import { weekday, dailySections, sectionAnchor } from '../server/brief-presentat
 import { PrintButton } from './navigation.tsx';
 import { PublicationFooter } from './publication-footer.tsx';
 import { SourceRow, Summary } from './brief-story.tsx';
-import { Rating } from './rating.tsx';
 import { sourceNames } from '../server/source-presentation.ts';
 
 export function DailyBrief({
@@ -31,13 +30,13 @@ export function DailyBrief({
               <h1>{content.title}</h1>
             </div>
             <div className="edition-meta" aria-label="日报出刊信息">
+              <span className="edition-host">主办：数智化转型办公室 智创组</span>
               <time className="edition-calendar-compact" dateTime={date}>
                 {dateLabel(date)}　{weekday(date).replace('周', '星期')}
               </time>
               <p className="edition-number">
                 {`《数智阅参》${issueNumber ? `第${String(issueNumber).padStart(3, '0')}期` : '待编期'}`}
               </p>
-              <span className="edition-host">主办：数智化转型办公室 AI工作组</span>
               <PrintButton />
             </div>
           </header>
@@ -45,10 +44,17 @@ export function DailyBrief({
             <section className="edition-overview daily-highlights" id="highlights">
               <h2>{content.highlightsTitle ?? '今日要览'}</h2>
               <ol>
-                {content.highlights.map((h) => (
+                {content.highlights.map((h, index) => (
                   <li key={h.eventId}>
-                    <a href={`#event-${h.eventId}`}>{h.text}</a>
-                    <Rating value={h.rating} />
+                    <span className="highlight-number" aria-hidden="true">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <a href={`#event-${h.eventId}`}>
+                      <span>{h.text}</span>
+                      <svg className="highlight-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 5v14m-5-5 5 5 5-5" />
+                      </svg>
+                    </a>
                   </li>
                 ))}
               </ol>
@@ -72,7 +78,6 @@ export function DailyBrief({
                       <div className="story-copy">
                         <div className="daily-story-heading">
                           <h3>{item.title}</h3>
-                          {item.rating !== undefined && <Rating value={item.rating} />}
                         </div>
                         <p>
                           <Summary item={item} />

@@ -4,8 +4,10 @@ import nodemailer from 'nodemailer';
 import { pool } from '../src/server/db.ts';
 import { migrate } from '../scripts/migrate.ts';
 import {
+  deleteExpiredSubscriptionConfirmation,
   requestSubscription,
   confirmSubscription,
+  resendSubscriptionConfirmation,
 } from '../src/server/subscription-confirmation.ts';
 import { subscribe, unsubscribe } from '../src/server/subscriptions.ts';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
@@ -89,4 +91,36 @@ test('发送失败不产生订阅，并允许重新申请', async () => {
   assert.equal((await pool.query('select * from subscriptions')).rowCount, 0);
   assert.equal((await pool.query('select * from subscription_confirmations')).rowCount, 0);
   assert.equal(await confirmSubscription('wrong', now), 'invalid');
+});
+test('待确认和已过期记录可重发确认，只有已过期记录可删除', async () => {
+  await requestSubscription(input, now);
+  assert.equal(messages.length, 1);
+  await resendSubscriptionConfirmation(input.email, new Date(now.getTime() + 60_000));
+  assert.equal(messages.length, 2);
+  assert.equal(await confirmSubscription(token(), new Date(now.getTime() + 61_000)), 'success');
+  await assert.rejects(
+    resendSubscriptionConfirmation(input.email, new Date(now.getTime() + 61_000)),
+    /已订阅/,
+  );
+  await assert.rejects(
+    deleteExpiredSubscriptionConfirmation(input.email, new Date(now.getTime() + 61_000)),
+    /只能删除已过期/,
+  );
+  const expiredInput = { ...input, email: 'expired-resend@example.invalid' };
+  await requestSubscription(expiredInput, now);
+  assert.equal(messages.length, 3);
+  await resendSubscriptionConfirmation(expiredInput.email, new Date(now.getTime() + 24 * 3600_000));
+  assert.equal(messages.length, 4);
+  await assert.rejects(
+    deleteExpiredSubscriptionConfirmation(
+      expiredInput.email,
+      new Date(now.getTime() + 24 * 3600_000),
+    ),
+    /只能删除已过期/,
+  );
+  await deleteExpiredSubscriptionConfirmation(
+    expiredInput.email,
+    new Date(now.getTime() + 48 * 3600_000),
+  );
+  assert.equal((await pool.query('select * from subscription_confirmations')).rowCount, 1);
 });

@@ -3,12 +3,16 @@ import { z } from 'zod';
 import { pool } from './db.ts';
 import { fingerprint, BudgetWait } from './processing-log.ts';
 import { getSettings } from './settings.ts';
-export function modelConfig() {
-  const baseUrl = process.env.LLM_BASE_URL?.trim();
-  const apiKey = process.env.LLM_API_KEY?.trim();
-  const model = process.env.LLM_MODEL?.trim();
+export function modelConfig(connection?: { baseUrl: string; apiKey: string; model: string }) {
+  const baseUrl = (connection?.baseUrl ?? process.env.LLM_BASE_URL)?.trim();
+  const apiKey = (connection?.apiKey ?? process.env.LLM_API_KEY)?.trim();
+  const model = (connection?.model ?? process.env.LLM_MODEL)?.trim();
   if (!baseUrl || !apiKey || !model)
-    throw new Error('请在 .env 配置 LLM_BASE_URL、LLM_API_KEY 和 LLM_MODEL');
+    throw new Error(
+      connection
+        ? '请在系统设置填写 API 地址、API Key 和模型名称'
+        : '请在 .env 配置 LLM_BASE_URL、LLM_API_KEY 和 LLM_MODEL',
+    );
   const url = new URL(baseUrl);
   if (
     !['http:', 'https:'].includes(url.protocol) ||
@@ -17,13 +21,25 @@ export function modelConfig() {
     url.search ||
     url.hash
   )
-    throw new Error('LLM_BASE_URL 必须为不含凭据、查询参数的 HTTP(S) API 根地址');
+    throw new Error(
+      `${connection ? 'API 地址' : 'LLM_BASE_URL'}必须为不含凭据、查询参数的 HTTP(S) API 根地址`,
+    );
   return { baseUrl: url.href.replace(/\/+$/, ''), apiKey, model };
 }
-export function requireModelConfig() {
-  if (process.env.MODEL_CALLS_ENABLED !== 'true')
-    throw new Error('请先开启模型调用 MODEL_CALLS_ENABLED');
-  return modelConfig();
+export async function getModelConnection() {
+  return (
+    (await getSettings()).modelConnection ?? {
+      enabled: process.env.MODEL_CALLS_ENABLED === 'true',
+      baseUrl: process.env.LLM_BASE_URL?.trim() ?? '',
+      apiKey: process.env.LLM_API_KEY?.trim() ?? '',
+      model: process.env.LLM_MODEL?.trim() ?? '',
+    }
+  );
+}
+export async function requireModelConfig() {
+  const connection = await getModelConnection();
+  if (!connection.enabled) throw new Error('请先在系统设置开启模型调用');
+  return modelConfig(connection);
 }
 export async function modelUsage() {
   const { modelDailyLimit: limit } = await getSettings();
@@ -140,7 +156,7 @@ export async function modelJSON<T>(
     cacheNonce?: string;
   } = {},
 ) {
-  const base = requireModelConfig();
+  const base = await requireModelConfig();
   const settings = await getSettings();
   const model = base.model;
   const config = { ...base, model };
@@ -156,10 +172,7 @@ export async function modelJSON<T>(
       ? {}
       : { validationContext: options.validationContext }),
     reasoningEffort: 'low',
-    endpoint: new URL(process.env.LLM_BASE_URL || 'http://unconfigured.invalid').href.replace(
-      /\/+$/,
-      '',
-    ),
+    endpoint: new URL(base.baseUrl).href.replace(/\/+$/, ''),
   });
   const client = await pool.connect();
   let id: string;
@@ -285,7 +298,8 @@ export async function inspectModelRequest(
   maxTokens: number,
   validationContext?: unknown,
 ) {
-  const model = process.env.LLM_MODEL || '';
+  const connection = await getModelConnection();
+  const model = connection.model;
   const key = fingerprint({
     purpose,
     system,
@@ -294,10 +308,7 @@ export async function inspectModelRequest(
     maxTokens,
     ...(validationContext === undefined ? {} : { validationContext }),
     reasoningEffort: 'low',
-    endpoint: new URL(process.env.LLM_BASE_URL || 'http://unconfigured.invalid').href.replace(
-      /\/+$/,
-      '',
-    ),
+    endpoint: new URL(connection.baseUrl || 'http://unconfigured.invalid').href.replace(/\/+$/, ''),
   });
   const existing = await pool.query('SELECT state FROM model_calls WHERE request_key=$1', [key]);
   const cached = existing.rows[0]?.state === 'succeeded';

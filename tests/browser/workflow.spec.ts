@@ -12,7 +12,6 @@ test('匿名管理访问被拦截，审核开关与额度可以保存', async ({
   await page.goto('/admin/editorial');
   await expect(page).toHaveURL(/\/login/);
   await login(page);
-  await page.getByText('编辑规则', { exact: true }).click();
   await page.getByRole('link', { name: '整刊配置', exact: true }).click();
   await expect(page.getByLabel('政策与监管字数预算')).toHaveValue('250');
   await expect(page.locator('textarea[name="keywords"]')).toHaveCount(0);
@@ -81,17 +80,76 @@ test('用户端需确认邮箱，确认后可退订与删除', async ({ page }) 
     await page.goto('/admin/subscriptions');
     const listed = page.getByRole('row').filter({ hasText: email });
     await expect(listed).toContainText('已退订');
-    await listed.getByRole('button', { name: '删除登记' }).click();
+    await listed.getByRole('button', { name: '删除记录' }).click();
     await expect(page.getByText(email, { exact: true })).toHaveCount(0);
   } finally {
     await db.query('DELETE FROM subscription_confirmations WHERE email=$1', [email]);
     await db.end();
   }
 });
-test('来源弹窗可逐条打开，半星与今日要览显示', async ({ page }) => {
+test('管理台区分待确认、已过期和未确认合计', async ({ page }) => {
+  const suffix = Date.now();
+  const pending = `pending-${suffix}@example.invalid`;
+  const expired = `expired-${suffix}@example.invalid`;
+  const subscribed = `subscribed-${suffix}@example.invalid`;
+  const db = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    for (const [email, requested, expires] of [
+      [pending, '0 hours', '24 hours'],
+      [expired, '-48 hours', '-24 hours'],
+    ]) {
+      await db.query(
+        `INSERT INTO subscription_confirmations(email,token_hash,kinds,requested_at,expires_at)
+        VALUES($1,$2,'["daily"]',now()+$3::interval,now()+$4::interval)`,
+        [email, randomUUID(), requested, expires],
+      );
+    }
+    await db.query(
+      `INSERT INTO subscriptions(email,kinds,token_hash,active)
+       VALUES($1,'["daily"]',$2,true)`,
+      [subscribed, randomUUID()],
+    );
+    await login(page);
+    await page.goto('/admin/subscriptions');
+    await expect(page.getByRole('row').filter({ hasText: pending })).toContainText('待确认');
+    await expect(page.getByRole('row').filter({ hasText: expired })).toContainText('已过期');
+    const subscribedRow = page.getByRole('row').filter({ hasText: subscribed });
+    await expect(subscribedRow).toContainText('订阅中');
+    await subscribedRow.getByRole('button', { name: '取消订阅' }).click();
+    await expect(subscribedRow).toContainText('已退订');
+    await expect(subscribedRow.getByRole('button', { name: '删除记录' })).toBeVisible();
+    await expect(
+      page.getByRole('row').filter({ hasText: pending }).getByRole('button', { name: '重发确认' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('row').filter({ hasText: pending }).getByRole('button', { name: '删除记录' }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole('row').filter({ hasText: expired }).getByRole('button', { name: '重发确认' }),
+    ).toBeVisible();
+    await page
+      .getByRole('row')
+      .filter({ hasText: expired })
+      .getByRole('button', { name: '删除记录' })
+      .click();
+    await expect(page.getByText(expired, { exact: true })).toHaveCount(0);
+    await page.goto('/admin?view=7');
+    await expect(page.locator('.subscription-summary')).toContainText('未确认合计');
+    await expect(page.locator('.subscription-summary')).toContainText('待确认');
+    await expect(page.locator('.subscription-summary')).toContainText('已过期 0');
+  } finally {
+    await db.query('DELETE FROM subscription_confirmations WHERE email=ANY($1::text[])', [
+      [pending, expired],
+    ]);
+    await db.query('DELETE FROM subscriptions WHERE email=$1', [subscribed]);
+    await db.end();
+  }
+});
+test('来源弹窗可逐条打开，今日要览不显示星评', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '今日要览', exact: true })).toBeVisible();
-  await expect(page.getByRole('img', { name: '4.5分，满分5分' }).first()).toBeVisible();
+  await expect(page.locator('.daily-highlights li')).toHaveCount(1);
+  await expect(page.getByRole('img', { name: /满分5分/ })).toHaveCount(0);
   const first = page.locator('article[id^="event-"]').first();
   await first.getByRole('button', { name: '来源与依据', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '来源与依据', exact: true });

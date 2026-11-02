@@ -130,7 +130,7 @@ test('复核收到已采集的来源与发布时间，避免将漏传元数据�
       facts: [
         {
           statement: '发布AI工具并开放代码',
-          evidence: '发布AI工具并开放代码',
+          evidenceIds: ['S1'],
           status: 'announced',
           entities: [],
         },
@@ -255,7 +255,7 @@ test('不同旧行业来源共享事件归组，保存五维分数并忽略旧�
       facts: [
         {
           statement: '公布AI管理要求',
-          evidence: '公布AI管理要求',
+          evidenceIds: ['S1'],
           status: 'announced',
           entities: [],
         },
@@ -311,7 +311,7 @@ test('显式重处理更新已有事件评分和编辑快照，但不制造新�
           facts: [
             {
               statement: '机构公布更新计划',
-              evidence: '机构公布更新计划',
+              evidenceIds: ['S1'],
               status: 'announced',
               entities: [],
             },
@@ -355,7 +355,7 @@ test('旧未评分事件不能把重新处理的首条新流程资料吞成重�
         facts: [
           {
             statement: '机构公布更新计划',
-            evidence: '机构公布更新计划',
+            evidenceIds: ['S1'],
             status: 'announced',
             entities: [],
           },
@@ -606,24 +606,70 @@ test('重处理后的日报更新仍遵循人工审核开关', async () => {
   assert.equal(result.published, null);
   assert.equal((await pool.query('SELECT count(*)::int n FROM deliveries')).rows[0].n, 0);
 });
+test('轮动只暴露事件短编号，错误引用按明确反馈修正并映射回真实事件', async () => {
+  await saveSettings({ ...(await getSettings()), rotationsEnabled: true, startDate: '2026-10-19' });
+  const events = [
+    await seed('2026-10-20T12:00:00Z'),
+    await seed('2026-10-22T12:00:00Z'),
+    await seed('2026-10-25T12:00:00Z'),
+  ];
+  const wrongId = (
+    await pool.query('SELECT id FROM event_developments WHERE event_id=$1', [events[0].id])
+  ).rows[0].id;
+  let attempts = 0;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    if (!body.messages[0].content.includes('当前阶段：一周观察。'))
+      return reply(written(inputFrom(init)));
+    attempts++;
+    const input = JSON.parse(body.messages[1].content);
+    assert.deepEqual(
+      input.events.map((e: { ref: string }) => e.ref),
+      ['E01', 'E02', 'E03'],
+    );
+    assert.doesNotMatch(JSON.stringify(input), /"(?:id|articleId|eventId)"|"excerpt"/);
+    assert.ok(input.events[0].developments[0].facts.length);
+    if (attempts === 2) {
+      assert.match(body.messages.at(-1).content, /observation.eventRefs.0/);
+      assert.match(body.messages.at(-1).content, /E01.*E02.*E03/);
+      assert.doesNotMatch(body.messages.at(-1).content, /超过字数/);
+    }
+    return reply({
+      observation: {
+        text: '三项进展均涉及工具和使用条件。',
+        eventRefs: attempts === 1 ? [wrongId, 'E02', 'E03'] : ['E01', 'E02', 'E03'],
+      },
+    });
+  };
+  const saved = await generateBrief('daily', '2026-10-26');
+  assert.equal(attempts, 2);
+  assert.equal(saved.draft!.rotations?.length, 1);
+  assert.equal(saved.draft!.rotations?.[0].name, '一周观察');
+  assert.equal(saved.draft!.rotations?.[0].sources.length, 3);
+  assert.deepEqual(
+    new Set(saved.draft!.rotations?.[0].sources.map((source) => source.url)),
+    new Set(events.map((event) => `https://example.invalid/${event.articleId}`)),
+  );
+  assert.equal((await previewBrief('daily', '2026-10-26')).cached, true);
+  assert.equal(attempts, 2);
+});
+
 test('周一轮动可以引用七天材料，普通日报仍只引用一天材料', async () => {
   await saveSettings({ ...(await getSettings()), rotationsEnabled: true, startDate: '2026-10-19' });
-  const first = await seed('2026-10-20T12:00:00Z');
-  const second = await seed('2026-10-22T12:00:00Z');
-  const today = await seed('2026-10-25T12:00:00Z');
+  await seed('2026-10-20T12:00:00Z');
+  await seed('2026-10-22T12:00:00Z');
+  await seed('2026-10-25T12:00:00Z');
   globalThis.fetch = async (_url, init) => {
-    const input = inputFrom(init);
-    if (!input.rotationMaterials) return reply(written(input));
-    assert.equal(input.rotationMaterials[0].events.length, 3);
-    const v = written(input);
-    v.rotations = [
-      {
-        name: '一周观察',
+    const body = JSON.parse(String(init?.body));
+    const input = JSON.parse(body.messages[1].content);
+    if (!input.column) return reply(written(input));
+    assert.equal(input.events.length, 3);
+    return reply({
+      observation: {
         text: '三项进展均涉及工具和使用条件。',
-        eventIds: [first.id, second.id, today.id],
+        eventRefs: input.events.map((event: { ref: string }) => event.ref),
       },
-    ];
-    return reply(v);
+    });
   };
   const saved = await generateBrief('daily', '2026-10-26');
   assert.equal(saved.draft!.rotations?.[0].sources.length, 3);

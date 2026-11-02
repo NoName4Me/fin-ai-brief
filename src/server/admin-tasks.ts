@@ -289,8 +289,8 @@ export async function taskDetail(id: string) {
         state: row.waiting ? 'waiting_budget' : row.state === 'completed' ? 'succeeded' : row.state,
         error: failureStep?.error ?? row.error,
         steps: attemptSteps.sort((a, b) => {
-          if (a.stage === 'retry' && b.stage !== 'retry') return 1;
-          if (b.stage === 'retry' && a.stage !== 'retry') return -1;
+          if (a.stage === 'retry' && b.stage !== 'retry') return -1;
+          if (b.stage === 'retry' && a.stage !== 'retry') return 1;
           return new Date(b.started_at).getTime() - new Date(a.started_at).getTime();
         }),
       };
@@ -301,7 +301,10 @@ export async function taskDetail(id: string) {
     (task.queue === 'process' && article.rows[0]?.state === 'failed');
   const latestStep = failed
     ? (task.queue === 'process' ? articleAttempts[0]?.steps : steps.rows).find(
-        (step) => step.stage !== 'task' && (step.state === 'failed' || step.error),
+        (step) =>
+          step.stage !== 'task' &&
+          step.stage !== 'retry' &&
+          (step.state === 'failed' || step.error),
       )
     : null;
   const interruptedTaskStep =

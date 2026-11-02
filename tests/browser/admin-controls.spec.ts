@@ -57,7 +57,6 @@ test('信源菜单、采集开关和两家信源的日报贡献', async ({ page 
     await page.getByLabel('管理员密码').fill(process.env.ADMIN_PASSWORD!);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await expect(page).toHaveURL(/\/admin$/);
-    await page.getByText('信源', { exact: true }).click();
     const nav = page.getByRole('navigation', { name: '管理导航' });
     await expect(nav.getByRole('link', { name: '信源管理', exact: true })).toBeVisible();
     await expect(nav.getByRole('link', { name: '信源监控', exact: true })).toBeVisible();

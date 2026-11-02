@@ -140,7 +140,7 @@ test('实际发送使用新版模板并带入已发布刊期元数据', async ()
   assert.ok(html.includes('padding:28px 28px;'));
   assert.ok(html.includes('max-width:960px;'));
   assert.ok(!html.includes('<td class="email-calendar"'));
-  assert.ok(html.includes('主办：数智化转型办公室 AI工作组'));
+  assert.ok(html.includes('主办：数智化转型办公室 智创组'));
   assert.equal(
     (await db.select().from(deliveries).where(eq(deliveries.id, deliveryId)))[0].state,
     'sent',

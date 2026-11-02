@@ -12,7 +12,7 @@ if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL
 before(async () => migrate());
 beforeEach(async () => {
   await pool.query(
-    'TRUNCATE subscriptions,source_discoveries,collection_runs,articles,events,sources,edition_runs,model_calls CASCADE',
+    'TRUNCATE subscription_confirmations,subscriptions,source_discoveries,collection_runs,articles,events,sources,edition_runs,model_calls CASCADE',
   );
 });
 after(async () => pool.end());
@@ -31,12 +31,31 @@ test('周期看板按自然日统计，订阅新增、取消和历史总量可�
       [randomUUID(), email, randomUUID(), !unsubscribedAt, subscribedAt, unsubscribedAt],
     );
   }
+  for (const [email, requestedAt, expiresAt, confirmedAt] of [
+    ['pending@example.com', '2026-10-28T01:00:00Z', '2026-10-31T01:00:00Z', null],
+    ['expired@example.com', '2026-10-22T01:00:00Z', '2026-10-23T01:00:00Z', null],
+    [
+      'confirmed@example.com',
+      '2026-10-28T02:00:00Z',
+      '2026-10-29T02:00:00Z',
+      '2026-10-28T03:00:00Z',
+    ],
+  ]) {
+    await pool.query(
+      `INSERT INTO subscription_confirmations(email,token_hash,kinds,requested_at,expires_at,confirmed_at)
+      VALUES($1,$2,'["daily"]',$3,$4,$5)`,
+      [email, randomUUID(), requestedAt, expiresAt, confirmedAt],
+    );
+  }
   const data = await dashboardCharts(7, new Date('2026-10-29T04:00:00Z'));
   assert.equal(data.subscriptions.start, 0);
   assert.equal(data.subscriptions.added, 2);
   assert.equal(data.subscriptions.cancelled, 1);
   assert.equal(data.subscriptions.net, 1);
   assert.equal(data.subscriptions.current, 1);
+  assert.equal(data.subscriptions.pending, 1);
+  assert.equal(data.subscriptions.expired, 1);
+  assert.equal(data.subscriptions.unconfirmed, 2);
   assert.deepEqual(
     data.subscriptions.trend
       .filter((day) => ['2026-10-23', '2026-10-25', '2026-10-26'].includes(day.date))
@@ -45,6 +64,15 @@ test('周期看板按自然日统计，订阅新增、取消和历史总量可�
       ['2026-10-23', 1],
       ['2026-10-25', 2],
       ['2026-10-26', 1],
+    ],
+  );
+  assert.deepEqual(
+    data.subscriptions.trend
+      .filter((day) => ['2026-10-28', '2026-10-29'].includes(day.date))
+      .map((day) => [day.date, day.pending, day.expired, day.unconfirmed]),
+    [
+      ['2026-10-28', 1, 1, 2],
+      ['2026-10-29', 1, 1, 2],
     ],
   );
   assert.equal(data.trend.length, 7);

@@ -1,6 +1,6 @@
 import { desc, eq, isNotNull } from 'drizzle-orm';
 import { db } from '../server/db.ts';
-import { briefs, deliveries, subscriptions } from '../server/schema.ts';
+import { briefs, deliveries, subscriptionConfirmations, subscriptions } from '../server/schema.ts';
 import { getSettings } from '../server/settings.ts';
 import { kindNames, type Kind } from '../server/types.ts';
 import { taskStamp } from '../server/task-labels.ts';
@@ -15,8 +15,18 @@ export async function SubscriptionPage({
   active: 'subscribers' | 'history';
   query: Query;
 }) {
-  const [rows, issues, sends, config] = await Promise.all([
+  const [rows, confirmations, issues, sends, config] = await Promise.all([
     db.select().from(subscriptions).orderBy(desc(subscriptions.createdAt)),
+    db
+      .select({
+        email: subscriptionConfirmations.email,
+        kinds: subscriptionConfirmations.kinds,
+        requestedAt: subscriptionConfirmations.requestedAt,
+        expiresAt: subscriptionConfirmations.expiresAt,
+        confirmedAt: subscriptionConfirmations.confirmedAt,
+      })
+      .from(subscriptionConfirmations)
+      .orderBy(desc(subscriptionConfirmations.requestedAt)),
     db
       .select({
         id: briefs.id,
@@ -49,6 +59,40 @@ export async function SubscriptionPage({
       : Promise.resolve([]),
     getSettings(),
   ]);
+  const now = new Date();
+  const recipients = new Map<
+    string,
+    {
+      id: string | null;
+      email: string;
+      kinds: string;
+      status: 'registered' | 'unsubscribed' | 'pending' | 'expired';
+      at: Date;
+      expiresAt?: Date;
+    }
+  >();
+  for (const row of rows) {
+    recipients.set(row.email, {
+      id: row.id,
+      email: row.email,
+      kinds: row.kinds.map((k) => kindNames[k as Kind]).join('、'),
+      status: row.active ? 'registered' : 'unsubscribed',
+      at: row.unsubscribedAt ?? row.subscribedAt,
+    });
+  }
+  for (const row of confirmations) {
+    if (row.confirmedAt) continue;
+    const existing = recipients.get(row.email);
+    if (existing?.status === 'registered') continue;
+    recipients.set(row.email, {
+      id: null,
+      email: row.email,
+      kinds: row.kinds.map((k) => kindNames[k as Kind]).join('、'),
+      status: row.expiresAt > now ? 'pending' : 'expired',
+      at: row.requestedAt,
+      expiresAt: row.expiresAt,
+    });
+  }
   return (
     <>
       <Notice query={query} />
@@ -56,13 +100,13 @@ export async function SubscriptionPage({
         active={active}
         deliveryEnabled={config.deliveryEnabled}
         configError={mailConfigError()}
-        recipients={rows.map((r) => ({
-          id: r.id,
-          email: r.email,
-          active: r.active,
-          kinds: r.kinds.map((k) => kindNames[k as Kind]).join('、'),
-          createdAt: taskStamp(r.createdAt),
-        }))}
+        recipients={[...recipients.values()]
+          .sort((a, b) => b.at.getTime() - a.at.getTime())
+          .map((row) => ({
+            ...row,
+            at: taskStamp(row.at),
+            expiresAt: row.expiresAt ? taskStamp(row.expiresAt) : undefined,
+          }))}
         issues={issues.map((b) => ({
           id: b.id,
           label: `${b.periodDate}${b.issueNumber ? ` · 第${b.issueNumber}期` : ''} · ${cleanBriefTitle(b.content!.title)}`,

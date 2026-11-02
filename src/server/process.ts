@@ -10,9 +10,9 @@ import {
   fixedSections,
   weightedRating,
   keywordMatches,
-  evidenceMatches,
 } from './editorial.ts';
-import { modelJSON } from './model.ts';
+import { sourcePassages, sourceFactSchema } from './source-evidence.ts';
+import { modelJSON, getModelConnection } from './model.ts';
 import { getSettings } from './settings.ts';
 import { fingerprint, stage } from './processing-log.ts';
 class EventChanged extends Error {
@@ -21,50 +21,56 @@ class EventChanged extends Error {
     this.name = 'EventChanged';
   }
 }
-export const PROCESS_VERSION = 'ai-editorial-v6';
-const factSchema = z.object({
-  statement: z.string().min(1).max(1000),
-  evidence: z.string().min(1).max(2000),
-  status: z.enum(['confirmed', 'announced', 'planned', 'claim', 'rumor']),
-  entities: z.array(z.string().max(100)).max(20).default([]),
-});
-const selectedDecisionSchema = z.object({
-  relevant: z.literal(true),
-  title: z.string().min(1).max(200),
-  summary: z.string().min(1).max(2000),
-  section: z.string(),
-  assessment: assessmentSchema,
-  tags: z
-    .array(z.string().max(40))
-    .max(12)
-    .default([])
-    .transform((): string[] => []),
-  scoreReason: z.string().max(1000).default(''),
-  existingEventId: z.uuid().nullable(),
-  facts: z.array(factSchema).max(12).default([]),
-  novelty: z.enum(['new', 'update', 'duplicate']).default('new'),
-  needsReview: z.boolean().default(false),
-  conflict: z.boolean().default(false),
-});
-const decisionSchema = z.preprocess(
-  (value) => {
-    if (!value || typeof value !== 'object' || (value as { relevant?: unknown }).relevant !== true)
-      return value;
-    const output = { ...(value as Record<string, unknown>) };
-    if (!output.assessment || typeof output.assessment !== 'object') return output;
-    const { scoreReason, ...assessment } = output.assessment as Record<string, unknown>;
-    output.assessment = assessment;
-    if (!output.scoreReason && typeof scoreReason === 'string') output.scoreReason = scoreReason;
-    return output;
-  },
-  z.discriminatedUnion('relevant', [
-    selectedDecisionSchema,
-    z.object({
-      relevant: z.literal(false),
-      reason: z.string().max(1000).default('与AI没有实质关联'),
-    }),
-  ]),
-);
+export const PROCESS_VERSION = 'ai-editorial-v7';
+function decisionSchema(passages: ReturnType<typeof sourcePassages>) {
+  const selectedDecisionSchema = z.object({
+    relevant: z.literal(true),
+    title: z.string().min(1).max(200),
+    summary: z.string().min(1).max(2000),
+    section: z.string(),
+    assessment: assessmentSchema,
+    tags: z
+      .array(z.string().max(40))
+      .max(12)
+      .default([])
+      .transform((): string[] => []),
+    scoreReason: z.string().max(1000).default(''),
+    existingEventId: z.uuid().nullable(),
+    facts: z
+      .array(sourceFactSchema(passages))
+      .max(
+        12,
+        '事实条目最多12条。请筛选、合并为最多12条核心事实，覆盖标题和摘要中的主要陈述；不要逐句罗列全文',
+      )
+      .default([]),
+    novelty: z.enum(['new', 'update', 'duplicate']).default('new'),
+    needsReview: z.boolean().default(false),
+    conflict: z.boolean().default(false),
+  });
+  return z.preprocess(
+    (value) => {
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        (value as { relevant?: unknown }).relevant !== true
+      )
+        return value;
+      const output = { ...(value as Record<string, unknown>) };
+      if (!output.assessment || typeof output.assessment !== 'object') return output;
+      const { scoreReason, ...assessment } = output.assessment as Record<string, unknown>;
+      output.assessment = assessment;
+      if (!output.scoreReason && typeof scoreReason === 'string') output.scoreReason = scoreReason;
+      return output;
+    },
+    z.discriminatedUnion('relevant', [
+      selectedDecisionSchema,
+      z.object({
+        relevant: z.literal(false),
+        reason: z.string().max(1000).default('与AI没有实质关联'),
+      }),
+    ]),
+  );
+}
 export function recallScore(a: string, b: string) {
   const tokens = (s: string) =>
     new Set(s.toLowerCase().match(/[a-z0-9]{2,}|[\u4e00-\u9fff]{2}/g) ?? []);
@@ -92,11 +98,12 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
     industry.sections.includes(s.name),
   );
   const keywords = sectionRules.map((section) => `${section.name}：${section.keywords}`).join('\n');
+  const connection = await getModelConnection();
   const subject = `article:${id}`;
   const runKey = fingerprint({
     version: PROCESS_VERSION,
     reprocessBatchId,
-    endpoint: process.env.LLM_BASE_URL?.trim().replace(/\/+$/, ''),
+    endpoint: connection.baseUrl.replace(/\/+$/, ''),
     title: article.title,
     excerpt: article.excerpt,
     industry,
@@ -104,9 +111,9 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
     ratingRules: config.ratingRules,
     keywords,
     prompt: config.editorialPrompt,
-    model: config.processingModel || process.env.LLM_MODEL,
+    model: connection.model,
     review: config.reviewEnabled,
-    reviewModel: config.reviewModel || process.env.LLM_MODEL,
+    reviewModel: connection.model,
   });
   await stage(subject, runKey, 'validate', async () => {
     if (!article.title.trim() || !article.excerpt.trim()) throw new Error('材料缺少标题或摘要');
@@ -118,7 +125,7 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
       matchedKeywords: keywordMatches(article.title + ' ' + article.excerpt, keywords),
       version: PROCESS_VERSION,
       ratingRules: config.ratingRules,
-      endpoint: process.env.LLM_BASE_URL?.trim().replace(/\/+$/, ''),
+      endpoint: connection.baseUrl.replace(/\/+$/, ''),
     };
   });
   const candidates = await stage(subject, runKey, 'recall', async () => {
@@ -141,11 +148,12 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, 12);
   });
+  const passages = sourcePassages(article.excerpt);
   const decision = await stage(subject, runKey, 'analyze', async () => {
     const value = await modelJSON(
       'article',
       `你是数智参阅编辑。一次完成AI实质关联筛选、可配置指标评分、事实提取、中文标题摘要、全局事件归组。输入只有来源摘要，不得补写未提供事实。榜单快照按采集时点陈述，采集时间不是模型或项目发布时间；首次快照不能推断新上榜或排名升降。${config.editorialPrompt}
-关键词仅用于召回线索，不能凭命中关键词收录，也不能漏掉不含这些词的重要AI内容。普通金融新闻和泛数字化不收。纯营销、没有实质事实、标题与材料不符或无法追溯来源的低质量材料输出relevant:false并给出具体原因；有真实新增事实的机构公告不因其机构自述身份直接淘汰。先检查来源与证据，再评分。${ratingInstructionsFor(config.ratingRules)}只使用给定栏目，按sectionRules的description判断归属，它们是该信源允许参与的栏目；不属于任何允许栏目时输出relevant:false并说明“超出信源栏目范围”，不能强行归类。section是单选栏目名。媒体传闻、匿名消息、厂商自述保留归属和不确定性。existingEventId只能是给定候选ID，同公司不代表同事件。facts逐项给出statement、evidence、status(confirmed/announced/planned/claim/rumor)、entities；evidence必须逐字来自article.excerpt，但允许空白和标点的排版差异。最多12条，相关资讯至少一条事实；事实不足不要编造。不相关输出{"relevant":false,"reason":"具体原因"}。相关输出必须严格遵守此结构，scoreReason与assessment同级：{"relevant":true,"title":"中文标题","summary":"中文摘要","section":"单个栏目名","assessment":{"指标ID":{"score":1,"reason":"具体理由"}},"scoreReason":"评分总述","existingEventId":null,"facts":[{"statement":"事实陈述","evidence":"原文逐字片段","status":"announced","entities":[]}],"novelty":"new","needsReview":false,"conflict":false}。重复报道标duplicate；有冲突或归属不确定标needsReview。合并新进展时summary保留重要前情。`,
+关键词仅用于召回线索，不能凭命中关键词收录，也不能漏掉不含这些词的重要AI内容。普通金融新闻和泛数字化不收。纯营销、没有实质事实、标题与材料不符或无法追溯来源的低质量材料输出relevant:false并给出具体原因；有真实新增事实的机构公告不因其机构自述身份直接淘汰。先检查来源与证据，再评分。${ratingInstructionsFor(config.ratingRules)}只使用给定栏目，按sectionRules的description判断归属，它们是该信源允许参与的栏目；不属于任何允许栏目时输出relevant:false并说明“超出信源栏目范围”，不能强行归类。section是单选栏目名。媒体传闻、匿名消息、厂商自述保留归属和不确定性。existingEventId只能是给定候选ID，同公司不代表同事件。facts逐项给出statement、evidenceIds、status(confirmed/announced/planned/claim/rumor)、entities；evidenceIds只能选择article.passages中的原文编号，例如["S1"]；每条最多引用4段。不要返回evidence或自行抄写原文，系统会按编号提取原文。事实陈述必须得到所选原文支持，保留预计、传闻和厂商自述等限定。仅选取最多12条核心事实，覆盖标题和摘要中的主要陈述；相近事实合并，不要逐句罗列全文，相关资讯至少一条事实；事实不足不要编造。不相关输出{"relevant":false,"reason":"具体原因"}。相关输出必须严格遵守此结构，scoreReason与assessment同级：{"relevant":true,"title":"中文标题","summary":"中文摘要","section":"单个栏目名","assessment":{"指标ID":{"score":1,"reason":"具体理由"}},"scoreReason":"评分总述","existingEventId":null,"facts":[{"statement":"事实陈述","evidenceIds":["S1"],"status":"announced","entities":[]}],"novelty":"new","needsReview":false,"conflict":false}。重复报道标duplicate；有冲突或归属不确定标needsReview。合并新进展时summary保留重要前情。`,
       {
         industry,
         sectionRules,
@@ -155,7 +163,7 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
         matchedKeywords: keywordMatches(article.title + ' ' + article.excerpt, keywords),
         article: {
           title: article.title,
-          excerpt: article.excerpt,
+          passages,
           source: article.sourceName,
           publishedAt: article.publishedPrecision === 'observed' ? undefined : article.publishedAt,
           observedAt: article.publishedPrecision === 'observed' ? article.publishedAt : undefined,
@@ -164,7 +172,7 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
         },
         candidates: candidates.map((e) => ({ id: e.id, title: e.title, summary: e.summary })),
       },
-      decisionSchema.superRefine((value, ctx) => {
+      decisionSchema(passages).superRefine((value, ctx) => {
         if (!value.relevant) return;
         const scoreCheck = assessmentFor(config.ratingRules).safeParse(value.assessment);
         if (!scoreCheck.success)
@@ -176,9 +184,6 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
           ctx.addIssue({ code: 'custom', message: '模型返回了未配置栏目' });
         if (value.existingEventId && !candidates.some((e) => e.id === value.existingEventId))
           ctx.addIssue({ code: 'custom', message: '模型返回了无效事件引用' });
-        for (const fact of value.facts)
-          if (!evidenceMatches(article.excerpt, fact.evidence))
-            ctx.addIssue({ code: 'custom', message: '模型事实依据不在来源摘要中' });
         if (!value.facts.length)
           ctx.addIssue({ code: 'custom', message: '相关资讯缺少可追溯事实' });
         if (value.novelty === 'duplicate' && !value.existingEventId)
@@ -190,9 +195,6 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
       if (!industry.sections.includes(value.section)) throw new Error('模型返回了未配置栏目');
       if (value.existingEventId && !candidates.some((e) => e.id === value.existingEventId))
         throw new Error('模型返回了无效事件引用');
-      for (const fact of value.facts)
-        if (!evidenceMatches(article.excerpt, fact.evidence))
-          throw new Error('模型事实依据不在来源摘要中');
       if (value.novelty === 'duplicate' && !value.existingEventId)
         throw new Error('重复报道必须引用已有事件');
     }

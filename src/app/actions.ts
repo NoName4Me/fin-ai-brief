@@ -1,5 +1,9 @@
 'use server';
-import { requestSubscription } from '../server/subscription-confirmation.ts';
+import {
+  deleteExpiredSubscriptionConfirmation,
+  requestSubscription,
+  resendSubscriptionConfirmation,
+} from '../server/subscription-confirmation.ts';
 import { cleanupRetention } from '../server/retention.ts';
 import { requestManualDelivery } from '../server/manual-delivery.ts';
 import { requireModelConfig } from '../server/model.ts';
@@ -10,7 +14,12 @@ import { z } from 'zod';
 import { db, pool } from '../server/db.ts';
 import { sources } from '../server/schema.ts';
 import { login, logout, requireAdmin } from '../server/auth.ts';
-import { subscribe, unsubscribe, removeSubscription } from '../server/subscriptions.ts';
+import {
+  cancelSubscription,
+  subscribe,
+  unsubscribe,
+  removeSubscription,
+} from '../server/subscriptions.ts';
 import { saveSettingsPatch, saveEditorialConfig } from '../server/settings.ts';
 import { enqueue } from '../server/queue.ts';
 import { requestGeneration } from '../server/generation-requests.ts';
@@ -224,9 +233,17 @@ export async function taskSettingsAction(form: FormData) {
   );
 }
 export async function systemSettingsAction(form: FormData) {
-  await perform('/admin/settings', () =>
-    saveSettingsPatch({ modelDailyLimit: Number(text(form, 'modelDailyLimit')) }),
-  );
+  const { saveSystemSettings } = await import('../server/system-settings.ts');
+  await perform('/admin/settings', () => saveSystemSettings(form));
+}
+export async function testModelConnectionAction(form: FormData) {
+  await requireAdmin();
+  try {
+    const { testModelConnection } = await import('../server/system-settings.ts');
+    return { ok: true, response: await testModelConnection(form) };
+  } catch (error) {
+    return { ok: false, response: error instanceof Error ? error.message : '连接失败' };
+  }
 }
 export async function globalSwitchAction(_previous: { error: string } | null, form: FormData) {
   await requireAdmin();
@@ -257,7 +274,7 @@ export async function generateAction(form: FormData) {
       });
       return;
     }
-    requireModelConfig();
+    await requireModelConfig();
     const direct = form.get('direct') === 'true';
     const force = direct || form.get('force') === 'true';
     if (force && !direct && !form.has('confirmed'))
@@ -341,6 +358,21 @@ export async function unsubscribeAction(form: FormData) {
 export async function removeSubscriberAction(form: FormData) {
   await perform('/admin/subscriptions', async () =>
     removeSubscription(z.uuid().parse(text(form, 'id'))),
+  );
+}
+export async function cancelSubscriberAction(form: FormData) {
+  await perform('/admin/subscriptions', async () =>
+    cancelSubscription(z.uuid().parse(text(form, 'id'))),
+  );
+}
+export async function deleteExpiredSubscriberAction(form: FormData) {
+  await perform('/admin/subscriptions', async () =>
+    deleteExpiredSubscriptionConfirmation(text(form, 'email')),
+  );
+}
+export async function resendSubscriptionConfirmationAction(form: FormData) {
+  await perform('/admin/subscriptions', async () =>
+    resendSubscriptionConfirmation(text(form, 'email')),
   );
 }
 

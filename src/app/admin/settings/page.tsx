@@ -1,10 +1,13 @@
 import { requireAdmin } from '../../../server/auth.ts';
 import { getSettings } from '../../../server/settings.ts';
-import { modelUsage } from '../../../server/model.ts';
+import { modelUsage, getModelConnection } from '../../../server/model.ts';
 import { systemSettingsAction } from '../../actions.ts';
-import { RetentionSettingsForm } from '../../../components/settings-forms.tsx';
+import { RetentionSettingsFields } from '../../../components/settings-forms.tsx';
 import { Notice, type Query } from '../../../components/notice.tsx';
 import { redirect } from 'next/navigation';
+import { Save } from 'lucide-react';
+import { Switch } from '../../../components/switch.tsx';
+import { ModelConnectionTest } from '../../../components/model-connection-test.tsx';
 export default async function Page({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
   const query = await searchParams;
@@ -14,42 +17,72 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
       if (typeof value === 'string') params.set(key, value);
     redirect(`/admin/backfill?${params}`);
   }
-  const [config, usage] = await Promise.all([getSettings(), modelUsage()]);
+  const [config, usage, connection] = await Promise.all([
+    getSettings(),
+    modelUsage(),
+    getModelConnection(),
+  ]);
   return (
     <>
       <Notice query={query} />
-      <form action={systemSettingsAction} className="stack-form">
+      <form action={systemSettingsAction} className="stack-form system-settings-form">
         <fieldset>
-          <legend>模型调用额度</legend>
-          <p>
-            今日已用 {usage.used} 次 / 上限 {usage.limit} 次，剩余 {usage.remaining} 次。
-          </p>
+          <legend>模型配置与额度</legend>
+          <label className="settings-switch-label">
+            <Switch
+              name="modelCallsEnabled"
+              defaultChecked={connection.enabled}
+              aria-label="开启模型调用"
+            />
+            开启模型调用
+          </label>
           <label>
-            每日调用次数上限
+            API 地址
             <input
-              type="number"
-              name="modelDailyLimit"
-              min={1}
-              max={100000}
-              defaultValue={config.modelDailyLimit}
-              required
+              name="modelBaseUrl"
+              type="url"
+              defaultValue={connection.baseUrl}
+              placeholder="https://api.example.com/v1"
             />
           </label>
-          <p className="form-hint">北京时间零点重置，失败请求也计入次数。</p>
+          <label>
+            API Key
+            <input
+              name="modelApiKey"
+              type="password"
+              autoComplete="new-password"
+              placeholder={connection.apiKey ? '已配置，留空保留' : '填写 API Key'}
+            />
+          </label>
+          <div className="settings-field-grid">
+            <label>
+              模型名称
+              <input name="modelName" defaultValue={connection.model} />
+            </label>
+            <label>
+              每日调用次数上限
+              <input
+                type="number"
+                name="modelDailyLimit"
+                min={1}
+                max={100000}
+                defaultValue={config.modelDailyLimit}
+                required
+              />
+            </label>
+          </div>
+          <p className="form-hint">
+            今日已用 {usage.used} 次，剩余 {usage.remaining}{' '}
+            次。北京时间零点重置，失败请求也计入次数。
+          </p>
+          <ModelConnectionTest />
         </fieldset>
-        <button className="solid-button">保存模型额度</button>
+        <RetentionSettingsFields config={config} />
+        <button className="solid-button">
+          <Save className="icon" strokeWidth={1.75} aria-hidden="true" />
+          保存
+        </button>
       </form>
-      <RetentionSettingsForm config={config} />
-      <section className="admin-section">
-        <h2>连接状态</h2>
-        <p>模型：{process.env.LLM_MODEL || '未配置'}</p>
-        <p>API 地址：{process.env.LLM_BASE_URL || '未配置'}</p>
-        <p>
-          模型调用：{process.env.MODEL_CALLS_ENABLED === 'true' ? '已开启' : '未开启'}　API Key：
-          {process.env.LLM_API_KEY ? '已配置' : '未配置'}　邮件：
-          {process.env.MAIL_ENABLED === 'true' ? '已开启' : '未开启'}
-        </p>
-      </section>
     </>
   );
 }

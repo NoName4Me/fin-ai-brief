@@ -15,6 +15,7 @@ import { processingController } from './server/processing-worker.ts';
 import { cleanupRetention } from './server/retention.ts';
 import { deliver } from './server/mail.ts';
 import { getSettings } from './server/settings.ts';
+import { getModelConnection } from './server/model.ts';
 import { duePeriods, preCollectionCutoff, rangeFor } from './server/periods.ts';
 import { dispatchReprocessingBatches } from './server/reprocessing.ts';
 import {
@@ -62,7 +63,7 @@ async function tick() {
     for (const source of due) await enqueue('collect', { id: source.id }, source.id);
   }
   // 模型任务失败后由队列自动重试；达到每日次数上限则等待额度恢复。
-  if (process.env.MODEL_CALLS_ENABLED === 'true') {
+  if ((await getModelConnection()).enabled) {
     await reconcileFailedArticles();
     await dispatchReprocessingBatches();
     await dispatchGenerationRequests();
@@ -124,17 +125,20 @@ await tick();
 let dispatching = false;
 const dispatcher = setInterval(() => {
   void configureProcessing().catch((error) => console.error('处理配置:', error.message));
-  if (dispatching || process.env.MODEL_CALLS_ENABLED !== 'true') return;
+  if (dispatching) return;
   dispatching = true;
-  void reconcileFailedArticles()
-    .then(() => dispatchReprocessingBatches())
-    .then(() => dispatchGenerationRequests())
+  void (async () => {
+    if (!(await getModelConnection()).enabled) return;
+    await reconcileFailedArticles();
+    await dispatchReprocessingBatches();
+    await dispatchGenerationRequests();
+  })()
     .catch((error) => console.error('出刊调度:', error.message))
     .finally(() => {
       dispatching = false;
     });
 }, 5000);
-console.log('数智参阅 Worker 已启动；采集、模型与发信遵循本地开关。');
+console.log('数智参阅 Worker 已启动；采集与模型遵循管理端开关。');
 let stopping = false;
 async function stop() {
   if (stopping) return;

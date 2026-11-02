@@ -1,5 +1,6 @@
 import { explainEditionRecord } from './edition-status.ts';
 import { latestEditionTask } from './edition-history.ts';
+import { briefTokenUsage } from './brief-token-usage.ts';
 import { pool } from './db.ts';
 import { getSettings } from './settings.ts';
 import { modelUsage } from './model.ts';
@@ -45,6 +46,8 @@ export async function adminOverview(now = new Date()) {
   const date = localDate(now);
   const config = await getSettings();
   const { start, end } = publicationCycle(now, config.dailyTime);
+  const cycleEnd = new Date(start.getTime() + 86400000);
+  const nextIssueDate = localDate(cycleEnd);
   const [usage, counts, health, issues, sections, generation] = await Promise.all([
     modelUsage(),
     pool.query<{
@@ -68,10 +71,10 @@ export async function adminOverview(now = new Date()) {
       ) SELECT
         (SELECT count(*)::int FROM briefs WHERE kind='daily' AND published IS NOT NULL) published,
         i.total incoming,i.relevant incoming_relevant,i.ignored incoming_ignored,i.pending incoming_pending,i.failed incoming_failed,
-        (SELECT count(*)::int FROM articles WHERE state='pending') pending,
-        (SELECT count(*)::int FROM articles WHERE state='failed') failed,
-        (SELECT count(*)::int FROM briefs WHERE kind='daily' AND draft IS NOT NULL) drafts FROM incoming_cycle i`,
-      [start, end],
+        i.pending,
+        i.failed,
+        (SELECT count(*)::int FROM briefs WHERE kind='daily' AND period_date=$3::date AND draft IS NOT NULL) drafts FROM incoming_cycle i`,
+      [start, end, nextIssueDate],
     ),
     pool.query<{ id: string; name: string; state: string; last_error: string | null }>(
       `SELECT id,name,last_error,CASE
@@ -88,7 +91,7 @@ export async function adminOverview(now = new Date()) {
       `SELECT id,period_date::text,coalesce(draft->>'title',published->>'title') title,
         draft IS NOT NULL has_draft,published IS NOT NULL is_published,published_at
       FROM briefs WHERE kind='daily' AND period_date <= $1 ORDER BY period_date DESC LIMIT 6`,
-      [date],
+      [nextIssueDate],
     ),
     pool.query<EditionSection>(
       `SELECT section,status,candidate_count,selected_count,reason,period_date::text,details
@@ -96,21 +99,33 @@ export async function adminOverview(now = new Date()) {
       ORDER BY section`,
       [date],
     ),
-    latestGeneration(date),
+    latestGeneration(nextIssueDate),
   ]);
   const exceptions = await runtimeExceptions(now, config.dailyTime);
-  const editionTask = sections.rows[0]
-    ? await latestEditionTask(sections.rows[0].period_date)
-    : null;
+  const editionTask =
+    sections.rows[0]?.period_date === nextIssueDate
+      ? await latestEditionTask(sections.rows[0].period_date)
+      : null;
   const explainedSections = sections.rows.map((section) =>
     explainEditionRecord(section, editionTask?.failed),
   );
-  const today = issues.rows.find((issue) => issue.period_date === date);
+  const currentIssue = issues.rows.find((issue) => issue.period_date === nextIssueDate);
+  const latestPublished = issues.rows.find(
+    (issue) => issue.is_published && issue.period_date <= date,
+  );
+  const tokenUsage = await briefTokenUsage(
+    nextIssueDate,
+    latestPublished?.period_date,
+    config.dailyTime,
+    now,
+  );
   const run = generation.rows[0];
   const running =
     run &&
     ['created', 'queued', 'active', 'retry', 'waiting', 'waiting_budget'].includes(run.state);
-  const todaySections = explainedSections.filter((section) => section.period_date === date);
+  const currentSections = explainedSections.filter(
+    (section) => section.period_date === nextIssueDate,
+  );
   const status = running
     ? run.state === 'waiting_budget'
       ? '等待模型额度'
@@ -119,22 +134,22 @@ export async function adminOverview(now = new Date()) {
         : '生成中'
     : run?.state === 'failed'
       ? '生成失败'
-      : today?.has_draft
+      : currentIssue?.has_draft
         ? '待审核'
-        : today?.is_published
+        : currentIssue?.is_published
           ? '已发布'
-          : todaySections.some((section) => section.status === 'error')
+          : currentSections.some((section) => section.status === 'error')
             ? '出刊异常'
-            : todaySections.length &&
-                todaySections.every((section) =>
+            : currentSections.length &&
+                currentSections.every((section) =>
                   ['skipped', 'unscheduled'].includes(section.status),
                 )
               ? '本期无合格内容'
               : !config.dailyEnabled
                 ? '自动出刊已暂停'
-                : date < config.startDate
+                : nextIssueDate < config.startDate
                   ? '尚未到启用日期'
-                  : now < new Date(`${date}T${config.dailyTime}:00+08:00`)
+                  : now < new Date(`${nextIssueDate}T${config.dailyTime}:00+08:00`)
                     ? '未到截稿时间'
                     : '尚未生成';
   // Paused collection is not a scheduling fault. Actual failures and uncollected sources remain visible.
@@ -146,13 +161,17 @@ export async function adminOverview(now = new Date()) {
     date,
     exceptions,
     config,
+    cycle: { start, end: cycleEnd },
+    nextIssueDate,
     usage,
     counts: counts.rows[0],
     sources: sourceRows,
     issues: issues.rows,
-    sections: explainedSections,
+    sections: currentSections,
     editionTask,
-    today,
+    currentIssue,
+    latestPublished,
+    tokenUsage,
     status,
     generationError: run?.state === 'failed' ? run.error : null,
   };

@@ -38,6 +38,18 @@ export async function migrate() {
     await client.query('INSERT INTO settings(id,value) VALUES(1,$1) ON CONFLICT DO NOTHING', [
       JSON.stringify(defaultSettings),
     ]);
+    // Import legacy deployment configuration once; subsequent edits belong to the admin UI.
+    await client.query(
+      "UPDATE settings SET value=jsonb_set(value,'{modelConnection}',$1::jsonb) WHERE id=1 AND NOT value ? 'modelConnection'",
+      [
+        JSON.stringify({
+          enabled: process.env.MODEL_CALLS_ENABLED === 'true',
+          baseUrl: process.env.LLM_BASE_URL?.trim() ?? '',
+          apiKey: process.env.LLM_API_KEY?.trim() ?? '',
+          model: process.env.LLM_MODEL?.trim() ?? '',
+        }),
+      ],
+    );
   } finally {
     await client.query('SELECT pg_advisory_unlock(76140501)');
     client.release();

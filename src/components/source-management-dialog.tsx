@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { X } from 'lucide-react';
 
 export function SourceManagementDialog({
   title,
@@ -45,8 +46,14 @@ export function SourceManagementDialog({
     >
       <header className="dialog-header">
         <h2 id={titleId}>{title}</h2>
-        <button type="button" className="dialog-close" onClick={() => dialog.current?.close()}>
-          关闭
+        <button
+          type="button"
+          className="dialog-close"
+          aria-label="关闭"
+          title="关闭"
+          onClick={() => dialog.current?.close()}
+        >
+          <X className="icon" strokeWidth={1.75} aria-hidden="true" />
         </button>
       </header>
       <div className="source-management-body">{children}</div>

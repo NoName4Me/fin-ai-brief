@@ -230,6 +230,14 @@ export const settingsSchema = z.preprocess(
       briefModel: z.string().max(200).default(''),
       autoPublish: z.boolean(),
       modelDailyLimit: z.number().int().min(1).max(100000).default(100),
+      modelConnection: z
+        .object({
+          enabled: z.boolean(),
+          baseUrl: z.string().trim().max(2000),
+          apiKey: z.string().trim().max(4000),
+          model: z.string().trim().max(200),
+        })
+        .optional(),
       dailyTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
       dailyEnabled: z.boolean(),
       weeklyEnabled: z.boolean(),

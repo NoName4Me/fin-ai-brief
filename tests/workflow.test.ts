@@ -214,7 +214,7 @@ test('模型配置缺失不记调用回执，HTTP失败计入额度且不自动�
   const key = process.env.LLM_API_KEY;
   delete process.env.LLM_API_KEY;
   try {
-    await assert.rejects(() => generateBrief('daily', '2026-10-22'), /LLM_API_KEY/);
+    await assert.rejects(() => generateBrief('daily', '2026-10-22'), /系统设置.*API Key/);
     assert.equal((await modelUsage()).used, 0);
   } finally {
     process.env.LLM_API_KEY = key;
@@ -258,9 +258,7 @@ test('手工导入按规范化URL去重，模型归入已有事件', async () =>
                 score: 82,
                 assessment: testAssessment,
                 tags: [],
-                facts: [
-                  { statement: '摘要', evidence: input.excerpt, status: 'claim', entities: [] },
-                ],
+                facts: [{ statement: '摘要', evidenceIds: ['S1'], status: 'claim', entities: [] }],
                 existingEventId: ids[4],
               }),
             },
@@ -435,17 +433,19 @@ function modelReply(value: unknown) {
     }),
   );
 }
-test('事实必须引用真实摘要片段，拒绝证据外推并保留失败结果', async () => {
+test('无效原文编号拒绝写入，纠错定位具体事实并保留失败结果', async () => {
   const [row] = await importArticle({
     title: '监管公告',
     url: 'https://example.invalid/evidence',
-    excerpt: '机构公布试点计划。',
+    excerpt: '地平线征程7系列也卡在2027。',
     sourceName: '本地测试',
     industryId: 'finance',
     publishedAt: '2026-10-22T07:00:00+08:00',
   });
-  globalThis.fetch = async () =>
-    modelReply({
+  const requests: { messages: { role: string; content: string }[] }[] = [];
+  globalThis.fetch = async (_url, init) => {
+    requests.push(JSON.parse(String(init?.body)));
+    return modelReply({
       relevant: true,
       title: '监管公告',
       summary: '试点计划',
@@ -454,9 +454,18 @@ test('事实必须引用真实摘要片段，拒绝证据外推并保留失败�
       assessment: testAssessment,
       tags: [],
       existingEventId: null,
-      facts: [{ statement: '全面实施', evidence: '已全面实施', status: 'confirmed', entities: [] }],
+      facts: [
+        {
+          statement: '征程7系列将在2027年推出',
+          evidenceIds: ['S999'],
+          status: 'confirmed',
+          entities: [],
+        },
+      ],
     });
-  await assert.rejects(processArticle(row.id), /事实依据不在来源摘要/);
+  };
+  await assert.rejects(processArticle(row.id), /原文编号S999不存在/);
+  assert.match(requests[1].messages[3].content, /facts\.0\.evidenceIds\.0/);
   assert.equal(
     (await db.select().from(articles).where(eq(articles.id, row.id)))[0].state,
     'pending',
@@ -470,7 +479,49 @@ test('事实必须引用真实摘要片段，拒绝证据外推并保留失败�
   assert.equal(calls.rows[0].api_attempts, 2);
   assert.ok(calls.rows[0].response);
 });
-test('评分总述误放进assessment时自动归位，证据比对允许排版差异', async () => {
+test('模型返回30条事实时明确反馈上限，修正为12条后才写入', async () => {
+  await saveSettings({ ...(await getSettings()), reviewEnabled: false });
+  const [row] = await importArticle({
+    title: 'AI芯片规划',
+    url: 'https://example.invalid/facts-limit',
+    excerpt: '企业公布AI芯片规划。',
+    sourceName: '测试',
+    industryId: 'ai',
+    publishedAt: '2026-10-22T07:00:00+08:00',
+  });
+  let attempts = 0;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    attempts++;
+    assert.ok(JSON.parse(body.messages[1].content).article.passages[0].id === 'S1');
+    if (attempts === 2) {
+      assert.match(body.messages[3].content, /facts:.*最多12条/);
+      assert.equal(
+        (await db.select().from(articles).where(eq(articles.id, row.id)))[0].state,
+        'pending',
+      );
+    }
+    return modelReply({
+      relevant: true,
+      title: 'AI芯片规划',
+      summary: '企业公布AI芯片规划。',
+      section: '行业监管',
+      assessment: testAssessment,
+      existingEventId: null,
+      facts: Array.from({ length: attempts === 1 ? 30 : 12 }, (_, index) => ({
+        statement: `规划细节${index}`,
+        evidenceIds: ['S1'],
+        status: 'announced',
+      })),
+    });
+  };
+  await processArticle(row.id);
+  const [saved] = await db.select().from(articles).where(eq(articles.id, row.id));
+  assert.equal(attempts, 2);
+  assert.equal((saved.facts as unknown[]).length, 12);
+  assert.equal(saved.state, 'processed');
+});
+test('评分总述自动归位，事实依据由原文编号提取', async () => {
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
   const [row] = await importArticle({
     title: '监管试点',
@@ -495,7 +546,7 @@ test('评分总述误放进assessment时自动归位，证据比对允许排版�
       facts: [
         {
           statement: '机构公布分阶段实施的试点计划',
-          evidence: '机构公布 试点计划明确分阶段实施',
+          evidenceIds: ['S1'],
           status: 'announced',
           entities: ['机构'],
         },
@@ -505,6 +556,10 @@ test('评分总述误放进assessment时自动归位，证据比对允许排版�
   const [saved] = await db.select().from(articles).where(eq(articles.id, row.id));
   assert.equal(saved.state, 'processed');
   assert.equal(saved.scoreReason, '材料给出了明确的实施阶段');
+  assert.equal(
+    (saved.facts as { evidence: string }[])[0].evidence,
+    '机构公布试点计划，明确分阶段实施。',
+  );
   assert.equal(saved.assessment?.scoreReason, undefined);
 });
 test('复核失败后仅重试复核，主处理结果复用；不同意合并则保留独立低分原文', async () => {
@@ -537,7 +592,7 @@ test('复核失败后仅重试复核，主处理结果复用；不同意合并�
       assessment: testAssessment,
       tags: [],
       existingEventId: ids[0],
-      facts: [{ statement: excerpt, evidence: excerpt, status: 'planned', entities: ['机构'] }],
+      facts: [{ statement: excerpt, evidenceIds: ['S1'], status: 'planned', entities: ['机构'] }],
       needsReview: true,
       novelty: 'update',
     });
@@ -581,9 +636,7 @@ test('重复报道只挂接证据，不重写事件或制造实时新增提示',
       assessment: testAssessment,
       tags: [],
       existingEventId: ids[0],
-      facts: [
-        { statement: '同一公告。', evidence: '同一公告。', status: 'announced', entities: [] },
-      ],
+      facts: [{ statement: '同一公告。', evidenceIds: ['S1'], status: 'announced', entities: [] }],
       novelty: 'duplicate',
     });
   await processArticle(row.id);
@@ -735,7 +788,7 @@ test('并发分析相同事实的两条来源，只建立一个事件', async ()
       facts: [
         {
           statement: input.excerpt,
-          evidence: input.excerpt,
+          evidenceIds: ['S1'],
           status: 'announced',
           entities: ['测试企业'],
         },
@@ -779,7 +832,8 @@ test('并发更新同一事件时检测过期摘要，重试重新召回而不�
     return modelReply({
       relevant: true,
       title: '持续更新事件',
-      summary: previous.summary + input.article.excerpt,
+      summary:
+        previous.summary + input.article.passages.map((p: { text: string }) => p.text).join(''),
       section: 'AI 模型',
       score: 80,
       assessment: testAssessment,
@@ -788,8 +842,8 @@ test('并发更新同一事件时检测过期摘要，重试重新召回而不�
       novelty: 'update',
       facts: [
         {
-          statement: input.article.excerpt,
-          evidence: input.article.excerpt,
+          statement: input.article.passages.map((p: { text: string }) => p.text).join(''),
+          evidenceIds: ['S1'],
           status: 'announced',
           entities: [],
         },

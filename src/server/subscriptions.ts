@@ -38,6 +38,14 @@ export async function unsubscribe(token: string) {
     .returning({ id: subscriptions.id });
   if (!rows.length) throw new Error('退订链接无效');
 }
+export async function cancelSubscription(id: string) {
+  const rows = await db
+    .update(subscriptions)
+    .set({ active: false, unsubscribedAt: sql`coalesce(${subscriptions.unsubscribedAt},now())` })
+    .where(eq(subscriptions.id, id))
+    .returning({ id: subscriptions.id });
+  if (!rows.length) throw new Error('订阅记录不存在');
+}
 export async function removeSubscription(id: string) {
   await db.delete(subscriptions).where(eq(subscriptions.id, id));
 }

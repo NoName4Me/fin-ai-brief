@@ -17,7 +17,11 @@ export async function ReaderShell({
       <aside className="sidebar" aria-label="简报归档">
         <div className="issue-groups">
           {groups.map((group) => (
-            <details className="issue-group" key={group.key} open={group.open}>
+            <details
+              className="issue-group"
+              key={group.key}
+              open={group.open || group.items.some((issue) => issue.id === currentId)}
+            >
               <summary>{group.label}</summary>
               {group.items.map((issue) => {
                 const calendar = issue.content
@@ -57,8 +61,7 @@ export async function ReaderShell({
           <p className="muted">{kind === 'monthly' ? '暂无正式月报' : '暂无正式出刊'}</p>
         )}
         <div className="side-footer">
-          <Link href="/archive">查看历史日报</Link>
-          <Link href="/admin">管理端</Link>
+          <Link href="/archive">查看全部</Link>
         </div>
       </aside>
       <main className="main">{children}</main>

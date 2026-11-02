@@ -51,7 +51,7 @@ test('周报月报采用各自刊头、主线和时间轴，未知行业也不�
   }
 });
 
-test('新版日报邮件采用单栏、三列刊期信息、纯星级及双线下方的本期完', () => {
+test('新版日报邮件采用单栏、三列刊期信息、编号要览及双线下方的本期完', () => {
   const content = fixtureContent();
   content.format = 'ai-daily-v1';
   content.items = content.items.map((item) => ({ ...item, rating: 4.5 }));
@@ -62,9 +62,10 @@ test('新版日报邮件采用单栏、三列刊期信息、纯星级及双线�
     'https://example.invalid/cancel',
     { date: '2026-10-28', issueNumber: 7 },
   );
-  assert.ok(html.includes('主办：数智化转型办公室 AI工作组'));
+  assert.ok(html.includes('主办：数智化转型办公室 智创组'));
   assert.ok(html.includes('《数智参阅》第007期'));
-  assert.ok(html.includes('aria-label="4.5分，满分5分"'));
+  assert.ok(html.includes('>01</td>'));
+  assert.ok(!html.includes('满分5分'));
   assert.ok(!html.includes('4.5/5'));
   assert.ok(!html.includes('<td class="email-calendar"'));
   assert.ok(!html.includes('<td class="email-stack"'));

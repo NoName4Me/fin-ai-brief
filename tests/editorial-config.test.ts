@@ -146,7 +146,7 @@ test('旧设置合并轮动栏目一次，并保留原预算与隔周基准', ()
   const current = settingsSchema.parse({
     ...legacy,
     sections: defaultSections.map((s) => ({ ...s, budget: 600 })),
-    rotationAnchor: '2026-11-01',
+    startDate: '2026-11-01',
     rotationsEnabled: false,
   });
   assert.equal(current.sections.length, 9);
@@ -154,7 +154,7 @@ test('旧设置合并轮动栏目一次，并保留原预算与隔周基准', ()
   assert.ok(
     current.sections
       .filter((s) => s.kind === 'rotation')
-      .every((s) => !s.enabled && s.anchorDate === '2026-11-01'),
+      .every((s) => !s.enabled && s.anchorDate === current.startDate),
   );
   assert.deepEqual(settingsSchema.parse(current), current);
   assert.equal(
@@ -342,7 +342,7 @@ test('新指标描述进入处理提示词，暂停项不再要求输出，自�
       facts: [
         {
           statement: '工具公布AI部署方法',
-          evidence: '工具公布AI部署方法',
+          evidenceIds: ['S1'],
           status: 'announced',
           entities: [],
         },
@@ -421,7 +421,7 @@ test('新增轮动栏目按自定义排期、事件数和预算出刊，超预�
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     const input = JSON.parse(body.messages[1].content);
-    if (input.rotationMaterials) request = input;
+    if (input.column) request = input;
     else
       return reply({
         title: 'AI工具更新',
@@ -433,30 +433,15 @@ test('新增轮动栏目按自定义排期、事件数和预算出刊，超预�
         highlights: [],
       });
     return reply({
-      title: 'AI工具更新',
-      items: (request.selected ?? []).map((e: any) => ({
-        eventId: e.id,
-        title: '工具更新',
-        summary: 'AI工具公布更新。',
-      })),
-      highlights: [],
-      rotations: [
-        {
-          name: rotation.name,
-          text: tooLong ? '长'.repeat(100) : '工具公布了新的AI部署方法。',
-          eventIds: request.rotationMaterials
-            .find((r: any) => r.name === rotation.name)
-            .events.map((e: any) => e.id),
-        },
-      ],
+      observation: {
+        text: tooLong ? '长'.repeat(100) : '工具公布了新的AI部署方法。',
+        eventRefs: request.events.map((e: any) => e.ref),
+      },
     });
   };
   const result = await generateDaily('2026-10-27');
   assert.equal(result?.published?.rotations?.[0].name, rotation.name);
-  assert.equal(
-    request.rotationMaterials.find((r: any) => r.name === rotation.name).description,
-    rotation.description,
-  );
+  assert.equal(request.column.description, rotation.description);
   const current = await getSettings();
   await saveSettings({
     ...current,

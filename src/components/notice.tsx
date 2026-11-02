@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 export type Query = Record<string, string | string[] | undefined>;
 function Notification({ message, error }: { message: string; error: boolean }) {
   const [visible, setVisible] = useState(true);
@@ -13,7 +14,7 @@ function Notification({ message, error }: { message: string; error: boolean }) {
     <div className={`notification ${error ? 'error' : ''}`}>
       <p role={error ? 'alert' : 'status'}>{message}</p>
       <button type="button" onClick={() => setVisible(false)} aria-label="关闭通知">
-        ×
+        <X className="icon" strokeWidth={1.75} aria-hidden="true" />
       </button>
     </div>
   );

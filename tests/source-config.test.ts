@@ -184,7 +184,7 @@ async function processed(configured: string[], chosen: string) {
                 facts: [
                   {
                     statement: '开放代码',
-                    evidence: '开放代码',
+                    evidenceIds: ['S1'],
                     status: 'announced',
                     entities: [],
                   },

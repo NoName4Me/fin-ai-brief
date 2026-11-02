@@ -13,6 +13,7 @@ import { fingerprint, BudgetWait } from './processing-log.ts';
 import { persistBrief, PendingArticles } from './briefs.ts';
 import { dailyLengthRepair } from './daily-length.ts';
 import { dailyTitleRequest } from './daily-title.ts';
+import { dailyRotationRequest } from './daily-rotation.ts';
 
 const writtenSchema = z.object({
   title: briefTitleSchema,
@@ -284,30 +285,25 @@ async function writeDaily(p: Awaited<ReturnType<typeof prepareDaily>>, preview =
   }
   for (const rule of p.rotationMaterials) {
     if (!rule.scheduled || !rule.materials?.selected.length) continue;
-    const schema = writtenSchema.pick({ rotations: true }).superRefine((v, ctx) => {
-      if (v.rotations.length > 1) ctx.addIssue({ code: 'custom', message: '只能返回当前轮动栏目' });
-      for (const r of v.rotations) {
-        if (
-          r.name !== rule.name ||
-          [...r.text].length > budgetLimit(rule.budget, p.config.budgetTolerancePercent) ||
-          new Set(r.eventIds).size !== r.eventIds.length ||
-          r.eventIds.length < rule.minItems ||
-          r.eventIds.length > rule.maxItems ||
-          r.eventIds.some((id) => !rule.materials!.selected.some((e) => e.id === id))
-        )
-          ctx.addIssue({ code: 'custom', message: `${rule.name}轮动引用无效或超过字数预算` });
-      }
-    });
-    const result = await run(
-      rule.name,
-      `你是数智参阅编辑。${p.config.editorialPrompt}输出{rotations:[{name,text,eventIds}]}。仅根据当前rotationMaterials生成，遵守description、keywords、budget及引用数minItems/maxItems。所有事实必须来自eventIds引用材料，不能把采集时点当作发布时间。资料不足可返回空数组。`,
+    const request = dailyRotationRequest(
+      p.input.date,
       {
-        date: p.input.date,
-        rotationMaterials: [p.input.rotationMaterials.find((r) => r.name === rule.name)],
+        name: rule.name,
+        description: rule.description,
+        keywords: rule.keywords,
+        budget: rule.budget,
+        minItems: rule.minItems,
+        maxItems: rule.maxItems,
       },
-      schema,
+      rule.materials.inputEvents,
+      p.config.editorialPrompt,
+      p.config.budgetTolerancePercent,
     );
-    if (result) draft.rotations.push(...result.rotations);
+    const result = await run(rule.name, request.system, request.input, request.schema);
+    if (result) {
+      const rotation = request.resolve(result);
+      if (rotation) draft.rotations.push(rotation);
+    }
   }
   if (!cached || failures.length) {
     if (failures.length) throw new DailyWritingError(failedStages, failures);

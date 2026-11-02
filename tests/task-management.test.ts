@@ -80,11 +80,18 @@ test('自动重试保留一行，手动重试后仍按资讯合并，并保留�
   const [second] = await boss.fetch('process');
   await assert.rejects(
     executeTask('process', second.id, { id }, async () => {
+      await pool.query(
+        "INSERT INTO processing_steps(subject,run_key,stage,state) VALUES($1,$2,'analyze','running')",
+        [`article:${id}`, `job:${jobId}`],
+      );
       throw new Error('重试失败');
     }),
   );
   await boss.fail('process', second.id, { message: '重试失败' });
   assert.equal((await taskOverview('', 'process'))[0].state, 'failed');
+  const retried = await taskDetail(`job:${jobId}`);
+  assert.equal(retried?.attemptsForArticle[0].steps[0].stage, 'retry');
+  assert.equal(retried?.failure?.stage, 'analyze');
   const newId = await retryManagedTask(`job:${jobId}`);
   assert.notEqual(newId, jobId);
   const tasks = await taskOverview('', 'process');

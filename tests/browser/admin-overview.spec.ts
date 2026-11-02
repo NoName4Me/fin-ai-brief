@@ -23,36 +23,50 @@ test('首页展示运行总览，出刊管理独立，手机无横向溢出', as
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await expect(page).toHaveURL(/\/admin$/);
     await expect(page.getByRole('heading', { name: '数据总览', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: '本期出刊', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /下一期出刊/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /最近出刊/ })).toBeVisible();
     await expect(page.getByRole('button', { name: '生成前检查' })).toHaveCount(0);
-    const collection = page.getByRole('region', { name: '本轮采集', exact: true });
-    await expect(collection.getByText('当前异常信源', { exact: true }).locator('..')).toContainText(
+    await expect(page.locator('.overview-runtime')).toContainText('模型调用：今日');
+    await expect(page.locator('.overview-runtime')).toContainText('本期 token 用量');
+    await expect(page.locator('.overview-runtime')).toContainText('上期');
+    const actions = page.locator('.overview-actions');
+    await expect(actions.getByText('当前异常信源', { exact: true }).locator('..')).toContainText(
       '1个',
     );
     await expect(page.getByText('待处理事项', { exact: true })).toHaveCount(0);
     await expect(page.getByText('运行异常', { exact: true })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: '待办全部积压' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /异常与待办/ })).toBeVisible();
+    await expect(page.getByText(/上一周期曾异常/)).toHaveCount(0);
+    await expect(page.getByText(/内容覆盖/)).toBeVisible();
     await expect(page.getByRole('heading', { name: '信源运行', exact: true })).toHaveCount(0);
-    await expect(page.getByText('正常留空 0', { exact: true })).toBeVisible();
-    await expect(page.getByText('未排期 1', { exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole('navigation', { name: '管理导航' })
+        .getByRole('link', { name: '信源管理', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole('navigation', { name: '管理导航' })
+        .getByRole('link', { name: '整刊配置', exact: true }),
+    ).toBeVisible();
     await page.screenshot({ path: '.data/admin-overview-desktop.png', fullPage: true });
-    await collection.getByRole('link', { name: '1个', exact: true }).click();
+    await actions.getByRole('link', { name: '1个', exact: true }).click();
     await expect(page.getByLabel('质量状态')).toHaveValue('cycle_error');
     await expect(page.getByRole('row').filter({ hasText: '连续失败信源' })).toHaveCount(1);
     await expect(page.getByRole('row').filter({ hasText: '上一期失败信源' })).toHaveCount(0);
     await db.query('UPDATE sources SET last_error=NULL WHERE id=$1', [sourceId]);
     await page.goto('/admin');
-    await expect(collection.getByText('当前异常信源', { exact: true }).locator('..')).toContainText(
+    await expect(actions.getByText('当前异常信源', { exact: true }).locator('..')).toContainText(
       '0个',
     );
-    await page.getByRole('link', { name: '近7天', exact: true }).click();
+    await page.getByRole('link', { name: '近7天趋势', exact: true }).click();
     await expect(page.getByRole('heading', { name: '内容转化', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: '订阅趋势', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: '栏目表现', exact: true })).toBeVisible();
-    await page.getByRole('link', { name: '近30天', exact: true }).click();
+    await page.getByRole('link', { name: '近30天趋势', exact: true }).click();
     await expect(page).toHaveURL(/view=30/);
     await expect(page.getByRole('heading', { name: '信源有效贡献 Top 5' })).toBeVisible();
-    await page.getByRole('link', { name: '今日', exact: true }).click();
+    await page.getByRole('link', { name: '当前周期', exact: true }).click();
     await expect(page.getByRole('heading', { name: '本轮采集', exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(

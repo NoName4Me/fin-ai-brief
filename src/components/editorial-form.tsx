@@ -5,6 +5,7 @@ import { Switch } from './switch.tsx';
 import type { Settings } from '../server/types.ts';
 import { normalizedRatingRules, type SectionRule, type RatingRule } from '../server/editorial.ts';
 import { editorialAction } from '../app/actions.ts';
+import { Save } from 'lucide-react';
 
 const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
 function parseWeekdays(value: string) {
@@ -209,9 +210,9 @@ export function EditorialForm({
                     </td>
                     <td>要览</td>
                     <td>
-                      <input
+                      <Switch
                         aria-label="今日要览启用"
-                        type="checkbox"
+                        size="small"
                         name="highlightsEnabled"
                         defaultChecked={config.highlightsEnabled}
                       />
@@ -377,11 +378,11 @@ export function EditorialForm({
                       </select>
                     </td>
                     <td>
-                      <input
+                      <Switch
                         aria-label={`${section.name}启用`}
-                        type="checkbox"
+                        size="small"
                         checked={section.enabled}
-                        onChange={(e) => updateSection(section.id, { enabled: e.target.checked })}
+                        onCheckedChange={(enabled) => updateSection(section.id, { enabled })}
                       />
                     </td>
                     <td>
@@ -679,7 +680,10 @@ export function EditorialForm({
           {error}
         </p>
       )}
-      <button className="solid-button">保存</button>
+      <button className="solid-button">
+        <Save className="icon" strokeWidth={1.75} aria-hidden="true" />
+        保存
+      </button>
     </form>
   );
 }

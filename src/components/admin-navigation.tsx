@@ -1,6 +1,16 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import {
+  LayoutDashboard,
+  ListChecks,
+  Mail,
+  Newspaper,
+  Rss,
+  Settings,
+  SlidersHorizontal,
+  type LucideIcon,
+} from 'lucide-react';
 
 type Item = { href: string; label: string };
 const editorial: Item[] = [
@@ -14,13 +24,13 @@ const source: Item[] = [
 ];
 export function AdminNavigation() {
   const path = usePathname();
-  function group(label: string, items: Item[]) {
-    const active =
-      items.some((item) => path === item.href) ||
-      (label === '信源' && path === '/admin/sources/import');
+  function group(label: string, items: Item[], Icon: LucideIcon) {
     return (
-      <details className="admin-nav-group" open={active}>
-        <summary>{label}</summary>
+      <div className="admin-nav-group">
+        <span className="admin-nav-group-label">
+          <Icon className="icon" strokeWidth={1.75} aria-hidden="true" />
+          {label}
+        </span>
         <div className="admin-nav-children">
           {items.map(({ href, label }) => (
             <Link
@@ -36,12 +46,13 @@ export function AdminNavigation() {
             </Link>
           ))}
         </div>
-      </details>
+      </div>
     );
   }
   return (
     <nav aria-label="管理导航">
       <Link href="/admin" aria-current={path === '/admin' ? 'page' : undefined}>
+        <LayoutDashboard className="icon" strokeWidth={1.75} aria-hidden="true" />
         数据总览
       </Link>
       <Link
@@ -54,20 +65,23 @@ export function AdminNavigation() {
             : undefined
         }
       >
+        <Newspaper className="icon" strokeWidth={1.75} aria-hidden="true" />
         出刊管理
       </Link>
-      {group('信源', source)}
-      {group('编辑规则', editorial)}
       <Link
         href="/admin/articles"
         aria-current={path === '/admin/articles' || path === '/admin/jobs' ? 'page' : undefined}
       >
+        <ListChecks className="icon" strokeWidth={1.75} aria-hidden="true" />
         任务管理
       </Link>
+      {group('信源', source, Rss)}
+      {group('编辑规则', editorial, SlidersHorizontal)}
       <Link
         href="/admin/subscriptions"
         aria-current={path.startsWith('/admin/subscriptions') ? 'page' : undefined}
       >
+        <Mail className="icon" strokeWidth={1.75} aria-hidden="true" />
         订阅与推送
       </Link>
       <Link
@@ -76,6 +90,7 @@ export function AdminNavigation() {
           path === '/admin/settings' || path === '/admin/retention' ? 'page' : undefined
         }
       >
+        <Settings className="icon" strokeWidth={1.75} aria-hidden="true" />
         系统设置
       </Link>
     </nav>

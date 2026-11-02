@@ -1,3 +1,4 @@
+import { FilePlus2, RotateCw, Settings2, ListFilter, RefreshCw } from 'lucide-react';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { getSettings } from '../../../server/settings.ts';
@@ -56,6 +57,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
           href={`/admin/articles?${params}&configure=import`}
           scroll={false}
         >
+          <FilePlus2 className="icon" strokeWidth={1.75} aria-hidden="true" />
           手工录入资讯
         </Link>
         <Link
@@ -63,6 +65,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
           href={`/admin/articles?${params}&configure=reprocess`}
           scroll={false}
         >
+          <RotateCw className="icon" strokeWidth={1.75} aria-hidden="true" />
           批量重新处理
         </Link>
         <Link
@@ -70,6 +73,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
           href={`/admin/articles?${params}&configure=tasks`}
           scroll={false}
         >
+          <Settings2 className="icon" strokeWidth={1.75} aria-hidden="true" />
           任务处理配置
         </Link>
       </div>
@@ -119,8 +123,12 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
             placeholder="搜索信源、资讯或刊期"
           />
         </label>
-        <button className="solid-button">筛选</button>
+        <button className="solid-button">
+          <ListFilter className="icon" strokeWidth={1.75} aria-hidden="true" />
+          筛选
+        </button>
         <Link href={`/admin/articles?${params}`} className="outline-button">
+          <RefreshCw className="icon" strokeWidth={1.75} aria-hidden="true" />
           刷新
         </Link>
       </form>

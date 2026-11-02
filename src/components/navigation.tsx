@@ -3,9 +3,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { logoutAction } from '../app/actions.ts';
 import { SubscribeButton } from './subscribe-dialog.tsx';
+import { LogOut } from 'lucide-react';
 const items = [
-  ['/', '最新日报'],
-  ['/archive', '历史日报'],
+  ['/', '最新'],
+  ['/archive', '全部'],
 ] as const;
 export function Header() {
   const path = usePathname();
@@ -21,7 +22,7 @@ export function Header() {
           {admin && <span className="brand-admin-label">管理台</span>}
         </Link>
         {!admin && (
-          <nav className="primary-nav" aria-label="主导航">
+          <nav className="primary-nav" aria-label="日报导航">
             {items.map(([href, label]) => (
               <Link
                 key={href}
@@ -40,6 +41,7 @@ export function Header() {
         {admin ? (
           <form action={logoutAction} className="user-menu admin-logout">
             <button type="submit" className="quiet-button">
+              <LogOut className="icon" strokeWidth={1.75} aria-hidden="true" />
               退出管理台
             </button>
           </form>
@@ -48,7 +50,7 @@ export function Header() {
         )}
       </header>
       {!admin && (
-        <nav className="mobile-nav" aria-label="手机导航">
+        <nav className="mobile-nav" aria-label="日报导航">
           {items.map(([href, label]) => (
             <Link
               key={href}

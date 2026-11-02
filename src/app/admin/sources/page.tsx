@@ -17,6 +17,7 @@ import { SourceManagementDialog } from '../../../components/source-management-di
 import { GlobalSwitch } from '../../../components/global-switch.tsx';
 import { getSettings } from '../../../server/settings.ts';
 import { verificationLabels } from '../../../server/source-config.ts';
+import { Save, Plus, ScanSearch, Download, Trash2 } from 'lucide-react';
 const formatLabels: Record<string, string> = {
   rss: 'RSS / Atom',
   json: '公开接口',
@@ -218,6 +219,7 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
           scroll={false}
           href={`${listHref}${listQuery.size ? '&' : '?'}add=1`}
         >
+          <Plus className="icon" strokeWidth={1.75} aria-hidden="true" />
           添加信源
         </Link>
         <SourceFilters
@@ -246,6 +248,7 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
           </form>
           <footer className="source-management-footer">
             <button className="solid-button" form="source-config-form">
+              <Plus className="icon" strokeWidth={1.75} aria-hidden="true" />
               添加信源
             </button>
           </footer>
@@ -284,20 +287,28 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
             <div className="row-actions">
               <form action={sourceVerifyAction}>
                 <input type="hidden" name="id" value={selected.id} />
-                <button className="outline-button">验证采集</button>
+                <button className="outline-button">
+                  <ScanSearch className="icon" strokeWidth={1.75} aria-hidden="true" />
+                  验证采集
+                </button>
               </form>
               <form action={collectAction}>
                 <input type="hidden" name="id" value={selected.id} />
                 <button className="outline-button" disabled={!selected.enabled || !selected.url}>
+                  <Download className="icon" strokeWidth={1.75} aria-hidden="true" />
                   立即采集
                 </button>
               </form>
               <form action={sourceRemoveAction}>
                 <input type="hidden" name="id" value={selected.id} />
-                <button className="quiet-button">删除信源</button>
+                <button className="quiet-button">
+                  <Trash2 className="icon" strokeWidth={1.75} aria-hidden="true" />
+                  删除信源
+                </button>
               </form>
             </div>
             <button className="solid-button" form="source-config-form">
+              <Save className="icon" strokeWidth={1.75} aria-hidden="true" />
               保存
             </button>
           </footer>

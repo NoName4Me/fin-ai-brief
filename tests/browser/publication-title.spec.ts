@@ -53,15 +53,19 @@ test('全文编辑、AI候选确认、修订稿与正式版分离，手机可操
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await expect(page).toHaveURL(/\/admin$/);
     await page.goto('/admin/publications');
+    const readerPagePromise = page.waitForEvent('popup');
     await page.getByRole('link', { name: before.published.title, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/briefs/${before.id}$`));
-    await expect(page.locator('.edition-calendar-day')).toHaveCount(0);
-    const readerTitleFont = await page
+    const readerPage = await readerPagePromise;
+    await expect(readerPage).toHaveURL(new RegExp(`/briefs/${before.id}$`));
+    await expect(readerPage.locator('.edition-calendar-day')).toHaveCount(0);
+    const readerTitleFont = await readerPage
       .locator('.edition-subject h1')
       .evaluate((node) => getComputedStyle(node).fontSize);
+    await readerPage.close();
     await page.goto('/admin/publications');
     await expect(page.getByRole('columnheader')).toHaveText([
-      '出刊日期/期号',
+      '期号',
+      '出刊日期',
       '标题',
       '状态',
       '操作',
@@ -73,6 +77,10 @@ test('全文编辑、AI候选确认、修订稿与正式版分离，手机可操
     await expect(dialog.getByRole('checkbox', { name: '先重新处理资讯' })).toBeVisible();
     await dialog.getByRole('button', { name: '关闭', exact: true }).click();
     await page.getByRole('link', { name: '编辑', exact: true }).click();
+    await expect(page.getByRole('link', { name: '取消', exact: true })).toHaveAttribute(
+      'href',
+      '/admin/publications',
+    );
     await expect(page.getByLabel('要览名称', { exact: true })).toHaveCount(0);
     await expect(page.getByText('资讯1标题', { exact: true })).toHaveCount(0);
     await expect(page.getByText('要览1', { exact: true })).toHaveCount(0);

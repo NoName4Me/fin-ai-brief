@@ -11,6 +11,7 @@ import { taskStamp } from '../../../../server/task-labels.ts';
 import { localDate, validDate, publicationCycle } from '../../../../server/periods.ts';
 import { sourceReviewAction } from '../../../actions.ts';
 import { Notice, type Query } from '../../../../components/notice.tsx';
+import { Save, ArrowLeft, Settings2, ListFilter } from 'lucide-react';
 const verdicts = {
   keep: '保留',
   scope: '调整栏目范围',
@@ -156,9 +157,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
         <>
           <div className="admin-page-actions">
             <Link href={`/admin/sources/monitor?days=${days}`} className="outline-button">
+              <ArrowLeft className="icon" strokeWidth={1.75} aria-hidden="true" />
               全部信源
             </Link>
             <Link href={`/admin/sources?detail=${source}`} className="outline-button">
+              <Settings2 className="icon" strokeWidth={1.75} aria-hidden="true" />
               信源设置
             </Link>
             <Link href={`?source=${source}&view=period&days=${days}`}>近{days}天</Link>
@@ -197,7 +200,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
               placeholder="搜索标题"
               maxLength={200}
             />
-            <button className="solid-button">筛选</button>
+            <button className="solid-button">
+              <ListFilter className="icon" strokeWidth={1.75} aria-hidden="true" />
+              筛选
+            </button>
           </form>
           <div className="table-wrap">
             <table className="discovery-table" aria-label="每日采集明细">
@@ -388,7 +394,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
                 关联原文链接
                 <textarea name="urls" rows={2} />
               </label>
-              <button className="solid-button">保存</button>
+              <button className="solid-button">
+                <Save className="icon" strokeWidth={1.75} aria-hidden="true" />
+                保存
+              </button>
             </form>
             {reviews.rows.map((r) => (
               <div className="source-review" key={r.id}>
@@ -447,7 +456,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
                 defaultValue={search}
                 maxLength={200}
               />
-              <button className="solid-button">筛选</button>
+              <button className="solid-button">
+                <ListFilter className="icon" strokeWidth={1.75} aria-hidden="true" />
+                筛选
+              </button>
             </form>
           </div>
           <div className="monitor-summary">

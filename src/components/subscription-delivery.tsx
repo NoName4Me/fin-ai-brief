@@ -3,13 +3,24 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import {
   addSubscriberAction,
+  cancelSubscriberAction,
+  deleteExpiredSubscriberAction,
   manualDeliveryAction,
   removeSubscriberAction,
+  resendSubscriptionConfirmationAction,
 } from '../app/actions.ts';
 import { GlobalSwitch } from './global-switch.tsx';
 import { SubscriptionTabs } from './admin-page-tabs.tsx';
+import { UserPlus, Send } from 'lucide-react';
 
-type Recipient = { id: string; email: string; kinds: string; active: boolean; createdAt: string };
+type Recipient = {
+  id: string | null;
+  email: string;
+  kinds: string;
+  status: 'registered' | 'unsubscribed' | 'pending' | 'expired';
+  at: string;
+  expiresAt?: string;
+};
 type Issue = { id: string; label: string };
 type Send = {
   id: string;
@@ -66,6 +77,12 @@ const states: Record<string, string> = {
   failed: '发送失败',
   uncertain: '结果待确认',
 };
+const recipientStates: Record<Recipient['status'], string> = {
+  registered: '订阅中',
+  unsubscribed: '已退订',
+  pending: '待确认',
+  expired: '已过期',
+};
 export function SubscriptionDelivery({
   recipients,
   issues,
@@ -84,14 +101,18 @@ export function SubscriptionDelivery({
   const [modal, setModal] = useState<'add' | 'send' | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [briefId, setBriefId] = useState('');
-  const available = recipients.filter((r) => r.active);
+  const available = recipients.filter(
+    (r): r is Recipient & { id: string; status: 'registered' } => r.status === 'registered',
+  );
   return (
     <>
       <div className="subscription-toolbar">
         <button className="solid-button" onClick={() => setModal('add')}>
+          <UserPlus className="icon" strokeWidth={1.75} aria-hidden="true" />
           添加订阅
         </button>
         <button className="outline-button" onClick={() => setModal('send')}>
+          <Send className="icon" strokeWidth={1.75} aria-hidden="true" />
           手动推送
         </button>
         <GlobalSwitch setting="deliveryEnabled" label="启动推送" enabled={deliveryEnabled} />
@@ -106,23 +127,52 @@ export function SubscriptionDelivery({
                 <tr>
                   <th>邮箱</th>
                   <th>订阅类型</th>
-                  <th>订阅时间</th>
+                  <th>记录时间</th>
                   <th>状态</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody>
                 {recipients.map((row) => (
-                  <tr key={row.id}>
+                  <tr key={row.email}>
                     <td>{row.email}</td>
                     <td>{row.kinds}</td>
-                    <td>{row.createdAt}</td>
-                    <td>{row.active ? '已登记' : '已退订'}</td>
+                    <td>{row.at}</td>
                     <td>
-                      <form action={removeSubscriberAction}>
-                        <input type="hidden" name="id" value={row.id} />
-                        <button className="quiet-button">删除登记</button>
-                      </form>
+                      <span className={`subscription-state ${row.status}`}>
+                        {recipientStates[row.status]}
+                      </span>
+                      {row.status === 'pending' && row.expiresAt && (
+                        <p className="form-hint">有效期至 {row.expiresAt}</p>
+                      )}
+                    </td>
+                    <td>
+                      <div className="row-actions subscription-actions">
+                        {row.status === 'registered' && row.id && (
+                          <form action={cancelSubscriberAction}>
+                            <input type="hidden" name="id" value={row.id} />
+                            <button className="quiet-button">取消订阅</button>
+                          </form>
+                        )}
+                        {row.status === 'unsubscribed' && row.id && (
+                          <form action={removeSubscriberAction}>
+                            <input type="hidden" name="id" value={row.id} />
+                            <button className="quiet-button">删除记录</button>
+                          </form>
+                        )}
+                        {(row.status === 'pending' || row.status === 'expired') && (
+                          <form action={resendSubscriptionConfirmationAction}>
+                            <input type="hidden" name="email" value={row.email} />
+                            <button className="quiet-button">重发确认</button>
+                          </form>
+                        )}
+                        {row.status === 'expired' && (
+                          <form action={deleteExpiredSubscriberAction}>
+                            <input type="hidden" name="email" value={row.email} />
+                            <button className="quiet-button">删除记录</button>
+                          </form>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

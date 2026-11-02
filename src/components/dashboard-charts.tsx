@@ -82,7 +82,7 @@ function SubscriptionChart({ data }: { data: ChartData['subscriptions'] }) {
   const plotWidth = width - left - right,
     plotHeight = height - top - bottom;
   const activityMax = Math.max(1, ...data.trend.map((day) => Math.max(day.added, day.cancelled)));
-  const totalMax = Math.max(1, ...data.trend.map((day) => day.total));
+  const totalMax = Math.max(1, ...data.trend.map((day) => Math.max(day.total, day.unconfirmed)));
   const step = plotWidth / data.trend.length;
   const points = data.trend
     .map(
@@ -90,12 +90,18 @@ function SubscriptionChart({ data }: { data: ChartData['subscriptions'] }) {
         `${left + step * (index + 0.5)},${top + plotHeight - (day.total / totalMax) * plotHeight}`,
     )
     .join(' ');
+  const unconfirmedPoints = data.trend
+    .map(
+      (day, index) =>
+        `${left + step * (index + 0.5)},${top + plotHeight - (day.unconfirmed / totalMax) * plotHeight}`,
+    )
+    .join(' ');
   return (
     <svg
       className="dashboard-chart"
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label={`订阅趋势：新增${data.added}，取消${data.cancelled}，净增长${data.net}，当前有效订阅${data.current}`}
+      aria-label={`订阅趋势：新增生效${data.added}，退订${data.cancelled}，净增长${data.net}，当前有效订阅${data.current}，待确认${data.pending}，已过期${data.expired}，未确认合计${data.unconfirmed}`}
     >
       {[0, 0.5, 1].map((value) => (
         <g key={value}>
@@ -142,6 +148,7 @@ function SubscriptionChart({ data }: { data: ChartData['subscriptions'] }) {
         </g>
       ))}
       <polyline points={points} className="subscription-total-line" />
+      <polyline points={unconfirmedPoints} className="subscription-unconfirmed-line" />
     </svg>
   );
 }
@@ -237,24 +244,34 @@ export function DashboardCharts({ data }: { data: ChartData }) {
               期初 <strong>{data.subscriptions.start}</strong>
             </span>
             <span>
-              新增 <strong>{data.subscriptions.added}</strong>
+              新增生效 <strong>{data.subscriptions.added}</strong>
             </span>
             <span>
-              取消 <strong>{data.subscriptions.cancelled}</strong>
+              退订 <strong>{data.subscriptions.cancelled}</strong>
             </span>
             <span>
               净增长 <strong>{data.subscriptions.net}</strong>
             </span>
             <span>
-              当前 <strong>{data.subscriptions.current}</strong>
+              当前有效 <strong>{data.subscriptions.current}</strong>
+            </span>
+            <span>
+              待确认 <strong>{data.subscriptions.pending}</strong>
+            </span>
+            <span>
+              已过期 <strong>{data.subscriptions.expired}</strong>
+            </span>
+            <span>
+              未确认合计 <strong>{data.subscriptions.unconfirmed}</strong>
             </span>
           </div>
           <SubscriptionChart data={data.subscriptions} />
           <p className="chart-legend">
             <i />
-            新增 <i className="cancelled" />
-            取消 <i className="total" />
-            有效总量
+            新增生效 <i className="cancelled" />
+            退订 <i className="total" />
+            有效总量 <i className="unconfirmed" />
+            未确认
           </p>
         </section>
       </div>
