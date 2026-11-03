@@ -141,8 +141,7 @@ export async function executeTask<T>(
           data.id,
         ]);
     }
-    const failureMessage =
-      error instanceof Error ? error.message.slice(0, 1000) : '自动重试失败';
+    const failureMessage = error instanceof Error ? error.message.slice(0, 1000) : '自动重试失败';
     if (retryKey)
       await pool.query(
         "UPDATE processing_steps SET state='failed',finished_at=now(),error=$3 WHERE subject=$1 AND run_key=$2 AND stage='retry'",

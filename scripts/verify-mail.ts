@@ -1,15 +1,23 @@
-import { requireMailConfig } from '../src/server/mail-config.ts';
+import { pool } from '../src/server/db.ts';
+import { getMailConnection } from '../src/server/mail-config.ts';
+import { validateMailConnection } from '../src/server/mail-connection.ts';
 import { createMailTransport } from '../src/server/mail-transport.ts';
 import { mailFailure } from '../src/server/mail-errors.ts';
-// 只检查连接、TLS及认证，不发送邮件，也不修改投递记录。
-requireMailConfig();
-const transport = createMailTransport();
+
+// Connection verification is available while delivery is paused and never sends mail.
+let connection: Awaited<ReturnType<typeof getMailConnection>> | undefined;
 try {
-  await transport.verify();
-  console.log('SMTP连接、加密及账号认证通过（未发送邮件）');
+  connection = validateMailConnection(await getMailConnection());
+  const transport = createMailTransport(connection);
+  try {
+    await transport.verify();
+    console.log('SMTP连接与账号认证通过（未发送邮件）');
+  } finally {
+    transport.close();
+  }
 } catch (error) {
-  console.error(mailFailure(error).error);
+  console.error(mailFailure(error, connection ? [connection.password, connection.user] : []).error);
   process.exitCode = 1;
 } finally {
-  transport.close();
+  await pool.end();
 }

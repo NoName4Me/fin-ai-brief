@@ -517,3 +517,42 @@ export async function sourceReviewAction(form: FormData) {
     revalidatePath('/admin/sources/monitor');
   });
 }
+
+export async function saveMailSettingsAction(form: FormData) {
+  await requireAdmin();
+  try {
+    const { saveMailSettings } = await import('../server/mail-settings.ts');
+    await saveMailSettings(form);
+    revalidatePath('/admin/subscriptions');
+    revalidatePath('/admin/subscriptions/history');
+    return { ok: true, message: '推送配置已保存' };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof z.ZodError
+          ? '请检查配置项的格式'
+          : error instanceof Error
+            ? error.message
+            : '保存失败',
+    };
+  }
+}
+export async function testMailConnectionAction(form: FormData) {
+  await requireAdmin();
+  try {
+    const { testMailConnection } = await import('../server/mail-settings.ts');
+    await testMailConnection(form);
+    return { ok: true, message: '连接与认证通过' };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof z.ZodError
+          ? '请检查配置项的格式'
+          : error instanceof Error
+            ? error.message
+            : '连接失败',
+    };
+  }
+}

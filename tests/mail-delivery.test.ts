@@ -1,3 +1,4 @@
+import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -41,6 +42,7 @@ beforeEach(async () => {
     .values({ briefId, subscriptionId: recipient.id })
     .returning();
   deliveryId = delivery.id;
+  await syncMailSettings();
 });
 after(async () => {
   mock.restoreAll();

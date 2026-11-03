@@ -3,10 +3,10 @@ import type { db } from './db.ts';
 // 与发布同一事务落库；不会因稍后开启发信而补发历史简报。
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export async function createDeliveries(tx: Transaction, briefId: string, kind: string) {
-  if (process.env.MAIL_ENABLED !== 'true' || kind !== 'daily') return;
+  if (kind !== 'daily') return;
   await tx.execute(sql`INSERT INTO deliveries(brief_id,subscription_id)
     SELECT ${briefId}::uuid,id FROM subscriptions
-    WHERE coalesce((SELECT (value->>'deliveryEnabled')::boolean FROM settings WHERE id=1),true)
+    WHERE coalesce((SELECT (value->>'deliveryEnabled')::boolean FROM settings WHERE id=1),false)
       AND active=true AND kinds @> ${JSON.stringify([kind])}::jsonb
     ON CONFLICT(brief_id,subscription_id) DO NOTHING`);
 }

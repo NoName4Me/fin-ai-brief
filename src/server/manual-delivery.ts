@@ -12,7 +12,7 @@ const inputSchema = z.object({
 
 export async function requestManualDelivery(input: unknown) {
   const value = inputSchema.parse(input);
-  requireMailConfig();
+  await requireMailConfig();
   const ids = [...new Set(value.subscriptionIds)];
   return db.transaction(async (tx) => {
     const [config] = await tx.select().from(settings).where(eq(settings.id, 1)).for('share');

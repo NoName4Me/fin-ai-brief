@@ -15,13 +15,14 @@ import { sourcePassages, sourceFactSchema } from './source-evidence.ts';
 import { modelJSON, getModelConnection } from './model.ts';
 import { getSettings } from './settings.ts';
 import { fingerprint, stage } from './processing-log.ts';
+import { previousCoverage } from './editorial-history.ts';
 class EventChanged extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'EventChanged';
   }
 }
-export const PROCESS_VERSION = 'ai-editorial-v7';
+export const PROCESS_VERSION = 'ai-editorial-v8';
 function decisionSchema(passages: ReturnType<typeof sourcePassages>) {
   const selectedDecisionSchema = z.object({
     relevant: z.literal(true),
@@ -43,6 +44,7 @@ function decisionSchema(passages: ReturnType<typeof sourcePassages>) {
         '事实条目最多12条。请筛选、合并为最多12条核心事实，覆盖标题和摘要中的主要陈述；不要逐句罗列全文',
       )
       .default([]),
+    newFactIndexes: z.array(z.number().int().min(0)).max(12).optional(),
     novelty: z.enum(['new', 'update', 'duplicate']).default('new'),
     needsReview: z.boolean().default(false),
     conflict: z.boolean().default(false),
@@ -72,11 +74,20 @@ function decisionSchema(passages: ReturnType<typeof sourcePassages>) {
   );
 }
 export function recallScore(a: string, b: string) {
-  const tokens = (s: string) =>
-    new Set(s.toLowerCase().match(/[a-z0-9]{2,}|[\u4e00-\u9fff]{2}/g) ?? []);
+  const tokens = (value: string) => {
+    const normalized = value.normalize('NFKC').toLowerCase();
+    const terms: string[] = normalized.match(/[a-z][a-z0-9-]+|[0-9]+(?:\.[0-9]+)?/g) ?? [];
+    for (const run of normalized.match(/[\u4e00-\u9fff]+/g) ?? [])
+      for (let i = 0; i < run.length - 1; i++) terms.push(run.slice(i, i + 2));
+    return new Set(terms);
+  };
   const left = tokens(a),
     right = tokens(b);
-  return [...left].filter((t) => right.has(t)).length;
+  let overlap = 0;
+  for (const token of left) if (right.has(token)) overlap += /^[a-z0-9]/.test(token) ? 5 : 1;
+  const weight = (terms: Set<string>) =>
+    [...terms].reduce((n, t) => n + (/^[a-z0-9]/.test(t) ? 5 : 1), 0);
+  return overlap / Math.sqrt(Math.max(1, weight(left) * weight(right)));
 }
 export async function processArticle(id: string, reprocessBatchId?: string) {
   const [article] = await db.select().from(articles).where(eq(articles.id, id));
@@ -138,8 +149,7 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
           gte(events.updatedAt, new Date(Date.now() - 14 * 86400_000)),
         ),
       )
-      .orderBy(desc(events.updatedAt))
-      .limit(80);
+      .orderBy(desc(events.updatedAt));
     return recent
       .map((e) => ({
         ...e,
@@ -148,12 +158,18 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, 12);
   });
+  const history = await previousCoverage(article.publishedAt);
+  const candidateFacts = await pool.query<{ event_id: string; facts: unknown }>(
+    `SELECT event_id,facts FROM event_developments WHERE event_id=ANY($1::uuid[])
+      AND happened_at <= $2 ORDER BY happened_at DESC,created_at DESC`,
+    [candidates.map((e) => e.id), article.publishedAt],
+  );
   const passages = sourcePassages(article.excerpt);
   const decision = await stage(subject, runKey, 'analyze', async () => {
     const value = await modelJSON(
       'article',
       `你是数智参阅编辑。一次完成AI实质关联筛选、可配置指标评分、事实提取、中文标题摘要、全局事件归组。输入只有来源摘要，不得补写未提供事实。榜单快照按采集时点陈述，采集时间不是模型或项目发布时间；首次快照不能推断新上榜或排名升降。${config.editorialPrompt}
-关键词仅用于召回线索，不能凭命中关键词收录，也不能漏掉不含这些词的重要AI内容。普通金融新闻和泛数字化不收。纯营销、没有实质事实、标题与材料不符或无法追溯来源的低质量材料输出relevant:false并给出具体原因；有真实新增事实的机构公告不因其机构自述身份直接淘汰。先检查来源与证据，再评分。${ratingInstructionsFor(config.ratingRules)}只使用给定栏目，按sectionRules的description判断归属，它们是该信源允许参与的栏目；不属于任何允许栏目时输出relevant:false并说明“超出信源栏目范围”，不能强行归类。section是单选栏目名。媒体传闻、匿名消息、厂商自述保留归属和不确定性。existingEventId只能是给定候选ID，同公司不代表同事件。facts逐项给出statement、evidenceIds、status(confirmed/announced/planned/claim/rumor)、entities；evidenceIds只能选择article.passages中的原文编号，例如["S1"]；每条最多引用4段。不要返回evidence或自行抄写原文，系统会按编号提取原文。事实陈述必须得到所选原文支持，保留预计、传闻和厂商自述等限定。仅选取最多12条核心事实，覆盖标题和摘要中的主要陈述；相近事实合并，不要逐句罗列全文，相关资讯至少一条事实；事实不足不要编造。不相关输出{"relevant":false,"reason":"具体原因"}。相关输出必须严格遵守此结构，scoreReason与assessment同级：{"relevant":true,"title":"中文标题","summary":"中文摘要","section":"单个栏目名","assessment":{"指标ID":{"score":1,"reason":"具体理由"}},"scoreReason":"评分总述","existingEventId":null,"facts":[{"statement":"事实陈述","evidenceIds":["S1"],"status":"announced","entities":[]}],"novelty":"new","needsReview":false,"conflict":false}。重复报道标duplicate；有冲突或归属不确定标needsReview。合并新进展时summary保留重要前情。`,
+关键词仅用于召回线索，不能凭命中关键词收录，也不能漏掉不含这些词的重要AI内容。普通金融新闻和泛数字化不收。纯营销、没有实质事实、标题与材料不符或无法追溯来源的低质量材料输出relevant:false并给出具体原因；有真实新增事实的机构公告不因其机构自述身份直接淘汰。先检查来源与证据，再评分。${ratingInstructionsFor(config.ratingRules)}只使用给定栏目，按sectionRules的description判断归属，它们是该信源允许参与的栏目；不属于任何允许栏目时输出relevant:false并说明“超出信源栏目范围”，不能强行归类。section是单选栏目名。媒体传闻、匿名消息、厂商自述保留归属和不确定性。existingEventId只能是给定候选ID，同公司不代表同事件。facts逐项给出statement、evidenceIds、status(confirmed/announced/planned/claim/rumor)、entities；evidenceIds只能选择article.passages中的原文编号，例如["S1"]；每条最多引用4段。不要返回evidence或自行抄写原文，系统会按编号提取原文。事实陈述必须得到所选原文支持，保留预计、传闻和厂商自述等限定。仅选取最多12条核心事实，覆盖标题和摘要中的主要陈述；相近事实合并，不要逐句罗列全文，相关资讯至少一条事实；事实不足不要编造。不相关输出{"relevant":false,"reason":"具体原因"}。相关输出必须严格遵守此结构，scoreReason与assessment同级：{"relevant":true,"title":"中文标题","summary":"中文摘要","section":"单个栏目名","assessment":{"指标ID":{"score":1,"reason":"具体理由"}},"scoreReason":"评分总述","existingEventId":null,"facts":[{"statement":"事实陈述","evidenceIds":["S1"],"status":"announced","entities":[]}],"novelty":"new","newFactIndexes":[0],"needsReview":false,"conflict":false}。对照candidates中的knownFacts与previousCoverage判断事实增量。报道日期变新、换媒体、改写标题、重述融资金额和评级、泛泛风险评论均不构成新进展。facts保留本篇核心事实；newFactIndexes返回真正新增事实在facts中的零起始索引，排除历史背景与已知事实。没有新增事实必须引用旧事件并标duplicate，newFactIndexes为[]；有新增事实归入旧事件标update，只选新增事实索引。只有不同具体事项才能新建事件；不能因为报道增加背景或覆盖多家公司就把同一交易重新建档。重复报道标duplicate；有冲突或归属不确定标needsReview。合并新进展时summary保留重要前情。`,
       {
         industry,
         sectionRules,
@@ -170,7 +186,13 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
           publishedPrecision: article.publishedPrecision,
           provenance: article.provenance,
         },
-        candidates: candidates.map((e) => ({ id: e.id, title: e.title, summary: e.summary })),
+        previousCoverage: history,
+        candidates: candidates.map((e) => ({
+          id: e.id,
+          title: e.title,
+          summary: e.summary,
+          knownFacts: candidateFacts.rows.filter((d) => d.event_id === e.id).map((d) => d.facts),
+        })),
       },
       decisionSchema(passages).superRefine((value, ctx) => {
         if (!value.relevant) return;
@@ -184,6 +206,26 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
           ctx.addIssue({ code: 'custom', message: '模型返回了未配置栏目' });
         if (value.existingEventId && !candidates.some((e) => e.id === value.existingEventId))
           ctx.addIssue({ code: 'custom', message: '模型返回了无效事件引用' });
+        if (value.existingEventId && value.novelty !== 'duplicate' && !value.newFactIndexes)
+          ctx.addIssue({
+            code: 'custom',
+            message: '后续进展必须返回newFactIndexes，明确指出本次新增事实',
+          });
+        if (value.newFactIndexes) {
+          if (
+            new Set(value.newFactIndexes).size !== value.newFactIndexes.length ||
+            value.newFactIndexes.some((i) => i >= value.facts.length)
+          )
+            ctx.addIssue({ code: 'custom', message: '新增事实索引重复或超出facts范围' });
+          if (
+            value.existingEventId &&
+            value.novelty !== 'duplicate' &&
+            !value.newFactIndexes.length
+          )
+            ctx.addIssue({ code: 'custom', message: '无新增事实应标duplicate，不得创建新进展' });
+          if (value.novelty === 'duplicate' && value.newFactIndexes.length)
+            ctx.addIssue({ code: 'custom', message: '重复报道的newFactIndexes必须为空' });
+        }
         if (!value.facts.length)
           ctx.addIssue({ code: 'custom', message: '相关资讯缺少可追溯事实' });
         if (value.novelty === 'duplicate' && !value.existingEventId)
@@ -273,8 +315,10 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
                 entities: [],
               },
             ];
+        const developmentFacts =
+          target && decision.newFactIndexes ? decision.newFactIndexes.map((i) => facts[i]) : facts;
         const factHash = fingerprint(
-          facts
+          developmentFacts
             .map((f) => ({
               statement: f.statement.replace(/[\s，。；、,.]/g, ''),
               status: f.status,
@@ -393,7 +437,7 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
             tags: snapshot.tags,
           };
           await tx.execute(
-            sql`INSERT INTO event_developments(event_id,article_id,fact_hash,facts,happened_at,editorial) VALUES(${eventId},${id},${factHash},${JSON.stringify(facts)}::jsonb,${article.publishedAt.toISOString()}::timestamptz,${JSON.stringify(editorial)}::jsonb) ON CONFLICT DO NOTHING`,
+            sql`INSERT INTO event_developments(event_id,article_id,fact_hash,facts,happened_at,editorial) VALUES(${eventId},${id},${factHash},${JSON.stringify(developmentFacts)}::jsonb,${article.publishedAt.toISOString()}::timestamptz,${JSON.stringify(editorial)}::jsonb) ON CONFLICT DO NOTHING`,
           );
           await tx.execute(sql`INSERT INTO news_changes(event_id) VALUES(${eventId})`);
         }

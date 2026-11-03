@@ -1,3 +1,4 @@
+import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import nodemailer from 'nodemailer';
@@ -38,6 +39,7 @@ beforeEach(async () => {
     },
     close: () => {},
   }));
+  await syncMailSettings();
 });
 after(async () => {
   mock.restoreAll();

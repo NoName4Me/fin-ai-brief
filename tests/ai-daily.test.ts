@@ -1,3 +1,4 @@
+import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -81,6 +82,7 @@ beforeEach(async () => {
   process.env.LLM_MODEL = 'test';
   process.env.APP_SECRET = 'test-secret-at-least-thirty-two-characters';
   globalThis.fetch = async (_url, init) => reply(written(inputFrom(init)));
+  await syncMailSettings();
 });
 after(async () => {
   globalThis.fetch = originalFetch;
@@ -261,6 +263,7 @@ test('不同旧行业来源共享事件归组，保存五维分数并忽略旧�
         },
       ],
       novelty: 'update',
+      newFactIndexes: [0],
     });
   await processArticle(article.id);
   const saved = await pool.query('SELECT event_id,assessment FROM articles WHERE id=$1', [
@@ -392,6 +395,7 @@ test('日报按当期事实快照取材，包含起点排除终点及未来状�
 test('人工审核阻断网页和投递，发布后同步记录且修订不重复发送', async () => {
   await seed();
   process.env.MAIL_ENABLED = 'true';
+  await syncMailSettings();
   await subscribe({ email: 'qa@example.invalid', kinds: ['daily'] });
   const saved = await generateBrief('daily', '2026-10-22');
   assert.equal(await publishedBrief(saved.id), undefined);
@@ -575,6 +579,7 @@ test('新版补刊始终待审且不自动推送，普通修订也不补发', as
   await seed();
   await saveSettings({ ...(await getSettings()), autoPublish: true });
   process.env.MAIL_ENABLED = 'true';
+  await syncMailSettings();
   await subscribe({ email: 'backfill@example.invalid', kinds: ['daily'] });
   const result = await runGeneration(randomUUID(), {
     kind: 'daily',
@@ -593,6 +598,7 @@ test('新版补刊始终待审且不自动推送，普通修订也不补发', as
 test('重处理后的日报更新仍遵循人工审核开关', async () => {
   await seed();
   process.env.MAIL_ENABLED = 'true';
+  await syncMailSettings();
   await subscribe({ email: 'review-replay@example.invalid', kinds: ['daily'] });
   const result = await runGeneration(randomUUID(), {
     kind: 'daily',
@@ -740,4 +746,41 @@ test('要览错误ID重试仅重做要览，候选只含达标正文', async () 
   assert.equal(calls.get('本期标题'), 1);
   assert.equal(calls.get('今日要览'), 3);
   assert.equal(saved.draft!.highlights!.length, 1);
+});
+
+test('正文、要览和标题均收到此前已刊内容，排除未来刊期', async () => {
+  const { id } = await seed('2026-10-31T04:00:00Z', topAssessment, '资本与项目', 'ai');
+  const oldContent = {
+    title: 'Anthropic完成630亿美元融资',
+    items: [
+      { eventId: randomUUID(), title: 'Anthropic完成630亿美元融资', summary: '黑石安排融资。' },
+    ],
+    highlights: [],
+  };
+  await pool.query(
+    "INSERT INTO briefs(kind,period_date,published,published_at) VALUES('daily','2026-10-30',$1,'2026-10-30T00:00:00Z')",
+    [JSON.stringify(oldContent)],
+  );
+  await pool.query(
+    "INSERT INTO briefs(kind,period_date,published,published_at) VALUES('daily','2026-11-03',$1,'2026-11-03T00:00:00Z')",
+    [JSON.stringify({ ...oldContent, title: '未来刊期' })],
+  );
+  const stages: string[] = [];
+  globalThis.fetch = async (_url, init) => {
+    const request = JSON.parse(String(init?.body));
+    const input = JSON.parse(request.messages[1].content);
+    assert.equal(input.previousCoverage.length, 1);
+    assert.equal(input.previousCoverage[0].title, oldContent.title);
+    assert.ok(request.messages[0].content.includes('已刊融资金额'));
+    stages.push(request.messages[0].content);
+    return reply({
+      ...written(input),
+      items: [{ eventId: id, title: '融资条件补充披露', summary: '贷款依赖设备残值支持。' }],
+      highlights: [{ eventId: id, text: '贷款依赖设备残值支持。' }],
+      title: 'Anthropic融资披露设备残值支持',
+    });
+  };
+  const result = await generateBrief('daily', '2026-11-01');
+  assert.ok(result);
+  assert.equal(stages.length, 3);
 });

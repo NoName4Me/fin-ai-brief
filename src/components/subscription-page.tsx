@@ -4,7 +4,7 @@ import { briefs, deliveries, subscriptionConfirmations, subscriptions } from '..
 import { getSettings } from '../server/settings.ts';
 import { kindNames, type Kind } from '../server/types.ts';
 import { taskStamp } from '../server/task-labels.ts';
-import { mailConfigError } from '../server/mail-config.ts';
+import { getMailConnection, mailConfigError } from '../server/mail-config.ts';
 import { cleanBriefTitle } from '../server/brief-title.ts';
 import { SubscriptionDelivery } from './subscription-delivery.tsx';
 import { Notice, type Query } from './notice.tsx';
@@ -59,6 +59,8 @@ export async function SubscriptionPage({
       : Promise.resolve([]),
     getSettings(),
   ]);
+  const { password, ...connection } = await getMailConnection();
+  const configError = await mailConfigError();
   const now = new Date();
   const recipients = new Map<
     string,
@@ -99,7 +101,8 @@ export async function SubscriptionPage({
       <SubscriptionDelivery
         active={active}
         deliveryEnabled={config.deliveryEnabled}
-        configError={mailConfigError()}
+        configError={configError}
+        mailConnection={{ ...connection, passwordConfigured: !!password }}
         recipients={[...recipients.values()]
           .sort((a, b) => b.at.getTime() - a.at.getTime())
           .map((row) => ({

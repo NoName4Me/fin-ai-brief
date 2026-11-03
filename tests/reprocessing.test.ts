@@ -1,3 +1,4 @@
+import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -47,6 +48,7 @@ beforeEach(async () => {
   globalThis.fetch = async () => {
     throw new Error('创建和调度批次不能直接请求模型');
   };
+  await syncMailSettings();
 });
 after(async () => {
   globalThis.fetch = originalFetch;
@@ -169,6 +171,7 @@ test('真实队列消费者完成重处理、归组与日报更新，原刊保�
   await article();
   await article('普通金融消息');
   process.env.MAIL_ENABLED = 'true';
+  await syncMailSettings();
   await subscribe({ email: 'replay@example.invalid', kinds: ['daily'] });
   const assessment = Object.fromEntries(
     ['relevance', 'impact', 'timeliness', 'actionability', 'novelty'].map((k) => [

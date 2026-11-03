@@ -11,7 +11,9 @@ import {
 } from '../app/actions.ts';
 import { GlobalSwitch } from './global-switch.tsx';
 import { SubscriptionTabs } from './admin-page-tabs.tsx';
-import { UserPlus, Send } from 'lucide-react';
+import { MailSettingsForm } from './mail-settings-form.tsx';
+import type { PublicMailConnection } from '../server/mail-connection.ts';
+import { UserPlus, Send, Settings } from 'lucide-react';
 
 type Recipient = {
   id: string | null;
@@ -88,6 +90,7 @@ export function SubscriptionDelivery({
   issues,
   sends,
   configError,
+  mailConnection,
   deliveryEnabled,
   active,
 }: {
@@ -95,10 +98,11 @@ export function SubscriptionDelivery({
   issues: Issue[];
   sends: Send[];
   configError: string | null;
+  mailConnection: PublicMailConnection;
   deliveryEnabled: boolean;
   active: 'subscribers' | 'history';
 }) {
-  const [modal, setModal] = useState<'add' | 'send' | null>(null);
+  const [modal, setModal] = useState<'add' | 'send' | 'config' | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [briefId, setBriefId] = useState('');
   const available = recipients.filter(
@@ -115,9 +119,18 @@ export function SubscriptionDelivery({
           <Send className="icon" strokeWidth={1.75} aria-hidden="true" />
           手动推送
         </button>
+        <button className="outline-button" onClick={() => setModal('config')}>
+          <Settings className="icon" strokeWidth={1.75} aria-hidden="true" />
+          推送配置
+        </button>
         <GlobalSwitch setting="deliveryEnabled" label="启动推送" enabled={deliveryEnabled} />
       </div>
       {deliveryEnabled && configError && <p className="form-hint">发信配置未就绪</p>}
+      {modal === 'config' && (
+        <Modal title="推送配置" close={() => setModal(null)}>
+          <MailSettingsForm connection={mailConnection} onSaved={() => setModal(null)} />
+        </Modal>
+      )}
       <SubscriptionTabs active={active} />
       {active === 'subscribers' ? (
         <>

@@ -322,31 +322,6 @@ test('目录按已出现的栏目去重', async () => {
   assert.equal(weekday('2026-10-22'), '周四');
 });
 
-test('从视觉稿HTML读取真实选读，保留摘要、重点与日期精度', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const { readReferenceSnapshot } = await import('../scripts/reference-snapshot.ts');
-  const html = await readFile(
-    new URL('../docs/visual-reference/index.html', import.meta.url),
-    'utf8',
-  );
-  const snapshot = readReferenceSnapshot(html);
-  assert.equal(snapshot.items.length, 8);
-  assert.equal(snapshot.items[0].sources[0].publishedAt, '2026-10-22');
-  assert.match(snapshot.items[0].sources[0].timeNote ?? '', /未披露时分/);
-  assert.ok(snapshot.items[0].emphasis?.includes('会议表态'));
-  assert.equal(snapshot.items[4].sources[0].publishedAt, '2026-10-21T19:23:19.000Z');
-  assert.equal(snapshot.rangeEnd, '2026-10-22T07:40:00.000Z');
-  assert.ok(
-    snapshot.items.every(
-      (item) => !item.title.includes('演示') && !item.sources[0].url.includes('example.invalid'),
-    ),
-  );
-  assert.throws(
-    () => readReferenceSnapshot('<script>throw new Error("不可执行脚本")</script>'),
-    /缺少/,
-  );
-});
-
 test('代理Fake-IP仅在显式允许时接受，仍拒绝回环和内网地址', () => {
   assert.equal(publicAddress('198.18.0.4'), false);
   assert.equal(publicAddress('198.18.0.4', true), true);

@@ -1,3 +1,4 @@
+import { mailConnectionSchema } from './mail-connection.ts';
 import { defaultTitlePrompt } from './title-writing.ts';
 import { z } from 'zod';
 import { cleanBriefTitle } from './brief-title.ts';
@@ -205,7 +206,8 @@ export const settingsSchema = z.preprocess(
       taskRetryLimit: z.number().int().min(0).max(3).default(1),
       processingConcurrency: z.number().int().min(1).max(20).default(3),
       collectionEnabled: z.boolean().default(false),
-      deliveryEnabled: z.boolean().default(true),
+      deliveryEnabled: z.boolean().default(false),
+      mailConnection: mailConnectionSchema.optional(),
       financeSummaryMaxLength: z.number().int().min(1).max(1000).default(140),
       financeOverviewMaxLength: z.number().int().min(1).max(1000).default(120),
       briefLengthTolerancePercent: z.number().int().min(0).max(50).default(10),
@@ -299,7 +301,7 @@ export const defaultSettings: Settings = {
   weeklyDay: 1,
   monthlyDay: 1,
   collectionEnabled: false,
-  deliveryEnabled: true,
+  deliveryEnabled: false,
   startDate: new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10),
   reviewEnabled: true,
   processingModel: '',

@@ -1,3 +1,4 @@
+import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { migrate } from '../scripts/migrate.ts';
@@ -22,6 +23,7 @@ beforeEach(async () => {
   process.env.LLM_API_KEY = 'test';
   process.env.LLM_BASE_URL = 'http://model.invalid/v1';
   process.env.LLM_MODEL = 'test';
+  await syncMailSettings();
 });
 after(async () => {
   globalThis.fetch = originalFetch;

@@ -1,5 +1,5 @@
 type SmtpError = { code?: string; command?: string; responseCode?: number; message?: string };
-export function mailFailure(error: unknown) {
+export function mailFailure(error: unknown, secrets: string[] = []) {
   const value = (error && typeof error === 'object' ? error : {}) as SmtpError;
   const command = String(value.command ?? '').toUpperCase();
   // 仅在确定没有提交邮件，或服务器明确拒收时，认定发送失败。
@@ -9,7 +9,7 @@ export function mailFailure(error: unknown) {
   const rejected = Number(value.responseCode) >= 400 && Number(value.responseCode) < 600;
   const state = beforeSubmission || rejected || value.code === 'EAUTH' ? 'failed' : 'uncertain';
   let message = String(value.message ?? '未知发送错误');
-  for (const secret of [process.env.SMTP_PASSWORD, process.env.SMTP_USER]) {
+  for (const secret of secrets) {
     if (!secret) continue;
     for (const text of [secret, Buffer.from(secret).toString('base64'), encodeURIComponent(secret)])
       message = message.split(text).join('<REDACTED>');

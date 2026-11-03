@@ -13,7 +13,7 @@ import { renderEmail } from './mail-template.ts';
 import { type Kind } from './types.ts';
 export async function deliver(id: string) {
   if (!(await getSettings()).deliveryEnabled) return;
-  requireMailConfig();
+  const connection = await requireMailConfig();
   const [row] = await db.select().from(deliveries).where(eq(deliveries.id, id));
   if (!row || row.state !== 'pending') return;
   const [recipient] = await db
@@ -44,10 +44,10 @@ export async function deliver(id: string) {
       .where(and(eq(deliveries.id, id), eq(deliveries.state, 'sending')));
     return;
   }
-  const transport = createMailTransport();
+  const transport = createMailTransport(connection);
   try {
     await transport.sendMail({
-      from: process.env.MAIL_FROM,
+      from: connection.from,
       to: recipient.email,
       subject: `《数智参阅》${brief.issueNumber ? `第${String(brief.issueNumber).padStart(3, '0')}期` : ''}｜${brief.content.title}`,
       messageId: `<${row.id}.${randomUUID()}@${new URL(base).hostname}>`,
@@ -77,7 +77,7 @@ export async function deliver(id: string) {
       .set({ state: 'sent', sentAt: new Date(), error: null })
       .where(eq(deliveries.id, id));
   } catch (error) {
-    const failure = mailFailure(error);
+    const failure = mailFailure(error, [connection.password, connection.user]);
     await db.update(deliveries).set(failure).where(eq(deliveries.id, id));
     throw new Error(failure.error);
   } finally {

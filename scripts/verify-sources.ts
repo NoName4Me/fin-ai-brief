@@ -1,7 +1,7 @@
 import { pool } from '../src/server/db.ts';
 import { verifySource } from '../src/server/source-verification.ts';
 const { rows } = await pool.query<{ id: string; name: string }>(
-  "SELECT id,name FROM sources WHERE catalog_key IS NOT NULL AND NOT enabled AND verification_status='pending' ORDER BY priority,catalog_key",
+  "SELECT id,name FROM sources WHERE NOT enabled AND verification_status='pending' ORDER BY sort_order,name",
 );
 const counts: Record<string, number> = {};
 let cursor = 0;

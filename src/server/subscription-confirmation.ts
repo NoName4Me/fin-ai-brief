@@ -17,10 +17,11 @@ const emailInput = z
 async function sendConfirmationMail(email: string, token: string) {
   const url = new URL('/subscribe/confirm', process.env.SITE_URL!);
   url.searchParams.set('token', token);
-  const transport = createMailTransport();
+  const connection = await requireMailConfig();
+  const transport = createMailTransport(connection);
   try {
     await transport.sendMail({
-      from: process.env.MAIL_FROM,
+      from: connection.from,
       to: email,
       subject: '《数智参阅》请确认邮箱订阅',
       html: renderSubscriptionConfirmation(url.href),
@@ -33,7 +34,7 @@ async function sendConfirmationMail(email: string, token: string) {
 
 export async function requestSubscription(input: unknown, now = new Date()) {
   const value = subscriptionInput.parse(input);
-  requireMailConfig();
+  await requireMailConfig();
   const [existing] = await db
     .select()
     .from(subscriptions)
@@ -74,7 +75,7 @@ export async function requestSubscription(input: unknown, now = new Date()) {
 
 export async function resendSubscriptionConfirmation(email: string, now = new Date()) {
   const normalized = emailInput.parse(email);
-  requireMailConfig();
+  await requireMailConfig();
   const [[existing], [confirmation]] = await Promise.all([
     db.select().from(subscriptions).where(eq(subscriptions.email, normalized)),
     db

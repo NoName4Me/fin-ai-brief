@@ -1,3 +1,4 @@
+import { mailConnectionFromEnvironment } from '../src/server/mail-connection.ts';
 import { readdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { pool } from '../src/server/db.ts';
@@ -49,6 +50,13 @@ export async function migrate() {
           model: process.env.LLM_MODEL?.trim() ?? '',
         }),
       ],
+    );
+    await client.query(
+      `UPDATE settings SET value=value || jsonb_build_object(
+        'mailConnection',$1::jsonb,
+        'deliveryEnabled',coalesce((value->>'deliveryEnabled')::boolean,true) AND $2::boolean
+      ) WHERE id=1 AND NOT value ? 'mailConnection'`,
+      [JSON.stringify(mailConnectionFromEnvironment()), process.env.MAIL_ENABLED === 'true'],
     );
   } finally {
     await client.query('SELECT pg_advisory_unlock(76140501)');

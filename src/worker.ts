@@ -106,7 +106,7 @@ async function tick() {
         await enqueue('generate', period, `${period.kind}:${period.date}`);
     }
   }
-  if (process.env.MAIL_ENABLED === 'true' && config.deliveryEnabled) {
+  if (config.deliveryEnabled) {
     const pending = await db
       .select()
       .from(deliveries)

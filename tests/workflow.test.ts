@@ -1,3 +1,4 @@
+import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { eq } from 'drizzle-orm';
@@ -103,6 +104,7 @@ beforeEach(async () => {
         usage: { prompt_tokens: 12, completion_tokens: 20 },
       }),
     );
+  await syncMailSettings();
 });
 test('关闭自动发布时草稿不出现在任何正式简报读取中；审核后可见', async () => {
   const row = await generateBrief('daily', '2026-10-22');
@@ -260,6 +262,7 @@ test('手工导入按规范化URL去重，模型归入已有事件', async () =>
                 tags: [],
                 facts: [{ statement: '摘要', evidenceIds: ['S1'], status: 'claim', entities: [] }],
                 existingEventId: ids[4],
+                newFactIndexes: [0],
               }),
             },
           },
@@ -294,6 +297,7 @@ test('订阅去重不泄露凭据或修改偏好，退订幂等', async () => {
 });
 test('首次发布创建投递，重出不重发，即使投递记录已清理', async () => {
   process.env.MAIL_ENABLED = 'true';
+  await syncMailSettings();
   await subscribe({ email: 'one@example.com', kinds: ['daily'] });
   const token = await subscribe({ email: 'two@example.com', kinds: ['daily'] });
   await unsubscribe(token!);
@@ -314,6 +318,7 @@ test('关闭发信时发布的简报，之后重出也不会补发', async () =>
   const row = await generateBrief('daily', '2026-10-22');
   await publishBrief(row.id);
   process.env.MAIL_ENABLED = 'true';
+  await syncMailSettings();
   await generateBrief('daily', '2026-10-22');
   await publishBrief(row.id);
   assert.equal((await db.select().from(deliveries)).length, 0);
@@ -322,6 +327,7 @@ test('关闭发信时发布的简报，之后重出也不会补发', async () =>
 test('补刊任务忽略自动发布设置，审核发布及后续重出均不自动推送', async () => {
   await saveSettings({ ...defaultSettings, autoPublish: true });
   process.env.MAIL_ENABLED = 'true';
+  await syncMailSettings();
   await subscribe({ email: 'one@example.com', kinds: ['daily'] });
   const result = await generateBrief('daily', '2026-10-22', undefined, { backfill: true });
   assert.ok('id' in result);
@@ -595,6 +601,7 @@ test('复核失败后仅重试复核，主处理结果复用；不同意合并�
       facts: [{ statement: excerpt, evidenceIds: ['S1'], status: 'planned', entities: ['机构'] }],
       needsReview: true,
       novelty: 'update',
+      newFactIndexes: [0],
     });
   };
   await assert.rejects(processArticle(row.id), /HTTP 503/);
@@ -840,6 +847,7 @@ test('并发更新同一事件时检测过期摘要，重试重新召回而不�
       tags: [],
       existingEventId: ids[4],
       novelty: 'update',
+      newFactIndexes: [0],
       facts: [
         {
           statement: input.article.passages.map((p: { text: string }) => p.text).join(''),

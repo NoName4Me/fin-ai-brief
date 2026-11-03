@@ -1,3 +1,4 @@
+import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -120,6 +121,7 @@ beforeEach(async () => {
       }),
     );
   };
+  await syncMailSettings();
 });
 
 test('周报按周内事实选题，采用当期评分与分类，不带入未来摘要；重复报道保留来源', async () => {

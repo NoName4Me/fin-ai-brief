@@ -1,3 +1,4 @@
+import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -31,6 +32,7 @@ beforeEach(async () => {
   await db
     .insert(briefs)
     .values({ id: briefId, kind: 'daily', periodDate: '2026-10-22', published: fixtureContent() });
+  await syncMailSettings();
 });
 after(async () => {
   await pool.end();
@@ -81,11 +83,15 @@ test('发信未开启或配置不全不会入队', async () => {
   const a = await recipient('one@example.invalid');
   const input = { briefId, subscriptionIds: [a.id] };
   process.env.MAIL_ENABLED = 'false';
-  await assert.rejects(requestManualDelivery(input), /尚未启用/);
+  await syncMailSettings();
+  await assert.rejects(requestManualDelivery(input), /推送已暂停/);
   process.env.MAIL_ENABLED = 'true';
+  await syncMailSettings();
   process.env.SMTP_HOST = '';
-  await assert.rejects(requestManualDelivery(input), /SMTP_HOST/);
+  await syncMailSettings();
+  await assert.rejects(requestManualDelivery(input), /SMTP 地址/);
   process.env.SMTP_HOST = 'https://cmail.example.invalid';
+  await syncMailSettings();
   await assert.rejects(requestManualDelivery(input), /域名/);
   assert.equal((await db.select().from(deliveries)).length, 0);
 });

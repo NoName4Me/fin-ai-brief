@@ -13,6 +13,7 @@ import { fingerprint, BudgetWait } from './processing-log.ts';
 import { persistBrief, PendingArticles } from './briefs.ts';
 import { dailyLengthRepair } from './daily-length.ts';
 import { dailyTitleRequest } from './daily-title.ts';
+import { previousCoverage, followupWritingRule } from './editorial-history.ts';
 import { dailyRotationRequest } from './daily-rotation.ts';
 
 const writtenSchema = z.object({
@@ -64,6 +65,7 @@ async function prepareDaily(date: string) {
   );
   if (unfinished.rows.length)
     throw new PendingArticles('统计时段内仍有资讯待处理，请处理完成后再生成');
+  const history = await previousCoverage(range.end);
   const sections = fixedSections(config.sections);
   const material = await weeklyMaterials(range, 0, 1000, config);
   // Only assessments saved with a development belong to that historical cutoff.
@@ -132,7 +134,7 @@ async function prepareDaily(date: string) {
       return { ...rule, materials };
     }),
   );
-  const system = `你是数智参阅编辑。${config.editorialPrompt}榜单快照按采集时点陈述，不能当作模型或项目在当日发布；首次快照不推断排名变化。 只使用提供的材料，不添加外部事实或投资建议。区分计划、研究结果、机构自述与已证实事实。
+  const system = `你是数智参阅编辑。${config.editorialPrompt}榜单快照按采集时点陈述，不能当作模型或项目在当日发布；首次快照不推断排名变化。 只使用提供的材料，不添加外部事实或投资建议。区分计划、研究结果、机构自述与已证实事实。${followupWritingRule}
 输出{title,items:[{eventId,title,summary}],highlights:[{eventId,text}],rotations:[{name,text,eventIds}]}。
 title不重复刊名，不添加“数智参阅｜”前缀，最多${config.briefTitleMaxLength}字。items必须覆盖给定当日selected事件且各一次，不增加或删除事件。每个栏目遵守其description。每个栏目内title+summary合计不得超过budget字，按selected每条maxLength控制标题与摘要合计字数（含标点、数字与英文字符）。短刊允许少于条数目标，不凑稿。不强求行动建议。
 highlights${config.highlightsEnabled && !config.highlightsDeleted ? `是“${config.highlightsName}”，只从当日items中rating>=${highlightRating}的事件选${config.highlightsMinItems}至${config.highlightsMaxItems}条，总计不超过${config.highlightsBudget}字。${config.highlightsPrompt}` : '已关闭，必须输出空数组'}。不足时少选，不凑条数。不得编造事件ID。
@@ -140,6 +142,7 @@ highlights${config.highlightsEnabled && !config.highlightsDeleted ? `是“${con
   const input = {
     titleWriting: { maxLength: config.briefTitleMaxLength, prompt: config.briefTitlePrompt },
     date,
+    previousCoverage: history,
     range,
     sections,
     ratingRules: config.ratingRules,
@@ -266,8 +269,13 @@ async function writeDaily(p: Awaited<ReturnType<typeof prepareDaily>>, preview =
     });
     const result = await run(
       section.name,
-      `你是数智参阅编辑。${p.config.editorialPrompt}只使用给定材料，保留事实归属与不确定性。输出{items:[{eventId,title,summary}]}。必须覆盖selected且各一次，严格复制eventId。遵守栏目description和budget，标题与摘要含标点、英文字符合计按每条maxLength控制。榜单采集时间不代表发布或排名变化。`,
-      { date: p.input.date, sections: [section], selected },
+      `你是数智参阅编辑。${p.config.editorialPrompt}只使用给定材料，保留事实归属与不确定性。输出{items:[{eventId,title,summary}]}。必须覆盖selected且各一次，严格复制eventId。遵守栏目description和budget，标题与摘要含标点、英文字符合计按每条maxLength控制。榜单采集时间不代表发布或排名变化。${followupWritingRule}`,
+      {
+        date: p.input.date,
+        sections: [section],
+        selected,
+        previousCoverage: p.input.previousCoverage,
+      },
       schema,
     );
     if (!result) continue;
@@ -327,8 +335,9 @@ async function writeDaily(p: Awaited<ReturnType<typeof prepareDaily>>, preview =
     });
     const result = await run(
       p.config.highlightsName,
-      `你是数智参阅编辑。输出{highlights:[{eventId,text}]}。只能摘要给定已完成正文，逐字复制selected中的eventId，不能拼接或改写ID。选${p.config.highlightsMinItems}至${p.config.highlightsMaxItems}条，不足时少选，不凑数，总计不超过${p.config.highlightsBudget}字。${p.config.highlightsPrompt}`,
+      `你是数智参阅编辑。输出{highlights:[{eventId,text}]}。只能摘要给定已完成正文，逐字复制selected中的eventId，不能拼接或改写ID。选${p.config.highlightsMinItems}至${p.config.highlightsMaxItems}条，不足时少选，不凑数，总计不超过${p.config.highlightsBudget}字。${p.config.highlightsPrompt}${followupWritingRule}`,
       {
+        previousCoverage: p.input.previousCoverage,
         highlightRating: p.highlightRating,
         selected: selected.map(({ id, rating }) => ({ id, rating })),
         items: draft.items.filter((i) => selected.some((e) => e.id === i.eventId)),
@@ -344,7 +353,17 @@ async function writeDaily(p: Awaited<ReturnType<typeof prepareDaily>>, preview =
       p.config.briefTitleMaxLength,
       p.config.briefTitlePrompt,
     );
-    const result = await run('本期标题', request.system, request.input, request.schema);
+    const result = await run(
+      '本期标题',
+      request.system + followupWritingRule,
+      {
+        items: draft.items,
+        rotations: draft.rotations,
+        highlights: draft.highlights,
+        previousCoverage: p.input.previousCoverage,
+      },
+      request.schema,
+    );
     if (result) draft.title = result.title;
   }
   if (failures.length) throw new DailyWritingError(failedStages, failures);

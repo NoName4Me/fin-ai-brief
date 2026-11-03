@@ -125,6 +125,9 @@ test('订阅与推送顶部操作、时间字段和总开关', async ({ page }) 
   const original = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
   const email = `controls-${randomUUID()}@example.invalid`;
   try {
+    await db.query('UPDATE settings SET value=$1 WHERE id=1', [
+      { ...original, deliveryEnabled: true },
+    ]);
     await page.goto('/login');
     await page.getByLabel('管理员密码').fill(process.env.ADMIN_PASSWORD!);
     await page.getByRole('button', { name: '登录', exact: true }).click();
@@ -135,7 +138,7 @@ test('订阅与推送顶部操作、时间字段和总开关', async ({ page }) 
     await dialog.getByLabel('邮箱', { exact: true }).fill(email);
     await dialog.getByRole('button', { name: '添加订阅', exact: true }).click();
     await expect(page.getByRole('row').filter({ hasText: email })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: '订阅时间' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: '记录时间' })).toBeVisible();
     const toggle = page.getByRole('switch', { name: '启动推送' });
     await expect(toggle).toBeChecked();
     await toggle.click();
