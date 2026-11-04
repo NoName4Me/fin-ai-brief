@@ -15,7 +15,7 @@ import { sourcePassages, sourceFactSchema } from './source-evidence.ts';
 import { modelJSON, getModelConnection } from './model.ts';
 import { getSettings } from './settings.ts';
 import { fingerprint, stage } from './processing-log.ts';
-import { previousCoverage } from './editorial-history.ts';
+import { coverageForCandidates, previousCoverage } from './editorial-history.ts';
 class EventChanged extends Error {
   constructor(message: string) {
     super(message);
@@ -23,6 +23,12 @@ class EventChanged extends Error {
   }
 }
 export const PROCESS_VERSION = 'ai-editorial-v8';
+type HistoricalFact = { statement: string; status: string; entities: string[] };
+
+export function factsForComparison(facts: readonly HistoricalFact[]) {
+  return facts.map(({ statement, status, entities }) => ({ statement, status, entities }));
+}
+
 function decisionSchema(passages: ReturnType<typeof sourcePassages>) {
   const selectedDecisionSchema = z.object({
     relevant: z.literal(true),
@@ -158,11 +164,14 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, 12);
   });
-  const history = await previousCoverage(article.publishedAt);
-  const candidateFacts = await pool.query<{ event_id: string; facts: unknown }>(
+  const candidateIds = candidates.map((event) => event.id);
+  const history = candidateIds.length
+    ? coverageForCandidates(await previousCoverage(article.publishedAt), new Set(candidateIds))
+    : [];
+  const candidateFacts = await pool.query<{ event_id: string; facts: HistoricalFact[] }>(
     `SELECT event_id,facts FROM event_developments WHERE event_id=ANY($1::uuid[])
       AND happened_at <= $2 ORDER BY happened_at DESC,created_at DESC`,
-    [candidates.map((e) => e.id), article.publishedAt],
+    [candidateIds, article.publishedAt],
   );
   const passages = sourcePassages(article.excerpt);
   const decision = await stage(subject, runKey, 'analyze', async () => {
@@ -191,7 +200,9 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
           id: e.id,
           title: e.title,
           summary: e.summary,
-          knownFacts: candidateFacts.rows.filter((d) => d.event_id === e.id).map((d) => d.facts),
+          knownFacts: candidateFacts.rows
+            .filter((d) => d.event_id === e.id)
+            .map((d) => factsForComparison(d.facts)),
         })),
       },
       decisionSchema(passages).superRefine((value, ctx) => {

@@ -143,8 +143,53 @@ test('后续报道保存完整原文事实，但事件进展只写入新增条�
     url: 'https://example.invalid/followup',
     publishedAt: new Date(now).toISOString(),
   });
-  globalThis.fetch = async () =>
-    new Response(
+  const knownFact = {
+    statement: 'Anthropic完成630亿美元融资。',
+    status: 'confirmed',
+    entities: ['Anthropic'],
+  };
+  const yesterday = new Date(now - 86400_000);
+  const [priorArticle] = await importArticle({
+    sourceName: '媒体',
+    title: old.title,
+    excerpt: old.summary,
+    url: 'https://example.invalid/original-financing',
+    publishedAt: yesterday.toISOString(),
+  });
+  await pool.query(
+    `INSERT INTO event_developments(event_id,article_id,fact_hash,facts,happened_at)
+     VALUES($1,$2,'prior-fact',$3,$4)`,
+    [
+      old.id,
+      priorArticle.id,
+      JSON.stringify([{ ...knownFact, evidence: '历史原文', evidenceIds: ['S1'] }]),
+      yesterday,
+    ],
+  );
+  const priorItem = { eventId: old.id, title: old.title, summary: old.summary };
+  await pool.query(
+    `INSERT INTO briefs(kind,period_date,published,published_at)
+     VALUES('daily',($1::timestamptz AT TIME ZONE 'Asia/Shanghai')::date,$2,$1)`,
+    [
+      yesterday,
+      JSON.stringify({
+        title: '往期日报',
+        highlights: ['全期要览'],
+        items: [priorItem, { eventId: null, title: '无关报道', summary: '无关内容' }],
+      }),
+    ],
+  );
+  globalThis.fetch = async (_url, init) => {
+    const input = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+    assert.deepEqual(
+      input.candidates.find((candidate: { id: string }) => candidate.id === old.id).knownFacts,
+      [[knownFact]],
+    );
+    assert.deepEqual(
+      input.previousCoverage.map(({ date, ...entry }: { date: string }) => entry),
+      [{ items: [priorItem] }],
+    );
+    return new Response(
       JSON.stringify({
         usage: { prompt_tokens: 10, completion_tokens: 20 },
         choices: [
@@ -182,6 +227,7 @@ test('后续报道保存完整原文事实，但事件进展只写入新增条�
         ],
       }),
     );
+  };
   await processArticle(article.id);
   const stored = (await pool.query('SELECT facts FROM articles WHERE id=$1', [article.id])).rows[0];
   assert.equal(stored.facts.length, 2);

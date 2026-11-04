@@ -23,3 +23,13 @@ export async function previousCoverage(cutoff: Date) {
     highlights: content.highlights ?? [],
   }));
 }
+
+export function coverageForCandidates(
+  history: Awaited<ReturnType<typeof previousCoverage>>,
+  candidateIds: ReadonlySet<string>,
+) {
+  return history.flatMap(({ date, items }) => {
+    const matches = items.filter(({ eventId }) => candidateIds.has(eventId));
+    return matches.length ? [{ date, items: matches }] : [];
+  });
+}
