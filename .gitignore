@@ -22,3 +22,9 @@ test-results/
 *.sqlite3
 *.dump
 *.bak
+
+# Production deployment state and private backups
+/deploy/.state/
+/deploy/backups/
+
+__pycache__/

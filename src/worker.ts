@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import { migrate } from '../scripts/migrate.ts';
 import { and, eq, isNull, lt, or } from 'drizzle-orm';
 import { db, pool } from './server/db.ts';
@@ -122,9 +123,16 @@ await boss.schedule('cleanup', '20 3 * * *', {}, { tz: 'Asia/Shanghai' });
 await boss.work('tick', async () => tick());
 await boss.schedule('tick', '* * * * *');
 await tick();
+async function heartbeat() {
+  if (process.env.WORKER_HEARTBEAT_PATH)
+    await writeFile(process.env.WORKER_HEARTBEAT_PATH, String(Date.now()));
+}
+await heartbeat();
 let dispatching = false;
 const dispatcher = setInterval(() => {
-  void configureProcessing().catch((error) => console.error('处理配置:', error.message));
+  void configureProcessing()
+    .then(heartbeat)
+    .catch((error) => console.error('处理配置:', error.message));
   if (dispatching) return;
   dispatching = true;
   void (async () => {

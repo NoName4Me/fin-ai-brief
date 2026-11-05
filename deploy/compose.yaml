@@ -1,0 +1,117 @@
+name: fin-ai-brief
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://finbrief:${APP_DB_PASSWORD:?Run deploy.sh init}@db:5432/fin_ai_brief
+  SITE_URL: ${SITE_URL:?Set SITE_URL}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Run deploy.sh init}
+  APP_SECRET: ${APP_SECRET:?Run deploy.sh init}
+  SOURCE_FAKE_IP_ENABLED: ${SOURCE_FAKE_IP_ENABLED:-false}
+  JIANYU_RSA_PRIVATE_KEY: ${JIANYU_RSA_PRIVATE_KEY:-}
+  JIANYU_COOKIE: ${JIANYU_COOKIE:-}
+
+services:
+  db:
+    pull_policy: never
+    image: ${POSTGRES_IMAGE:?Load a release package}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fin_ai_brief
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run deploy.sh init}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Run deploy.sh init}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/10-app-role.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d fin_ai_brief']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 2g
+    shm_size: 256m
+    logging: *logging
+
+  migrate:
+    pull_policy: never
+    image: fin-ai-brief-worker:${APP_VERSION:?Use scripts/deploy.sh}
+    command: [node_modules/.bin/tsx, scripts/migrate.ts]
+    environment: *app-env
+    profiles: [tools]
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
+  web:
+    pull_policy: never
+    image: fin-ai-brief-web:${APP_VERSION:?Use scripts/deploy.sh}
+    restart: unless-stopped
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3100/api/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: 1536m
+    logging: *logging
+
+  worker:
+    pull_policy: never
+    image: fin-ai-brief-worker:${APP_VERSION:?Use scripts/deploy.sh}
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      WORKER_HEARTBEAT_PATH: /tmp/fin-ai-brief-worker-heartbeat
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, deploy/worker-health.mjs]
+      interval: 20s
+      timeout: 8s
+      retries: 3
+      start_period: 60s
+    stop_grace_period: 120s
+    mem_limit: 2g
+    logging: *logging
+
+  nginx:
+    pull_policy: never
+    image: ${NGINX_IMAGE:?Load a release package}
+    restart: unless-stopped
+    ports:
+      - '${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}:80'
+    environment:
+      ACCESS_CIDR: ${ACCESS_CIDR:?Set your office IP range}
+      NGINX_ENVSUBST_FILTER: '^ACCESS_CIDR$$'
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1/healthz']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 128m
+    logging: *logging
+
+volumes:
+  postgres_data:

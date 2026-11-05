@@ -2,7 +2,7 @@
 
 每日 AI 资讯简报，覆盖政策监管、技术模型、同业场景、资本项目、风险安全及工具开源，重点关注金融与 AMC。
 
-[架构](docs/architecture.md) · [信源入口](docs/sources.md) · [术语](GLOSSARY.md)
+[部署：本地打包与服务器更新](docs/deployment.md) · [架构](docs/architecture.md) · [信源入口](docs/sources.md) · [术语](GLOSSARY.md)
 
 ## 本地运行
 
@@ -46,7 +46,7 @@ npm run dev
 | `npm run format`         | 格式化代码及文档                             |
 | `npm run format:check`   | 检查格式                                     |
 
-生产环境分别运行 Web 和 Worker。升级时先停止 Worker，完成数据库迁移后再启动，避免旧 Worker 使用新结构。
+单机生产部署在本地构建镜像包，再上传服务器加载运行；服务器不拉源码、不执行npm安装或构建。首次和更新步骤见[部署文档](docs/deployment.md)，迁移和进程切换由部署脚本处理。
 
 ## 管理入口
 
