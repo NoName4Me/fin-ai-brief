@@ -5,7 +5,7 @@ import { PublicationFooter } from './publication-footer.tsx';
 import { sectionAnchor, sectionGroups, weekday } from '../server/brief-presentation.ts';
 import { BriefContext } from './brief-context.tsx';
 import { SourceRow, Summary } from './brief-story.tsx';
-import { PrintButton } from './navigation.tsx';
+import { PrintButton } from './print-button.tsx';
 import { PeriodBrief } from './period-brief.tsx';
 import { DailyBrief } from './daily-brief.tsx';
 type Industry = { id: string; name: string; description: string; sections: string[] };

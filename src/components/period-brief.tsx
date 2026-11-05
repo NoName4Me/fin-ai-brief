@@ -1,7 +1,7 @@
 import type { BriefContent } from '../server/types.ts';
 import { localDate } from '../server/periods.ts';
 import { PublicationFooter } from './publication-footer.tsx';
-import { PrintButton } from './navigation.tsx';
+import { PrintButton } from './print-button.tsx';
 import { BriefContext } from './brief-context.tsx';
 import { WeeklyProgress } from './weekly-progress.tsx';
 import { SourceRow, Summary } from './brief-story.tsx';

@@ -1,0 +1,238 @@
+.page {
+  max-width: 920px;
+  margin-inline: auto;
+  padding: 32px 24px 72px;
+  color: var(--ink);
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--blue);
+  font-size: 14px;
+  text-underline-offset: 3px;
+}
+
+.header h1 {
+  margin: 22px 0 6px;
+  font-size: clamp(24px, 4.2vw, 40px);
+  line-height: 1.3;
+  text-wrap: wrap;
+}
+
+.header p {
+  margin: 0 0 20px;
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.cover {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+}
+
+.content {
+  margin-top: 44px;
+  line-height: 1.8;
+}
+
+.content h2 {
+  margin: 0 0 10px;
+  color: var(--blue);
+  font-size: clamp(24px, 3vw, 30px);
+  line-height: 1.4;
+}
+
+.content h3 {
+  margin: 38px 0 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 19px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th,
+.table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: start;
+  vertical-align: top;
+}
+
+.table thead {
+  background: color-mix(in srgb, var(--blue) 7%, var(--paper));
+}
+
+.table thead th {
+  white-space: nowrap;
+}
+
+.table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--blue) 3%, var(--paper));
+}
+
+.table tbody th {
+  font-weight: 600;
+}
+
+.slot {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.session {
+  display: block;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.note {
+  margin-top: 12px;
+  color: var(--blue);
+  font-size: 13px;
+}
+
+.module {
+  border-bottom: 1px solid var(--line);
+}
+
+.module summary {
+  padding-block: 14px;
+  color: var(--blue);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.module summary:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.module dl {
+  margin: 0 0 20px;
+}
+
+.module dl > div + div {
+  margin-top: 12px;
+}
+
+.module dt {
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.module dd {
+  margin-inline-start: 0;
+}
+
+.module dd p,
+.module dd ol {
+  margin-block: 4px 0;
+}
+
+.module dd ol {
+  padding-inline-start: 1.5em;
+  list-style: decimal outside;
+}
+
+.module dd li + li {
+  margin-top: 4px;
+}
+
+.module dd li::marker {
+  color: var(--blue);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 480px) {
+  .page {
+    padding: 24px 16px 56px;
+  }
+
+  .table th,
+  .table td {
+    padding-inline: 6px;
+  }
+}
+
+.article {
+  min-width: 0;
+}
+
+.toc {
+  margin-top: 22px;
+  min-width: 0;
+}
+
+.toc :global(.context-head) {
+  font-size: 13px;
+}
+
+.toc :global(.outline-list) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
+  margin: 0;
+  padding: 0;
+}
+
+.toc :global(.outline-list) a {
+  position: relative;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.toc :global(.outline-list) a[aria-current='location'] {
+  color: var(--blue);
+  font-weight: 600;
+}
+
+@media (min-width: 921px) {
+  .page {
+    display: grid;
+    max-width: 1140px;
+    grid-template-columns: minmax(0, 872px) 160px;
+    column-gap: 40px;
+    align-items: start;
+  }
+
+  .back {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .article {
+    grid-area: 2 / 1;
+  }
+
+  .toc {
+    grid-area: 2 / 2;
+    position: sticky;
+    top: 24px;
+  }
+
+  .toc :global(.outline-list) {
+    display: block;
+  }
+
+  .toc :global(.outline-list) a[aria-current='location']::before {
+    position: absolute;
+    inset-inline-start: -10px;
+    top: 50%;
+    width: 2px;
+    height: 18px;
+    transform: translateY(-50%);
+    background: var(--blue);
+    content: '';
+  }
+}

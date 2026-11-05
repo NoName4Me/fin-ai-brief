@@ -2,7 +2,7 @@ import { ReaderOutline } from './reader-outline.tsx';
 import type { BriefContent } from '../server/types.ts';
 import { dateLabel } from '../server/periods.ts';
 import { weekday, dailySections, sectionAnchor } from '../server/brief-presentation.ts';
-import { PrintButton } from './navigation.tsx';
+import { PrintButton } from './print-button.tsx';
 import { PublicationFooter } from './publication-footer.tsx';
 import { SourceRow, Summary } from './brief-story.tsx';
 import { sourceNames } from '../server/source-presentation.ts';

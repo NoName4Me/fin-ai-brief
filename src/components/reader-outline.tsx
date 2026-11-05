@@ -25,7 +25,9 @@ export function ReaderOutline({ items }: { items: { id: string; label: string }[
     window.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', schedule);
     const observer = new ResizeObserver(schedule);
-    const article = document.querySelector('.daily-workspace .report-view');
+    const article =
+      document.querySelector('.daily-workspace .report-view') ??
+      document.getElementById(items[0]?.id ?? '')?.closest('article');
     if (article) observer.observe(article);
     return () => {
       cancelAnimationFrame(frame);

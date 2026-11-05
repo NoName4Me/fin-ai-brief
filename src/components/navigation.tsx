@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { logoutAction } from '../app/actions.ts';
 import { SubscribeButton } from './subscribe-dialog.tsx';
+import { CompetitionAnnouncement } from './competition-announcement.tsx';
 import { LogOut } from 'lucide-react';
 const items = [
   ['/', '最新'],
@@ -10,9 +11,12 @@ const items = [
 ] as const;
 export function Header() {
   const path = usePathname();
+  if (path.startsWith('/announcements/')) return null;
+  const readingBrief = path === '/' || path.startsWith('/briefs/');
   const admin = path === '/admin' || path.startsWith('/admin/');
   return (
     <>
+      {!admin && path !== '/login' && <CompetitionAnnouncement />}
       <header className={`app-header ${admin ? 'admin-header' : 'reader-header'}`}>
         <Link href={admin ? '/admin' : '/'} className="brand">
           <span className="brand-wordmark">
@@ -27,11 +31,7 @@ export function Header() {
               <Link
                 key={href}
                 href={href}
-                aria-current={
-                  (href === '/' ? path === '/' || path.startsWith('/briefs/') : path === href)
-                    ? 'page'
-                    : undefined
-                }
+                aria-current={(href === '/' ? readingBrief : path === href) ? 'page' : undefined}
               >
                 {label}
               </Link>
@@ -55,11 +55,7 @@ export function Header() {
             <Link
               key={href}
               href={href}
-              aria-current={
-                (href === '/' ? path === '/' || path.startsWith('/briefs/') : path === href)
-                  ? 'page'
-                  : undefined
-              }
+              aria-current={(href === '/' ? readingBrief : path === href) ? 'page' : undefined}
             >
               {label}
             </Link>
@@ -67,12 +63,5 @@ export function Header() {
         </nav>
       )}
     </>
-  );
-}
-export function PrintButton() {
-  return (
-    <button className="source-link" onClick={() => window.print()}>
-      打印本期
-    </button>
   );
 }
