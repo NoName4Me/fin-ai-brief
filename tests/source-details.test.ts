@@ -210,6 +210,16 @@ test('发改委文件库使用配置页对应的官方接口，并读取文件�
   assert.throws(() => officialListItems(JSON.stringify({ code: 500 }), url), /列表格式/);
 });
 
+test('发改委通知从 article_con 提取正文，不混入相关链接', async () => {
+  const content = await readSourceDetail(
+    'https://www.ndrc.gov.cn/xxgk/zcfb/tz/202610/t20261030_1408459.html',
+    async () =>
+      '<div class="article"><div class="article_l"><h2 class="article_title">指导意见</h2><div class="article_con"><p>加强消费基础设施建设，完善服务功能，促进消费投资良性互动。</p></div></div><div class="article_r">相关链接</div></div>',
+  );
+  assert.equal(content.title, '指导意见');
+  assert.equal(content.excerpt, '加强消费基础设施建设，完善服务功能，促进消费投资良性互动。');
+});
+
 test('财政部列表识别官方司局子站，按条目日期过滤并读取详情正文', async () => {
   const url = 'https://www.mof.gov.cn/zhengwuxinxi/zhengcefabu/';
   const html =

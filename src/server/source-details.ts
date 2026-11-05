@@ -287,12 +287,15 @@ export async function readSourceDetail(
   };
   if (u.hostname === 'mp.weixin.qq.com' && !$('#js_content').length)
     throw new Error('微信文章需要验证，暂时无法读取正文');
+  const ndrcContent = u.hostname === 'www.ndrc.gov.cn' ? $('.article_con').first() : null;
   const content = nfra
     ? $('body')
-    : $(
-        selectors[u.hostname] ??
-          '[id="zoom"],#Zoom,#TRS_AUTOADD,#UCAP-CONTENT,.TRS_Editor,article,.article-content,.content-detail,#BodyLabel,.detail-cont,.detail-content,.txtContent .main_content,[class^="pageCenter___"] > [class^="content___"]',
-      ).first();
+    : ndrcContent?.length
+      ? ndrcContent
+      : $(
+          selectors[u.hostname] ??
+            '[id="zoom"],#Zoom,#TRS_AUTOADD,#UCAP-CONTENT,.TRS_Editor,article,.article-content,.content-detail,#BodyLabel,.detail-cont,.detail-content,.txtContent .main_content,[class^="pageCenter___"] > [class^="content___"]',
+        ).first();
   if (!content.length) throw new Error('详情页未识别到正文区域');
   let excerpt = content.text().replace(/\s+/g, ' ').trim();
   if (excerpt.length < 80 && pdf) {
