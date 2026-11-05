@@ -154,6 +154,7 @@ export async function modelJSON<T>(
     maxTokens?: number;
     validationContext?: unknown;
     cacheNonce?: string;
+    timeoutMs?: number;
   } = {},
 ) {
   const base = await requireModelConfig();
@@ -161,6 +162,15 @@ export async function modelJSON<T>(
   const model = base.model;
   const config = { ...base, model };
   const maxTokens = options.maxTokens ?? 12000;
+  const stageName =
+    purpose === 'review'
+      ? 'review'
+      : purpose === 'article'
+        ? 'analyze'
+        : purpose === 'article-screening'
+          ? 'screening'
+          : 'task';
+
   const key = fingerprint({
     ...(options.cacheNonce === undefined ? {} : { cacheNonce: options.cacheNonce }),
     purpose,
@@ -188,11 +198,7 @@ export async function modelJSON<T>(
         if (options.subject)
           await client.query(
             "UPDATE processing_steps SET call_id=$2 WHERE subject=$1 AND state='running' AND stage=$3",
-            [
-              options.subject,
-              call.id,
-              purpose === 'review' ? 'review' : purpose === 'article' ? 'analyze' : 'task',
-            ],
+            [options.subject, call.id, stageName],
           );
         await client.query('UPDATE model_calls SET reused_count=reused_count+1 WHERE id=$1', [
           call.id,
@@ -249,11 +255,7 @@ export async function modelJSON<T>(
     if (options.subject)
       await client.query(
         "UPDATE processing_steps SET call_id=$2 WHERE subject=$1 AND state='running' AND stage=$3",
-        [
-          options.subject,
-          id,
-          purpose === 'review' ? 'review' : purpose === 'article' ? 'analyze' : 'task',
-        ],
+        [options.subject, id, stageName],
       );
     await client.query('COMMIT');
   } catch (error) {
@@ -263,12 +265,14 @@ export async function modelJSON<T>(
     if (!released) client.release();
   }
   try {
+    const signal =
+      options.timeoutMs === undefined ? undefined : AbortSignal.timeout(options.timeoutMs);
     const result = await requestModel(
       system,
       input,
       schema,
       config,
-      fetch,
+      signal ? (url, init) => fetch(url, { ...init, signal }) : fetch,
       maxTokens,
       async (inputTokens, outputTokens, response, attempts) => {
         await pool.query(

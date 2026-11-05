@@ -12,10 +12,16 @@ import {
   keywordMatches,
 } from './editorial.ts';
 import { sourcePassages, sourceFactSchema } from './source-evidence.ts';
-import { modelJSON, getModelConnection } from './model.ts';
+import { modelJSON, getModelConnection, modelUsage } from './model.ts';
 import { getSettings } from './settings.ts';
 import { fingerprint, stage } from './processing-log.ts';
 import { coverageForCandidates, previousCoverage } from './editorial-history.ts';
+import {
+  screeningCohort,
+  screeningDecision,
+  screeningPrompt,
+  screeningTimeoutMs,
+} from './article-screening.ts';
 class EventChanged extends Error {
   constructor(message: string) {
     super(message);
@@ -145,6 +151,71 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
       endpoint: connection.baseUrl.replace(/\/+$/, ''),
     };
   });
+  const passages = sourcePassages(article.excerpt);
+  const screeningStart = process.env.ARTICLE_SCREENING_TRIAL_START;
+  const cohort =
+    reprocessBatchId || !connection.enabled
+      ? null
+      : screeningCohort(id, article.createdAt, screeningStart);
+  if (cohort && screeningStart) {
+    const screened = await stage(subject, runKey, 'screening', async () => {
+      const stopped = await pool.query(
+        `SELECT 1 FROM processing_steps s JOIN processing_steps a USING (subject,run_key)
+         WHERE s.stage='screening' AND s.state='succeeded' AND s.started_at >= $1
+           AND s.result->>'cohort'='audit' AND s.result->>'decision'='exclude'
+           AND a.stage='analyze' AND a.state='succeeded' AND a.result->>'relevant'='true'
+         LIMIT 1`,
+        [new Date(screeningStart)],
+      );
+      if (stopped.rowCount || (await modelUsage()).remaining < 3)
+        return { cohort, decision: 'continue' as const };
+      try {
+        const result = await modelJSON(
+          'article-screening',
+          screeningPrompt,
+          {
+            article: {
+              title: article.title,
+              passages,
+              source: article.sourceName,
+              publishedAt:
+                article.publishedPrecision === 'observed' ? undefined : article.publishedAt,
+              observedAt:
+                article.publishedPrecision === 'observed' ? article.publishedAt : undefined,
+              publishedPrecision: article.publishedPrecision,
+              provenance: article.provenance,
+            },
+            industry,
+            sectionRules,
+          },
+          screeningDecision,
+          { subject, maxTokens: 1600, timeoutMs: screeningTimeoutMs },
+        );
+        return { cohort, ...result };
+      } catch {
+        return { cohort, decision: 'unavailable' as const };
+      }
+    }).catch(() => null);
+    if (cohort === 'gate' && screened?.decision === 'exclude') {
+      await stage(subject, runKey, 'save', async () => {
+        await db
+          .update(articles)
+          .set({
+            state: 'ignored',
+            processingVersion: PROCESS_VERSION,
+            inputHash: runKey,
+            reviewNote: screened.reason,
+            eventId: null,
+            assessment: null,
+            facts: null,
+            scoreReason: null,
+          })
+          .where(and(eq(articles.id, id), eq(articles.state, 'pending')));
+        return { eventId: null, relevant: false, screening: true };
+      });
+      return;
+    }
+  }
   const candidates = await stage(subject, runKey, 'recall', async () => {
     const recent = await db
       .select()
@@ -173,7 +244,6 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
       AND happened_at <= $2 ORDER BY happened_at DESC,created_at DESC`,
     [candidateIds, article.publishedAt],
   );
-  const passages = sourcePassages(article.excerpt);
   const decision = await stage(subject, runKey, 'analyze', async () => {
     const value = await modelJSON(
       'article',
