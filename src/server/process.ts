@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, isNotNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, pool } from './db.ts';
 import { articles, events, sources } from './schema.ts';
@@ -12,29 +12,17 @@ import {
   keywordMatches,
 } from './editorial.ts';
 import { sourcePassages, sourceFactSchema } from './source-evidence.ts';
-import { modelJSON, getModelConnection, modelUsage } from './model.ts';
+import { modelJSON, getModelConnection } from './model.ts';
 import { getSettings } from './settings.ts';
 import { fingerprint, stage } from './processing-log.ts';
-import { coverageForCandidates, previousCoverage } from './editorial-history.ts';
-import {
-  screeningCohort,
-  screeningDecision,
-  screeningPrompt,
-  screeningTimeoutMs,
-} from './article-screening.ts';
+import { rangeFor, localDate } from './periods.ts';
 class EventChanged extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'EventChanged';
   }
 }
-export const PROCESS_VERSION = 'ai-editorial-v8';
-type HistoricalFact = { statement: string; status: string; entities: string[] };
-
-export function factsForComparison(facts: readonly HistoricalFact[]) {
-  return facts.map(({ statement, status, entities }) => ({ statement, status, entities }));
-}
-
+export const PROCESS_VERSION = 'ai-editorial-v10';
 function decisionSchema(passages: ReturnType<typeof sourcePassages>) {
   const selectedDecisionSchema = z.object({
     relevant: z.literal(true),
@@ -102,6 +90,15 @@ export function recallScore(a: string, b: string) {
   return overlap / Math.sqrt(Math.max(1, weight(left) * weight(right)));
 }
 export async function processArticle(id: string, reprocessBatchId?: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await processArticleAttempt(id, reprocessBatchId);
+    } catch (error) {
+      if (!(error instanceof EventChanged) || attempt >= 2) throw error;
+    }
+  }
+}
+async function processArticleAttempt(id: string, reprocessBatchId?: string) {
   const [article] = await db.select().from(articles).where(eq(articles.id, id));
   if (!article || article.state !== 'pending') return;
   const config = await getSettings();
@@ -152,70 +149,11 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
     };
   });
   const passages = sourcePassages(article.excerpt);
-  const screeningStart = process.env.ARTICLE_SCREENING_TRIAL_START;
-  const cohort =
-    reprocessBatchId || !connection.enabled
-      ? null
-      : screeningCohort(id, article.createdAt, screeningStart);
-  if (cohort && screeningStart) {
-    const screened = await stage(subject, runKey, 'screening', async () => {
-      const stopped = await pool.query(
-        `SELECT 1 FROM processing_steps s JOIN processing_steps a USING (subject,run_key)
-         WHERE s.stage='screening' AND s.state='succeeded' AND s.started_at >= $1
-           AND s.result->>'cohort'='audit' AND s.result->>'decision'='exclude'
-           AND a.stage='analyze' AND a.state='succeeded' AND a.result->>'relevant'='true'
-         LIMIT 1`,
-        [new Date(screeningStart)],
-      );
-      if (stopped.rowCount || (await modelUsage()).remaining < 3)
-        return { cohort, decision: 'continue' as const };
-      try {
-        const result = await modelJSON(
-          'article-screening',
-          screeningPrompt,
-          {
-            article: {
-              title: article.title,
-              passages,
-              source: article.sourceName,
-              publishedAt:
-                article.publishedPrecision === 'observed' ? undefined : article.publishedAt,
-              observedAt:
-                article.publishedPrecision === 'observed' ? article.publishedAt : undefined,
-              publishedPrecision: article.publishedPrecision,
-              provenance: article.provenance,
-            },
-            industry,
-            sectionRules,
-          },
-          screeningDecision,
-          { subject, maxTokens: 1600, timeoutMs: screeningTimeoutMs },
-        );
-        return { cohort, ...result };
-      } catch {
-        return { cohort, decision: 'unavailable' as const };
-      }
-    }).catch(() => null);
-    if (cohort === 'gate' && screened?.decision === 'exclude') {
-      await stage(subject, runKey, 'save', async () => {
-        await db
-          .update(articles)
-          .set({
-            state: 'ignored',
-            processingVersion: PROCESS_VERSION,
-            inputHash: runKey,
-            reviewNote: screened.reason,
-            eventId: null,
-            assessment: null,
-            facts: null,
-            scoreReason: null,
-          })
-          .where(and(eq(articles.id, id), eq(articles.state, 'pending')));
-        return { eventId: null, relevant: false, screening: true };
-      });
-      return;
-    }
-  }
+  const publicationAt = new Date(`${localDate(article.publishedAt)}T${config.dailyTime}:00+08:00`);
+  const periodDate = localDate(
+    new Date(publicationAt.getTime() + (article.publishedAt >= publicationAt ? 86400_000 : 0)),
+  );
+  const articleRange = rangeFor('daily', periodDate, config.dailyTime);
   const candidates = await stage(subject, runKey, 'recall', async () => {
     const recent = await db
       .select()
@@ -223,7 +161,8 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
       .where(
         and(
           isNotNull(events.assessment),
-          gte(events.updatedAt, new Date(Date.now() - 14 * 86400_000)),
+          gte(events.occurredAt, articleRange.start),
+          lt(events.occurredAt, articleRange.end),
         ),
       )
       .orderBy(desc(events.updatedAt));
@@ -235,20 +174,11 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, 12);
   });
-  const candidateIds = candidates.map((event) => event.id);
-  const history = candidateIds.length
-    ? coverageForCandidates(await previousCoverage(article.publishedAt), new Set(candidateIds))
-    : [];
-  const candidateFacts = await pool.query<{ event_id: string; facts: HistoricalFact[] }>(
-    `SELECT event_id,facts FROM event_developments WHERE event_id=ANY($1::uuid[])
-      AND happened_at <= $2 ORDER BY happened_at DESC,created_at DESC`,
-    [candidateIds, article.publishedAt],
-  );
   const decision = await stage(subject, runKey, 'analyze', async () => {
     const value = await modelJSON(
       'article',
-      `你是数智参阅编辑。一次完成AI实质关联筛选、可配置指标评分、事实提取、中文标题摘要、全局事件归组。输入只有来源摘要，不得补写未提供事实。榜单快照按采集时点陈述，采集时间不是模型或项目发布时间；首次快照不能推断新上榜或排名升降。${config.editorialPrompt}
-关键词仅用于召回线索，不能凭命中关键词收录，也不能漏掉不含这些词的重要AI内容。普通金融新闻和泛数字化不收。纯营销、没有实质事实、标题与材料不符或无法追溯来源的低质量材料输出relevant:false并给出具体原因；有真实新增事实的机构公告不因其机构自述身份直接淘汰。先检查来源与证据，再评分。${ratingInstructionsFor(config.ratingRules)}只使用给定栏目，按sectionRules的description判断归属，它们是该信源允许参与的栏目；不属于任何允许栏目时输出relevant:false并说明“超出信源栏目范围”，不能强行归类。section是单选栏目名。媒体传闻、匿名消息、厂商自述保留归属和不确定性。existingEventId只能是给定候选ID，同公司不代表同事件。facts逐项给出statement、evidenceIds、status(confirmed/announced/planned/claim/rumor)、entities；evidenceIds只能选择article.passages中的原文编号，例如["S1"]；每条最多引用4段。不要返回evidence或自行抄写原文，系统会按编号提取原文。事实陈述必须得到所选原文支持，保留预计、传闻和厂商自述等限定。仅选取最多12条核心事实，覆盖标题和摘要中的主要陈述；相近事实合并，不要逐句罗列全文，相关资讯至少一条事实；事实不足不要编造。不相关输出{"relevant":false,"reason":"具体原因"}。相关输出必须严格遵守此结构，scoreReason与assessment同级：{"relevant":true,"title":"中文标题","summary":"中文摘要","section":"单个栏目名","assessment":{"指标ID":{"score":1,"reason":"具体理由"}},"scoreReason":"评分总述","existingEventId":null,"facts":[{"statement":"事实陈述","evidenceIds":["S1"],"status":"announced","entities":[]}],"novelty":"new","newFactIndexes":[0],"needsReview":false,"conflict":false}。对照candidates中的knownFacts与previousCoverage判断事实增量。报道日期变新、换媒体、改写标题、重述融资金额和评级、泛泛风险评论均不构成新进展。facts保留本篇核心事实；newFactIndexes返回真正新增事实在facts中的零起始索引，排除历史背景与已知事实。没有新增事实必须引用旧事件并标duplicate，newFactIndexes为[]；有新增事实归入旧事件标update，只选新增事实索引。只有不同具体事项才能新建事件；不能因为报道增加背景或覆盖多家公司就把同一交易重新建档。重复报道标duplicate；有冲突或归属不确定标needsReview。合并新进展时summary保留重要前情。`,
+      `你是数智参阅编辑。一次完成AI实质关联筛选、可配置指标评分、事实提取、中文标题摘要、本期事件归组。输入只有来源摘要，不得补写未提供事实。榜单快照按采集时点陈述，采集时间不是模型或项目发布时间；首次快照不能推断新上榜或排名升降。${config.editorialPrompt}
+关键词仅用于召回线索，不能凭命中关键词收录，也不能漏掉不含这些词的重要AI内容。普通金融新闻和泛数字化不收。纯营销、没有实质事实、标题与材料不符或无法追溯来源的低质量材料输出relevant:false并给出具体原因；有真实新增事实的机构公告不因其机构自述身份直接淘汰。先检查来源与证据，再评分。${ratingInstructionsFor(config.ratingRules)}只使用给定栏目，按sectionRules的description判断归属，它们是该信源允许参与的栏目；不属于任何允许栏目时输出relevant:false并说明“超出信源栏目范围”，不能强行归类。section是单选栏目名。媒体传闻、匿名消息、厂商自述保留归属和不确定性。existingEventId只能是给定候选ID，同公司不代表同事件。facts逐项给出statement、evidenceIds、status(confirmed/announced/planned/claim/rumor)、entities；evidenceIds只能选择article.passages中的原文编号，例如["S1"]；每条最多引用4段。不要返回evidence或自行抄写原文，系统会按编号提取原文。事实陈述必须得到所选原文支持，保留预计、传闻和厂商自述等限定。仅选取最多12条核心事实，覆盖标题和摘要中的主要陈述；相近事实合并，不要逐句罗列全文，相关资讯至少一条事实；事实不足不要编造。不相关输出{"relevant":false,"reason":"具体原因"}。相关输出必须严格遵守此结构，scoreReason与assessment同级：{"relevant":true,"title":"中文标题","summary":"中文摘要","section":"单个栏目名","assessment":{"指标ID":{"score":1,"reason":"具体理由"}},"scoreReason":"评分总述","existingEventId":null,"facts":[{"statement":"事实陈述","evidenceIds":["S1"],"status":"announced","entities":[]}],"novelty":"new","newFactIndexes":[0],"needsReview":false,"conflict":false}。candidates仅包含本期事件。对照候选标题和摘要判断本期报道的事实增量；不判断跨期重复，未刊历史不能影响本篇相关性或评分。报道日期变新、换媒体、改写标题、重述融资金额和评级、泛泛风险评论均不构成新进展。facts保留本篇核心事实；newFactIndexes返回真正新增事实在facts中的零起始索引，排除历史背景与已知事实。没有新增事实必须引用旧事件并标duplicate，newFactIndexes为[]；有新增事实归入旧事件标update，只选新增事实索引。只有不同具体事项才能新建事件；不能因为报道增加背景或覆盖多家公司就把同一交易重新建档。重复报道标duplicate；有冲突或归属不确定标needsReview。合并新进展时summary保留重要前情。`,
       {
         industry,
         sectionRules,
@@ -265,14 +195,10 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
           publishedPrecision: article.publishedPrecision,
           provenance: article.provenance,
         },
-        previousCoverage: history,
         candidates: candidates.map((e) => ({
           id: e.id,
           title: e.title,
-          summary: e.summary,
-          knownFacts: candidateFacts.rows
-            .filter((d) => d.event_id === e.id)
-            .map((d) => factsForComparison(d.facts)),
+          summary: e.summary.slice(0, 500),
         })),
       },
       decisionSchema(passages).superRefine((value, ctx) => {
@@ -409,7 +335,7 @@ export async function processArticle(id: string, reprocessBatchId?: string) {
         let changed = true;
         if (!eventId && !reviewRejected) {
           const matching = await tx.execute<{ id: string }>(sql`
-          SELECT e.id FROM events e WHERE e.assessment IS NOT NULL AND e.updated_at >= now()-interval '14 days'
+          SELECT e.id FROM events e WHERE e.assessment IS NOT NULL AND e.occurred_at >= ${articleRange.start.toISOString()}::timestamptz AND e.occurred_at < ${articleRange.end.toISOString()}::timestamptz
           AND (e.title=${decision.title} OR EXISTS(
             SELECT 1 FROM event_developments d WHERE d.event_id=e.id AND d.fact_hash=${factHash}
           )) ORDER BY e.updated_at DESC LIMIT 1`);

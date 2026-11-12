@@ -30,6 +30,8 @@ async function latestGeneration(date: string) {
     ? `
     UNION ALL
     SELECT CASE WHEN j.state='completed' AND EXISTS(
+      SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting' AND p.result->>'waitingModelWindow'='true'
+    ) THEN 'waiting_model_window' WHEN j.state='completed' AND EXISTS(
       SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting'
     ) THEN 'waiting_budget' ELSE j.state::text END state,j.output->>'message' error,j.created_on created_at
     FROM pgboss.job j WHERE j.name='generate' AND j.data->>'kind'='daily' AND j.data->>'date'=$1::text`
@@ -122,16 +124,26 @@ export async function adminOverview(now = new Date()) {
   const run = generation.rows[0];
   const running =
     run &&
-    ['created', 'queued', 'active', 'retry', 'waiting', 'waiting_budget'].includes(run.state);
+    [
+      'created',
+      'queued',
+      'active',
+      'retry',
+      'waiting',
+      'waiting_budget',
+      'waiting_model_window',
+    ].includes(run.state);
   const currentSections = explainedSections.filter(
     (section) => section.period_date === nextIssueDate,
   );
   const status = running
     ? run.state === 'waiting_budget'
       ? '等待模型额度'
-      : run.state === 'waiting'
-        ? '等待资讯处理'
-        : '生成中'
+      : run.state === 'waiting_model_window'
+        ? '等待波谷'
+        : run.state === 'waiting'
+          ? '等待资讯处理'
+          : '生成中'
     : run?.state === 'failed'
       ? '生成失败'
       : currentIssue?.has_draft

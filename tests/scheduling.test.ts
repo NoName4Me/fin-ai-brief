@@ -24,7 +24,7 @@ before(async () => {
 beforeEach(async () => {
   for (const name of ['process', 'generate', 'collect', 'deliver']) await boss.deleteAllJobs(name);
   await pool.query('TRUNCATE articles,brief_requests,processing_steps,model_calls CASCADE');
-  await saveSettings(defaultSettings);
+  await saveSettings({ ...defaultSettings, modelOffPeakOnly: false });
 });
 after(async () => {
   await boss.stop();
@@ -58,7 +58,7 @@ test('配置默认重试1次、并发3篇，拒绝超过3次重试或20个并发
 
 test('配置的重试次数写入任务，耗尽后失败不再阻塞，并支持手动重开', async () => {
   for (const limit of [0, 1, 3]) {
-    await saveSettings({ ...defaultSettings, taskRetryLimit: limit });
+    await saveSettings({ ...defaultSettings, modelOffPeakOnly: false, taskRetryLimit: limit });
     const id = await article();
     const jobId = await enqueue('process', { id }, id);
     assert.equal(
@@ -66,9 +66,6 @@ test('配置的重试次数写入任务，耗尽后失败不再阻塞，并支�
         .retry_limit,
       limit,
     );
-    await pool.query('UPDATE pgboss.job SET retry_delay=0,retry_backoff=false WHERE id=$1', [
-      jobId,
-    ]);
     for (let attempt = 0; attempt <= limit; attempt++) {
       const [job] = await boss.fetch('process');
       assert.equal(job.id, jobId);
@@ -81,6 +78,10 @@ test('配置的重试次数写入任务，耗尽后失败不再阻塞，并支�
         (await pool.query('SELECT state FROM articles WHERE id=$1', [id])).rows[0].state,
         attempt < limit ? 'pending' : 'failed',
       );
+      // executeTask 会恢复业务重试间隔；此处只验证重试次数，失败入队前再取消等待。
+      await pool.query('UPDATE pgboss.job SET retry_delay=0,retry_backoff=false WHERE id=$1', [
+        jobId,
+      ]);
       await boss.fail('process', job.id, { message: '测试失败' });
     }
     assert.equal(
@@ -196,7 +197,7 @@ test('实际Worker同时处理3篇且不超过配置，运行时可调整为1篇
           )
         ).rows[0].n === 6,
     );
-    await saveSettings({ ...defaultSettings, processingConcurrency: 1 });
+    await saveSettings({ ...defaultSettings, modelOffPeakOnly: false, processingConcurrency: 1 });
     await configure();
     started = 0;
     maximum = 0;
@@ -221,7 +222,7 @@ test('实际Worker同时处理3篇且不超过配置，运行时可调整为1篇
           )
         ).rows[0].n === 8,
     );
-    await saveSettings({ ...defaultSettings, processingConcurrency: 20 });
+    await saveSettings({ ...defaultSettings, modelOffPeakOnly: false, processingConcurrency: 20 });
     await configure();
     started = 0;
     maximum = 0;
@@ -246,7 +247,7 @@ test('实际Worker同时处理3篇且不超过配置，运行时可调整为1篇
 test('强制出刊等待额度时不反复入队，恢复后保留优先级', async () => {
   const { BudgetWait } = await import('../src/server/processing-log.ts');
   const { resumeBudgetWaiting } = await import('../src/server/queue.ts');
-  await saveSettings({ ...defaultSettings, modelDailyLimit: 1 });
+  await saveSettings({ ...defaultSettings, modelOffPeakOnly: false, modelDailyLimit: 1 });
   const id = await article();
   await enqueue('process', { id }, id);
   const [job] = await boss.fetch('process');
@@ -261,7 +262,7 @@ test('强制出刊等待额度时不反复入队，恢复后保留优先级', as
     (await pool.query("SELECT count(*)::int n FROM pgboss.job WHERE name='process'")).rows[0].n,
     1,
   );
-  await saveSettings({ ...defaultSettings, modelDailyLimit: 3 });
+  await saveSettings({ ...defaultSettings, modelOffPeakOnly: false, modelDailyLimit: 3 });
   await resumeBudgetWaiting();
   const [retry] = await boss.fetch<{ id: string }>('process');
   assert.equal(retry.data.id, id);

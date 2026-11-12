@@ -24,7 +24,6 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await page.getByLabel('周度观察间隔周数').fill('2');
     await page.getByLabel('技术前沿辅助关键词').fill('部署；智能体');
     await page.getByLabel('周度观察字数预算').fill('700');
-    await page.getByLabel('每期最多事件数').fill('25');
     await page.getByLabel('期刊大标题字数上限').fill('40');
     await page.getByLabel('标题写作要求').fill('突出具体机构与已发生变化，保留事实边界。');
     await page.getByRole('button', { name: '添加栏目', exact: true }).click();
@@ -73,7 +72,7 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await page.getByRole('button', { name: '关闭通知', exact: true }).click();
     await page.screenshot({ path: '.data/admin-content-desktop.png', fullPage: true });
     const saved = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
-    expect(saved.maxItems).toBe(25);
+    expect(saved.maxItems).toBeUndefined();
     expect(saved.briefTitleMaxLength).toBe(40);
     expect(saved.briefTitlePrompt).toContain('具体机构');
     expect(saved.highlightRating).toBe(4.6);

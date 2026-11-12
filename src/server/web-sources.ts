@@ -142,7 +142,33 @@ export function parseWebItems(html: string, input: string, now = new Date()): We
       });
     }
   };
-  if (u.hostname === 'www.cvsource.com.cn') {
+  if (
+    u.hostname === 'www.readaitime.com' &&
+    /^\/digests(?:\/\d{4}-\d{2}-\d{2})?\/?$/.test(u.pathname)
+  ) {
+    $('main article.digest-item').each((_, el) => {
+      const row = $(el);
+      const href = row.find('a.card-link').first().attr('href');
+      const title = row.find('.item-title').first().text().trim();
+      const summary = row.find('.item-summary').text().trim();
+      const publishedAt = row.find('time[datetime]').first().attr('datetime');
+      if (!href || !summary || !publishedAt || !Number.isFinite(Date.parse(publishedAt))) return;
+      let url: URL;
+      try {
+        url = new URL(href, u);
+      } catch {
+        return;
+      }
+      if (!/^https?:$/.test(url.protocol)) return;
+      add({
+        title,
+        excerpt: summary,
+        url: url.href,
+        publishedAt,
+        contentComplete: true,
+      });
+    });
+  } else if (u.hostname === 'www.cvsource.com.cn') {
     for (const r of embeddedWebRecords(html))
       if (
         typeof r.id === 'string' &&
@@ -293,6 +319,16 @@ export async function loadWebItems(
   const ranking = await loadRankingItems(html, input, fetcher, now);
   if (ranking) return ranking;
   const u = new URL(input);
+  if (u.hostname === 'www.readaitime.com' && /^\/digests\/?$/.test(u.pathname)) {
+    const $ = load(html);
+    const href = $('link[rel="canonical"]').attr('href');
+    const issue = new URL(href ?? '', u);
+    if (issue.origin !== u.origin || !/^\/digests\/\d{4}-\d{2}-\d{2}$/.test(issue.pathname))
+      throw Error('读懂AI时代未找到最新一期简报');
+    const body = await fetcher(issue.href);
+    if (!body) throw Error('读懂AI时代简报读取失败');
+    return parseWebItems(body, issue.href, now);
+  }
   if (u.hostname === 'tldr.tech') {
     const $ = load(html),
       issues = new Set<string>();

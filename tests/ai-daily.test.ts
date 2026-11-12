@@ -748,7 +748,7 @@ test('要览错误ID重试仅重做要览，候选只含达标正文', async () 
   assert.equal(saved.draft!.highlights!.length, 1);
 });
 
-test('正文、要览和标题均收到此前已刊内容，排除未来刊期', async () => {
+test('仅登刊检查收到7天已刊内容，正文得到新增事实，预览不调用模型', async () => {
   const { id } = await seed('2026-10-31T04:00:00Z', topAssessment, '资本与项目', 'ai');
   const oldContent = {
     title: 'Anthropic完成630亿美元融资',
@@ -769,9 +769,22 @@ test('正文、要览和标题均收到此前已刊内容，排除未来刊期',
   globalThis.fetch = async (_url, init) => {
     const request = JSON.parse(String(init?.body));
     const input = JSON.parse(request.messages[1].content);
-    assert.equal(input.previousCoverage.length, 1);
-    assert.equal(input.previousCoverage[0].title, oldContent.title);
-    assert.ok(request.messages[0].content.includes('已刊融资金额'));
+    if (request.messages[0].content.includes('只判断本次事件')) {
+      assert.equal(input.previousCoverage.length, 1);
+      assert.equal(input.previousCoverage[0].reports[0].title, oldContent.title);
+      stages.push('检查');
+      return reply({
+        decision: 'update',
+        previousEventId: oldContent.items[0].eventId,
+        newFactIndexes: [0],
+        reason: '新增贷款条件',
+      });
+    }
+    assert.equal(input.previousCoverage, undefined);
+    if (input.selected?.[0]?.materials) {
+      assert.equal(input.selected[0].publication.decision, 'update');
+      assert.equal(input.selected[0].publication.newFacts.length, 1);
+    }
     stages.push(request.messages[0].content);
     return reply({
       ...written(input),
@@ -780,7 +793,289 @@ test('正文、要览和标题均收到此前已刊内容，排除未来刊期',
       title: 'Anthropic融资披露设备残值支持',
     });
   };
-  const result = await generateBrief('daily', '2026-11-01');
+  const preview = await previewBrief('daily', '2026-11-01');
+  assert.equal(stages.length, 0);
+  assert.equal(preview.cached, false);
+  const result = await generateBrief('daily', '2026-11-01', preview.key);
   assert.ok(result);
-  assert.equal(stages.length, 3);
+  assert.equal(stages.length, 4);
+  const checked = await previewBrief('daily', '2026-11-01');
+  assert.equal(checked.cached, true);
+  assert.equal(stages.length, 4);
+});
+
+test('固定栏目重复只补一位，补位仍重复就留空，不继续检查第三位', async () => {
+  const current = await getSettings();
+  await saveSettings({
+    ...current,
+    highlightsEnabled: false,
+    sections: current.sections.map((section) => ({
+      ...section,
+      enabled: section.name === '工具与开源',
+      minItems: 1,
+      maxItems: 1,
+    })),
+  });
+  const candidates = await Promise.all([
+    seed('2026-10-31T04:00:00Z'),
+    seed('2026-10-31T05:00:00Z'),
+    seed('2026-10-31T06:00:00Z'),
+  ]);
+  const previousEventId = randomUUID();
+  await pool.query(
+    "INSERT INTO briefs(kind,period_date,published,published_at) VALUES('daily','2026-10-30',$1,'2026-10-30T00:00:00Z')",
+    [
+      JSON.stringify({
+        title: '上期日报',
+        items: [{ eventId: previousEventId, title: '工具发布更新', summary: '机构公布更新计划' }],
+        highlights: [],
+      }),
+    ],
+  );
+  let checks = 0;
+  globalThis.fetch = async (_url, init) => {
+    const request = JSON.parse(String(init?.body));
+    const input = JSON.parse(request.messages[1].content);
+    assert.ok(request.messages[0].content.includes('只判断本次事件'));
+    assert.equal(input.previousCoverage[0].eventId, previousEventId);
+    checks++;
+    return reply({
+      decision: 'duplicate',
+      previousEventId,
+      newFactIndexes: [],
+      reason: '无新增事实',
+    });
+  };
+  const saved = await generateBrief('daily', '2026-11-01');
+  assert.equal(saved.draft!.items.length, 0);
+  assert.equal(checks, 1, '相同材料的原候选和补位共用检查回执');
+  const details = (
+    await pool.query(
+      "SELECT details FROM edition_runs WHERE period_date='2026-11-01' AND section='工具与开源'",
+    )
+  ).rows[0].details;
+  assert.equal(
+    details.filter((entry: { reason: string }) => entry.reason.includes('已刊内容重复')).length,
+    2,
+  );
+  assert.equal(candidates.length, 3);
+  const count = (
+    await pool.query("SELECT count(*)::int n FROM model_calls WHERE purpose='publication-dedup'")
+  ).rows[0].n;
+  assert.equal(count, 1);
+  await generateBrief('daily', '2026-11-01');
+  assert.equal(checks, 1, '重新生成复用已完成的去重检查');
+});
+
+test('旧的全刊事件数配置不再截断栏目上限，未刊内容不触发历史检查', async () => {
+  const current = await getSettings();
+  await saveSettings({
+    ...current,
+    highlightsEnabled: false,
+    sections: current.sections.map((section) => ({
+      ...section,
+      enabled: section.name === '工具与开源',
+      minItems: 1,
+      maxItems: 3,
+      budget: 500,
+    })),
+  });
+  await pool.query("UPDATE settings SET value=jsonb_set(value,'{maxItems}','1') WHERE id=1");
+  for (let i = 0; i < 4; i++) await seed(`2026-10-31T0${i + 1}:00:00Z`);
+  await pool.query("INSERT INTO briefs(kind,period_date,draft) VALUES('daily','2026-10-30',$1)", [
+    JSON.stringify({
+      title: '未刊草稿',
+      items: [{ eventId: randomUUID(), title: '工具发布更新', summary: '机构公布更新计划' }],
+    }),
+  ]);
+  const saved = await generateBrief('daily', '2026-11-01');
+  assert.equal(saved.draft!.items.length, 3);
+  assert.equal(
+    (await pool.query("SELECT count(*)::int n FROM model_calls WHERE purpose='publication-dedup'"))
+      .rows[0].n,
+    0,
+  );
+});
+
+test('登刊检查失败不覆盖正式版，后续写作失败重试复用检查回执', async () => {
+  await seed('2026-10-31T04:00:00Z');
+  const priorId = randomUUID();
+  const prior = {
+    title: '此前正式版',
+    items: [{ eventId: priorId, title: '旧事件', summary: '此前已刊事实' }],
+    highlights: [],
+  };
+  await pool.query(
+    "INSERT INTO briefs(kind,period_date,published,published_at) VALUES('daily','2026-10-30',$1,'2026-10-30T00:00:00Z'),('daily','2026-11-01',$1,'2026-11-01T00:00:00Z')",
+    [JSON.stringify(prior)],
+  );
+  let checkFailure = true;
+  let writingFailure = true;
+  let checks = 0;
+  globalThis.fetch = async (_url, init) => {
+    const request = JSON.parse(String(init?.body));
+    const input = JSON.parse(request.messages[1].content);
+    if (request.messages[0].content.includes('只判断本次事件')) {
+      checks++;
+      if (checkFailure) return new Response('', { status: 503 });
+      return reply({
+        decision: 'new',
+        previousEventId: null,
+        newFactIndexes: [],
+        reason: '不同事项',
+      });
+    }
+    if (writingFailure) return new Response('', { status: 503 });
+    return reply(written(input));
+  };
+  await assert.rejects(generateBrief('daily', '2026-11-01'), /HTTP 503/);
+  assert.equal(checks, 1);
+  checkFailure = false;
+  await assert.rejects(generateBrief('daily', '2026-11-01'), /HTTP 503/);
+  assert.equal(checks, 2);
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT published->>'title' title FROM briefs WHERE kind='daily' AND period_date='2026-11-01'",
+      )
+    ).rows[0].title,
+    prior.title,
+  );
+  writingFailure = false;
+  const saved = await generateBrief('daily', '2026-11-01');
+  assert.equal(saved.draft!.items.length, 1);
+  assert.equal(checks, 2);
+});
+
+test('登刊检查为模型推理预留输出预算，不因1600上限截断空正文而阻塞整期', async () => {
+  await seed('2026-10-31T04:00:00Z');
+  await pool.query(
+    "INSERT INTO briefs(kind,period_date,published,published_at) VALUES('daily','2026-10-30',$1,'2026-10-30T00:00:00Z')",
+    [
+      JSON.stringify({
+        title: '上期',
+        items: [{ eventId: randomUUID(), title: '旧事件', summary: '已刊内容' }],
+        highlights: [],
+      }),
+    ],
+  );
+  let checks = 0;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    const input = JSON.parse(body.messages[1].content);
+    if (body.messages[0].content.includes('只判断本次事件')) {
+      checks++;
+      // Recorded failure: all 1600 output tokens were spent before visible JSON.
+      if (body.max_tokens <= 1600)
+        return Response.json({
+          choices: [{ finish_reason: 'length', message: { content: null } }],
+          usage: { prompt_tokens: 3811, completion_tokens: 1600 },
+        });
+      return reply({
+        decision: 'new',
+        previousEventId: null,
+        newFactIndexes: [],
+        reason: '不同事项',
+      });
+    }
+    return reply(written(input));
+  };
+  const preview = await previewBrief('daily', '2026-11-01');
+  assert.equal(checks, 0);
+  const saved = await generateBrief('daily', '2026-11-01', preview.key);
+  assert.equal(saved.draft!.items.length, 1);
+  assert.equal(checks, 1);
+  const { inspectModelRequest } = await import('../src/server/model.ts');
+  const recorded = (
+    await pool.query(
+      "SELECT id,input_summary FROM model_calls WHERE purpose='publication-dedup' AND state='succeeded'",
+    )
+  ).rows[0];
+  const legacy = await inspectModelRequest(
+    'publication-dedup',
+    recorded.input_summary.prompt,
+    recorded.input_summary.input,
+    1600,
+  );
+  await pool.query(
+    "UPDATE model_calls SET request_key=$2,input_summary=jsonb_set(input_summary,'{maxTokens}','1600') WHERE id=$1",
+    [recorded.id, legacy.key],
+  );
+  assert.equal((await previewBrief('daily', '2026-11-01')).cached, true);
+  await generateBrief('daily', '2026-11-01');
+  assert.equal(checks, 1, '升级预算后仍复用旧预算下的成功检查');
+});
+
+test('数据轮动保存类型名和可选图表，同时按稳定栏目名记录出刊状态', async () => {
+  const current = await getSettings();
+  await saveSettings({
+    ...current,
+    startDate: '2026-10-26',
+    rotationsEnabled: true,
+    sections: current.sections.map((section) =>
+      section.kind === 'rotation'
+        ? { ...section, enabled: section.id === '数据一图／观点摘编', weekdays: [5] }
+        : section,
+    ),
+  });
+  for (const [name, value] of [
+    ['甲', 30],
+    ['乙', 45],
+  ] as const) {
+    const event = await seed('2026-10-29T12:00:00Z');
+    await pool.query('UPDATE event_developments SET facts=$2 WHERE event_id=$1', [
+      event.id,
+      JSON.stringify([
+        {
+          statement: `研究机构报告：2026年机构${name}AI采用率为${value}%。`,
+          evidence: `研究机构报告：2026年机构${name}AI采用率为${value}%。`,
+          status: 'claim',
+        },
+      ]),
+    ]);
+  }
+  globalThis.fetch = async (_url, init) => {
+    const input = inputFrom(init);
+    if ('column' in input) {
+      const rotation = input as unknown as {
+        events: { ref: string; developments: { facts: { ref: string; statement: string }[] }[] }[];
+      };
+      const points = rotation.events.map((event) => {
+        const fact = event.developments[0].facts[0];
+        return {
+          label: fact.statement.includes('机构甲') ? '机构甲' : '机构乙',
+          value: fact.statement.includes('30%') ? 30 : 45,
+          eventRef: event.ref,
+          factRef: fact.ref,
+        };
+      });
+      return reply({
+        observation: {
+          kind: 'data',
+          text: '研究机构报告显示，机构甲和乙的AI采用率为30%和45%。',
+          eventRefs: rotation.events.map((event) => event.ref),
+          basis: points.map(({ eventRef, factRef }) => ({ eventRef, factRef })),
+          chart: {
+            title: '受访机构AI采用率',
+            metric: 'AI采用率',
+            unit: '%',
+            period: '2026年调查样本',
+            points,
+          },
+        },
+      });
+    }
+    return reply(written(input));
+  };
+  const saved = await generateBrief('daily', '2026-10-30');
+  assert.equal(saved.draft!.rotations![0].displayName, '数据一图');
+  assert.equal(saved.draft!.rotations![0].chart!.points.length, 2);
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT selected_count FROM edition_runs WHERE period_date='2026-10-30' AND section='数据一图／观点摘编'",
+      )
+    ).rows[0].selected_count,
+    1,
+  );
 });

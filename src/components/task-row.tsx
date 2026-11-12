@@ -8,6 +8,7 @@ import {
   stateNames,
   taskTypes,
   taskStamp,
+  taskStartStamp,
 } from '../server/admin-task-labels.ts';
 import { retryManagedTaskAction } from '../app/actions.ts';
 import { assessmentSchema, ratingFor, defaultRatingRules } from '../server/editorial.ts';
@@ -112,7 +113,7 @@ export function TaskRow({ task }: { task: ManagedTask }) {
       <td className="task-name">
         <span title={task.name}>{task.name}</span>
       </td>
-      <td className="task-time">{taskStamp(task.started_on)}</td>
+      <td className="task-time">{taskStartStamp(task.started_on, task.state)}</td>
       <td>
         <span className={'state-' + task.state}>{stateNames[task.state] ?? task.state}</span>
         {task.state === 'retry' && (
@@ -198,7 +199,7 @@ export function TaskRow({ task }: { task: ManagedTask }) {
                   </div>
                   <div>
                     <dt>开始时间</dt>
-                    <dd>{taskStamp(current.started_on)}</dd>
+                    <dd>{taskStartStamp(current.started_on, current.state)}</dd>
                   </div>
                   <div>
                     <dt>完成时间</dt>
@@ -367,7 +368,7 @@ export function TaskRow({ task }: { task: ManagedTask }) {
                           </span>
                           <small>
                             入队：{taskStamp(attempt.created_on)} · 开始：
-                            {taskStamp(attempt.started_on)} · 完成：
+                            {taskStartStamp(attempt.started_on, attempt.state)} · 完成：
                             {attempt.completed_on ? taskStamp(attempt.completed_on) : '未完成'}
                           </small>
                         </summary>

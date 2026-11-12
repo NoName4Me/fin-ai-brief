@@ -1,3 +1,5 @@
+import { rotationText } from '../server/rotation-text.ts';
+import { RotationChart } from './rotation-chart.tsx';
 import { ReaderOutline } from './reader-outline.tsx';
 import type { BriefContent } from '../server/types.ts';
 import { dateLabel } from '../server/periods.ts';
@@ -97,7 +99,8 @@ export function DailyBrief({
                 <header className="chapter-heading">
                   <h2>{group.displayName ?? group.name}</h2>
                 </header>
-                <p className="rotation-copy">{group.text}</p>
+                {group.chart && <RotationChart chart={group.chart} />}
+                <p className="rotation-copy">{rotationText(group.text)}</p>
                 <SourceRow
                   item={{ title: group.displayName ?? group.name, sources: group.sources }}
                 />

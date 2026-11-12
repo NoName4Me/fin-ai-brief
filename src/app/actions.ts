@@ -188,7 +188,6 @@ export async function editorialAction(form: FormData) {
             ...(form.has('budgetTolerancePercent')
               ? { budgetTolerancePercent: Number(text(form, 'budgetTolerancePercent')) }
               : {}),
-            ...(form.has('maxItems') ? { maxItems: Number(text(form, 'maxItems')) } : {}),
             ...(form.has('briefTitlePrompt')
               ? { briefTitlePrompt: text(form, 'briefTitlePrompt') }
               : {}),

@@ -84,7 +84,7 @@ export function fixedSectionOutcome(input: {
   if (candidates > 0 && !qualified)
     return { status: 'skipped', reason: `候选${candidates}条均未达到日报候选门槛，本期正常留空` };
   if (qualified > 0)
-    return { status: 'skipped', reason: `${qualified}条达到选题分数，因整期事件上限或篇幅未采用` };
+    return { status: 'skipped', reason: `${qualified}条达到选题分数，因已刊重复或篇幅未采用` };
   const problems = [
     health.processing_errors ? `${health.processing_errors}篇资讯处理未完成或失败` : '',
     health.source_errors ? `${health.source_errors}个启用信源采集异常或未完成首采` : '',

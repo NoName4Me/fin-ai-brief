@@ -53,7 +53,6 @@ export async function saveEditorialConfig(input: {
   keywords?: string;
   editorialPrompt?: string;
   reviewEnabled?: boolean;
-  maxItems?: number;
   briefTitleMaxLength?: number;
   briefTitlePrompt?: string;
 }) {
@@ -96,7 +95,6 @@ export async function saveEditorialConfig(input: {
       'keywords',
       'editorialPrompt',
       'reviewEnabled',
-      'maxItems',
       'briefTitleMaxLength',
       'briefTitlePrompt',
     ] as const;

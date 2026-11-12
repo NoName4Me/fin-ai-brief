@@ -16,6 +16,31 @@
 * {
   box-sizing: border-box;
 }
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) var(--wash);
+}
+@supports selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: var(--wash);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--rule);
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--blue);
+  }
+}
 html {
   scrollbar-gutter: stable;
   scroll-padding-top: 25px;
@@ -6846,4 +6871,53 @@ button:disabled {
 .mail-settings-form .form-actions {
   display: flex;
   gap: 10px;
+}
+
+.rotation-chart {
+  margin: 20px 0;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.rotation-chart figcaption {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.rotation-chart-context {
+  margin: 6px 0 16px;
+  color: var(--body);
+  font-size: 12px;
+}
+.rotation-chart-bars {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rotation-chart-bars li {
+  display: grid;
+  grid-template-columns: minmax(5em, 30%) minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.rotation-chart-label {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.rotation-chart-track {
+  display: block;
+  height: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.rotation-chart-track > span {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+}
+.rotation-chart-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }

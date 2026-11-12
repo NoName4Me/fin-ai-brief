@@ -36,6 +36,15 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
             />
             开启模型调用
           </label>
+          <label className="settings-switch-label">
+            <Switch
+              name="modelOffPeakOnly"
+              defaultChecked={config.modelOffPeakOnly}
+              aria-label="模型任务仅在波谷运行"
+            />
+            模型任务仅在波谷运行
+          </label>
+          <p className="form-hint">北京时间周一至周五 09:00–12:00、14:00–18:00 等待，采集照常。</p>
           <label>
             API 地址
             <input

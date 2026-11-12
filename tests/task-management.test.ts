@@ -8,7 +8,7 @@ import { taskOverview, taskDetail, retryManagedTask } from '../src/server/admin-
 import { requestGeneration } from '../src/server/generation-requests.ts';
 import { saveSettings } from '../src/server/settings.ts';
 import { defaultSettings } from '../src/server/types.ts';
-import { taskStamp } from '../src/server/task-labels.ts';
+import { taskStamp, taskStartStamp } from '../src/server/task-labels.ts';
 import type { PgBoss } from 'pg-boss';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
   throw new Error('任务管理测试必须使用独立_test库');
@@ -22,7 +22,7 @@ beforeEach(async () => {
   await pool.query(
     'TRUNCATE reprocessing_batches,articles,events,sources,brief_requests,processing_steps,model_calls CASCADE',
   );
-  await saveSettings(defaultSettings);
+  await saveSettings({ ...defaultSettings, modelOffPeakOnly: false });
 });
 after(async () => {
   await boss.stop();
@@ -145,6 +145,39 @@ test('未入队资讯不伪造开始时间，入队后不重复显示占位任�
   assert.equal(tasks.filter((t) => t.queue === 'process').length, 1);
   assert.equal(tasks.find((t) => t.request_id === requestId)?.state, 'waiting_articles');
   assert.ok(tasks.find((t) => t.queue === 'process')?.job_id);
+});
+
+test('迁移后没有队列的失败资讯仍能读取历史时间、失败原因和处理详情', async () => {
+  const id = await article('迁移失败资讯');
+  const jobId = randomUUID();
+  await pool.query("UPDATE articles SET state='failed' WHERE id=$1", [id]);
+  await pool.query(
+    `INSERT INTO processing_steps(subject,run_key,stage,state,started_at,finished_at,error) VALUES
+    ($1,$2,'task','failed','2026-11-01T01:00:00Z','2026-11-01T01:05:00Z','任务执行失败'),
+    ($1,$2,'analyze','failed','2026-11-01T01:01:00Z','2026-11-01T01:04:00Z','模型分析失败：超时')`,
+    [`article:${id}`, `job:${jobId}`],
+  );
+  const [task] = await taskOverview('', 'process', 'failed');
+  assert.equal(task.id, `article:${id}`);
+  assert.equal(task.job_id, null);
+  assert.equal(task.started_on?.toISOString(), '2026-11-01T01:00:00.000Z');
+  assert.equal(task.completed_on?.toISOString(), '2026-11-01T01:05:00.000Z');
+  const detail = await taskDetail(task.id);
+  assert.equal(detail?.article.id, id);
+  assert.equal(detail?.attemptsForArticle.length, 0);
+  assert.equal(detail?.steps.length, 2);
+  assert.deepEqual(detail?.failure, { stage: 'analyze', error: '模型分析失败：超时' });
+});
+
+test('无队列且没有处理历史的失败资讯详情可读取，时间显示无记录', async () => {
+  const id = await article();
+  await pool.query("UPDATE articles SET state='failed' WHERE id=$1", [id]);
+  const detail = await taskDetail(`article:${id}`);
+  assert.equal(detail?.task.started_on, null);
+  assert.deepEqual(detail?.steps, []);
+  assert.equal(detail?.failure, null);
+  assert.equal(taskStartStamp(null, 'failed'), '无记录');
+  assert.equal(taskStartStamp(null, 'created'), '未开始');
 });
 
 test('信源改名或删除后保留入队时的任务名，详情时间线倒序', async () => {

@@ -21,8 +21,19 @@ python3 deploy/config.py validate "$ENV_FILE"
 command -v docker >/dev/null
 release_value() { python3 deploy/config.py release-value "$ROOT" "$1"; }
 export APP_VERSION=${APP_VERSION:-$(cat "$STATE_DIR/current" 2>/dev/null || release_value version)}
-export POSTGRES_IMAGE=$(cat "$STATE_DIR/postgres-image" 2>/dev/null || release_value postgres_image)
-export NGINX_IMAGE=$(cat "$STATE_DIR/nginx-image" 2>/dev/null || release_value nginx_image)
+infrastructure_image() {
+  local state_name=$1 manifest_key=$2 value
+  value=$(cat "$STATE_DIR/$state_name" 2>/dev/null || true)
+  if [[ -z $value ]]; then value=$(release_value "$manifest_key"); fi
+  if [[ -z $value ]]; then
+    echo '更新包需要已部署的服务器；首次安装或新机恢复请用 package-release.sh --full 生成完整包。' >&2
+    return 1
+  fi
+  printf '%s\n' "$value"
+}
+POSTGRES_IMAGE=$(infrastructure_image postgres-image postgres_image)
+NGINX_IMAGE=$(infrastructure_image nginx-image nginx_image)
+export POSTGRES_IMAGE NGINX_IMAGE
 compose() { docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" -f deploy/compose.yaml "$@"; }
 compose config --quiet
 CUTOVER=0
@@ -60,7 +71,10 @@ backup() {
 }
 start_apps() {
   compose up -d --no-deps --no-build --pull never --wait --wait-timeout 180 web worker
-  compose up -d --no-deps --no-build --pull never --force-recreate --wait --wait-timeout 90 nginx
+  # Reuse Nginx unless Compose detects a configuration/image change. Reload resolves
+  # the new Web container address and applies any changed bind-mounted template.
+  compose up -d --no-deps --no-build --pull never --wait --wait-timeout 90 nginx
+  compose exec -T nginx sh -ec '/docker-entrypoint.d/20-envsubst-on-templates.sh; nginx -t; nginx -s reload'
   printf '%s\n' "$APP_VERSION" > "$STATE_DIR/current.tmp"
   mv "$STATE_DIR/current.tmp" "$STATE_DIR/current"
   printf '%s\n' "$NGINX_IMAGE" > "$STATE_DIR/nginx-image"
@@ -92,12 +106,16 @@ case "$1" in
   deploy)
     load_release "$ROOT"
     export APP_VERSION=$(release_value version)
-    export NGINX_IMAGE=$(release_value nginx_image)
+    if [[ $(release_value mode) == full ]]; then
+      NGINX_IMAGE=$(release_value nginx_image)
+    fi
     require_images
+    # Fail before stopping applications if an update has lost its base images.
+    docker image inspect "$POSTGRES_IMAGE" "$NGINX_IMAGE" >/dev/null
     echo "部署版本: $APP_VERSION"
     start_db
     CUTOVER=1
-    compose stop nginx web worker
+    compose stop web worker
     backup
     compose run --rm --no-deps migrate
     start_apps

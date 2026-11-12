@@ -106,3 +106,11 @@ export const timeLabel = (date: string | Date) =>
     minute: '2-digit',
     hour12: false,
   }).format(new Date(date));
+
+export function modelWindowOpen(offPeakOnly: boolean, now = new Date()) {
+  if (!offPeakOnly) return true;
+  const local = new Date(now.getTime() + 8 * 3600_000);
+  const day = local.getUTCDay();
+  const hour = local.getUTCHours();
+  return day === 0 || day === 6 || hour < 9 || (hour >= 12 && hour < 14) || hour >= 18;
+}

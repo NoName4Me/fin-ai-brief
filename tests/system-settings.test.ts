@@ -43,6 +43,7 @@ test('模型运行与预览读取已保存配置，迁移不覆盖管理员修�
     apiKey: connection.apiKey,
     model: connection.model,
   });
+  assert.equal((await getSettings()).modelOffPeakOnly, true);
   const first = await inspectModelRequest('brief', 'prompt', {}, 12000);
   await saveSettingsPatch({
     modelConnection: { ...connection, baseUrl: 'https://changed.invalid/v1' },
@@ -59,15 +60,18 @@ test('统一保存模型和清理设置，密钥留空保留，其他设置不�
   await saveSystemSettings(form());
   const saved = await getSettings();
   assert.equal(saved.modelDailyLimit, 123);
+  assert.equal(saved.modelOffPeakOnly, false);
   assert.equal(saved.newsRetentionDays, 99);
   assert.equal(saved.taskRetentionDays, 20);
   assert.equal(saved.mailRetentionDays, 8);
   assert.equal(saved.modelConnection?.apiKey, connection.apiKey);
   assert.equal(saved.processingConcurrency, defaultSettings.processingConcurrency);
   const next = form();
+  next.set('modelOffPeakOnly', 'on');
   next.set('modelApiKey', 'replacement-test-key');
   await saveSystemSettings(next);
   assert.equal((await requireModelConfig()).apiKey, 'replacement-test-key');
+  assert.equal((await getSettings()).modelOffPeakOnly, true);
 });
 test('配置无效时整次保存拒绝，不部分覆盖额度或数据保留', async () => {
   const data = form();

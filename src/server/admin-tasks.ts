@@ -69,7 +69,8 @@ const taskProjection = `WITH unified AS (
     WHEN 'process' THEN coalesce(j.data->>'articleTitle',a.title,'已删除资讯')
     ELSE ${kindLabel}||' '||coalesce(j.data->>'date','')||'（'||CASE WHEN j.data->>'trigger'='manual' OR j.data->>'expectedKey' IS NOT NULL THEN '手动' ELSE '自动' END||'）' END name,
     j.data->>'id' target_id,j.id job_id,NULL::uuid request_id,j.created_on,j.started_on,j.completed_on,
-    CASE WHEN j.state='completed' AND EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting') THEN 'waiting_budget'
+    CASE WHEN j.state='completed' AND EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting' AND p.result->>'waitingModelWindow'='true') THEN 'waiting_model_window'
+      WHEN j.state='completed' AND EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting') THEN 'waiting_budget'
       WHEN j.state='completed' THEN 'succeeded' ELSE j.state::text END state,
     j.retry_count,j.retry_limit,j.data,
     coalesce(j.output->>'message',j.output->'value'->>'message',j.output->>'error') error,
@@ -86,6 +87,7 @@ const taskProjection = `WITH unified AS (
     coalesce(r.finished_at,j.completed_on),
     CASE WHEN r.state='waiting' THEN 'waiting_articles'
       WHEN j.state='cancelled' THEN 'cancelled'
+      WHEN j.state='completed' AND EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting' AND p.result->>'waitingModelWindow'='true') THEN 'waiting_model_window'
       WHEN j.state='completed' AND EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting') THEN 'waiting_budget'
       WHEN r.state='completed' OR j.state='completed' THEN 'succeeded'
       WHEN r.state='failed' OR j.state='failed' THEN 'failed'
@@ -96,9 +98,15 @@ const taskProjection = `WITH unified AS (
     1,NULL::text
   FROM brief_requests r LEFT JOIN pgboss.job j ON j.id=r.job_id AND j.name='generate'
   UNION ALL
-  SELECT 'article:'||a.id::text,'process',a.title,a.id::text,NULL::uuid,NULL::uuid,a.created_at,NULL::timestamptz,NULL::timestamptz,
-    CASE WHEN a.state='failed' THEN 'failed' ELSE 'created' END,0,0,jsonb_build_object('id',a.id),NULL,1,NULL::text
-  FROM articles a WHERE a.state IN ('pending','failed') AND NOT EXISTS(SELECT 1 FROM pgboss.job j WHERE j.name='process' AND j.data->>'id'=a.id::text)
+  SELECT 'article:'||a.id::text,'process',a.title,a.id::text,NULL::uuid,NULL::uuid,a.created_at,history.started_on,
+    CASE WHEN a.state='failed' THEN history.completed_on ELSE NULL::timestamptz END,
+    CASE WHEN a.state='failed' THEN 'failed' ELSE 'created' END,0,0,jsonb_build_object('id',a.id),history.error,1,NULL::text
+  FROM articles a LEFT JOIN LATERAL (
+    SELECT min(p.started_at) started_on,max(p.finished_at) completed_on,
+      (array_agg(p.error ORDER BY p.started_at DESC,p.id DESC) FILTER(WHERE p.error IS NOT NULL))[1] error
+    FROM processing_steps p WHERE p.subject='article:'||a.id::text
+  ) history ON true
+  WHERE a.state IN ('pending','failed') AND NOT EXISTS(SELECT 1 FROM pgboss.job j WHERE j.name='process' AND j.data->>'id'=a.id::text)
   UNION ALL
   SELECT 'batch:'||b.id::text,'reprocess',
     CASE WHEN b.regenerate_date IS NOT NULL THEN b.regenerate_date::text||' 日报：重处理并重新生成'
@@ -166,7 +174,7 @@ export async function taskDetail(id: string) {
       FROM processing_steps p LEFT JOIN model_calls c ON c.id=p.call_id WHERE p.subject=$1
       AND (
         ($3::boolean AND (
-          p.stage<>'task' OR p.run_key IN (
+          p.stage<>'task' OR $6::boolean OR p.run_key IN (
             SELECT 'job:'||j.id::text FROM pgboss.job j
             WHERE j.name='process' AND j.data->>'id'=$5
           )
@@ -184,6 +192,7 @@ export async function taskDetail(id: string) {
         task.queue === 'process',
         task.request_id,
         task.target_id,
+        task.job_id === null,
       ],
     ),
     task.queue === 'process'
@@ -206,7 +215,8 @@ export async function taskDetail(id: string) {
           `SELECT j.id,j.created_on,j.started_on,j.completed_on,j.state,j.data->>'trigger' trigger,
           j.retry_count,j.retry_limit,
           coalesce(j.output->>'message',j.output->'value'->>'message',j.output->>'error') error,
-          EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting') waiting
+          EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting') waiting,
+          EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting' AND p.result->>'waitingModelWindow'='true') waiting_model_window
           FROM pgboss.job j WHERE j.name='process' AND j.data->>'id'=$1 ORDER BY j.created_on DESC`,
           [task.target_id],
         )
@@ -286,7 +296,13 @@ export async function taskDetail(id: string) {
         trigger: row.trigger,
         retry_count: row.retry_count,
         retry_limit: row.retry_limit,
-        state: row.waiting ? 'waiting_budget' : row.state === 'completed' ? 'succeeded' : row.state,
+        state: row.waiting_model_window
+          ? 'waiting_model_window'
+          : row.waiting
+            ? 'waiting_budget'
+            : row.state === 'completed'
+              ? 'succeeded'
+              : row.state,
         error: failureStep?.error ?? row.error,
         steps: attemptSteps.sort((a, b) => {
           if (a.stage === 'retry' && b.stage !== 'retry') return -1;
@@ -300,7 +316,7 @@ export async function taskDetail(id: string) {
     ['failed', 'retry'].includes(task.state) ||
     (task.queue === 'process' && article.rows[0]?.state === 'failed');
   const latestStep = failed
-    ? (task.queue === 'process' ? articleAttempts[0]?.steps : steps.rows).find(
+    ? (task.queue === 'process' ? (articleAttempts[0]?.steps ?? steps.rows) : steps.rows).find(
         (step) =>
           step.stage !== 'task' &&
           step.stage !== 'retry' &&

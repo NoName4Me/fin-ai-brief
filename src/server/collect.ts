@@ -343,7 +343,7 @@ async function collectEndpoint(
     const urls = [...new Set([...listingUrls, ...items.map((item) => canonicalUrl(item.url))])];
     const sourceNew = urls.filter((url) => !previousUrls.has(url)).length;
     let inserted = 0;
-    const detailErrors: string[] = [];
+    const detailErrors: Error[] = [];
     for (const item of items) {
       const exists = await db
         .select({ id: articles.id })
@@ -365,7 +365,9 @@ async function collectEndpoint(
           }
           await recordCollectionItem(run.id, id, item, 'failed', now);
           detailErrors.push(
-            `${item.title}：${error instanceof Error ? error.message : '详情读取失败'}`,
+            new Error(`${item.title}：${error instanceof Error ? error.message : '详情读取失败'}`, {
+              cause: error,
+            }),
           );
           continue;
         }
@@ -421,7 +423,14 @@ async function collectEndpoint(
       .update(sources)
       .set({ lastFetchedAt: new Date(), lastError: null, etag, nextFetchAt })
       .where(eq(sources.id, id));
-    if (detailErrors.length) throw new Error(detailErrors.join('；').slice(0, 1000));
+    if (detailErrors.length)
+      throw new AggregateError(
+        detailErrors,
+        detailErrors
+          .map((error) => error.message)
+          .join('；')
+          .slice(0, 1000),
+      );
     await success(sourceNew, { fetched: items.length, inserted, sourceNew, urls });
     return { fetched: items.length, inserted };
   } catch (error) {
@@ -462,22 +471,25 @@ export async function collectSource(
   if (!source?.additionalUrls.length) return collectEndpoint(id, fetcher, now, options);
   let fetched = 0,
     inserted = 0;
-  const errors: string[] = [];
+  const errors: Error[] = [];
   for (const endpoint of [source.url!, ...source.additionalUrls]) {
     try {
       const result = await collectEndpoint(id, fetcher, now, options, endpoint);
       fetched += result.fetched;
       inserted += result.inserted;
     } catch (e) {
-      errors.push(`${endpoint}：${e instanceof Error ? e.message : '采集失败'}`);
+      errors.push(
+        new Error(`${endpoint}：${e instanceof Error ? e.message : '采集失败'}`, { cause: e }),
+      );
     }
   }
   if (errors.length) {
+    const message = errors.map((error) => error.message).join('；');
     await pool.query(
       'UPDATE sources SET last_error=$2,failure_count=greatest(failure_count,1) WHERE id=$1',
-      [id, errors.join('；').slice(0, 1000)],
+      [id, message.slice(0, 1000)],
     );
-    throw new Error(errors.join('；'));
+    throw new AggregateError(errors, message);
   }
   return { fetched, inserted };
 }

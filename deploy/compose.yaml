@@ -101,7 +101,7 @@ services:
       ACCESS_CIDR: ${ACCESS_CIDR:?Set your office IP range}
       NGINX_ENVSUBST_FILTER: '^ACCESS_CIDR$$'
     volumes:
-      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx:/etc/nginx/templates:ro
     depends_on:
       web:
         condition: service_healthy

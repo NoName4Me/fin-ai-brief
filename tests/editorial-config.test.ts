@@ -463,7 +463,7 @@ test('分页面保存只更新本页字段，互不清空栏目、评分和运�
   const changedSections = original.sections.map((s, index) =>
     index === 0 ? { ...s, budget: 601 } : s,
   );
-  await saveEditorialConfig({ sections: changedSections, maxItems: 25, briefTitleMaxLength: 40 });
+  await saveEditorialConfig({ sections: changedSections, briefTitleMaxLength: 40 });
   await saveEditorialConfig({
     ratingRules: original.ratingRules.map((r) =>
       r.id === 'actionability' ? { ...r, enabled: false } : r,
@@ -488,7 +488,7 @@ test('分页面保存只更新本页字段，互不清空栏目、评分和运�
   ]);
   const saved = await getSettings();
   assert.equal(saved.sections[0].budget, 601);
-  assert.equal(saved.maxItems, 25);
+  assert.ok(!('maxItems' in saved));
   assert.equal(saved.briefTitleMaxLength, 40);
   assert.equal(saved.candidateRating, 3.8);
   assert.equal(saved.highlightRating, 4.6);

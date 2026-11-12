@@ -1,9 +1,12 @@
-import { duePeriods } from './periods.ts';
+import { duePeriods, modelWindowOpen } from './periods.ts';
 import { modelUsage } from './model.ts';
 import { BudgetWait, stage, fingerprint } from './processing-log.ts';
 import { PgBoss, type SendOptions } from 'pg-boss';
 import { pool } from './db.ts';
 import { getSettings } from './settings.ts';
+import { isTransientNetworkError } from './network-error.ts';
+const taskRetryDelay = 10;
+const networkRetryDelay = 5 * 60;
 const globalQueue = globalThis as typeof globalThis & { briefBoss?: Promise<PgBoss> };
 export async function getQueue() {
   return (globalQueue.briefBoss ??= (async () => {
@@ -13,7 +16,7 @@ export async function getQueue() {
     await boss.start();
     for (const name of ['collect', 'process', 'generate', 'deliver', 'tick', 'cleanup']) {
       const retry = ['collect', 'process', 'generate'].includes(name)
-        ? { retryLimit: 1, retryDelay: 10, retryBackoff: true }
+        ? { retryLimit: 1, retryDelay: taskRetryDelay, retryBackoff: true }
         : { retryLimit: 0 };
       await boss.createQueue(name, {
         policy: 'exclusive',
@@ -52,13 +55,14 @@ export async function enqueue(
     singletonKey: key,
     ...options,
     retryLimit: name === 'deliver' ? 0 : config.taskRetryLimit,
-    retryDelay: 10,
+    retryDelay: taskRetryDelay,
     retryBackoff: true,
   });
 }
 
 export async function enqueuePendingArticles() {
   const config = await getSettings();
+  if (!modelWindowOpen(config.modelOffPeakOnly)) return;
   const limit = config.modelDailyLimit;
   const reserve = Math.max(
     1,
@@ -86,11 +90,14 @@ async function budgetKey() {
     count: config.modelDailyLimit,
   });
 }
+class ModelWindowWait extends BudgetWait {}
+
 export async function executeTask<T>(
   name: string,
   id: string,
   data: Record<string, unknown>,
   run: () => Promise<T>,
+  now = new Date(),
 ) {
   const subject =
     name === 'process'
@@ -115,7 +122,14 @@ export async function executeTask<T>(
       [subject, retryKey],
     );
   try {
-    const result = await stage(subject, `job:${id}`, 'task', run);
+    const result = await stage(subject, `job:${id}`, 'task', async () => {
+      if (
+        (name === 'process' || name === 'generate') &&
+        !modelWindowOpen((await getSettings()).modelOffPeakOnly, now)
+      )
+        throw new ModelWindowWait('等待波谷时段');
+      return run();
+    });
     if (retryKey)
       await pool.query(
         "UPDATE processing_steps SET state='succeeded',finished_at=now() WHERE subject=$1 AND run_key=$2 AND stage='retry'",
@@ -131,9 +145,29 @@ export async function executeTask<T>(
         );
       await pool.query("UPDATE processing_steps SET result=$2 WHERE run_key=$1 AND stage='task'", [
         `job:${id}`,
-        JSON.stringify({ budgetKey: await budgetKey() }),
+        JSON.stringify(
+          error instanceof ModelWindowWait
+            ? { waitingModelWindow: true }
+            : { budgetKey: await budgetKey() },
+        ),
       ]);
-      return { waitingBudget: true };
+      return error instanceof ModelWindowWait
+        ? { waitingModelWindow: true }
+        : { waitingBudget: true };
+    }
+    const current = job.rows[0];
+    if ((name === 'collect' || name === 'process') && current && retryCount < current.retry_limit) {
+      const networkFailure = isTransientNetworkError(error);
+      await pool.query(
+        "UPDATE pgboss.job SET retry_delay=$3,retry_backoff=$4 WHERE name=$1 AND id=$2 AND state='active' AND retry_count=$5",
+        [
+          name,
+          id,
+          networkFailure ? networkRetryDelay : taskRetryDelay,
+          !networkFailure,
+          retryCount,
+        ],
+      );
     }
     if (name === 'process') {
       if (job.rows.length && job.rows[0].retry_count >= job.rows[0].retry_limit)
@@ -150,17 +184,19 @@ export async function executeTask<T>(
     throw error;
   }
 }
-export async function resumeBudgetWaiting() {
+export async function resumeBudgetWaiting(now = new Date()) {
+  if (!modelWindowOpen((await getSettings()).modelOffPeakOnly, now)) return;
   const usage = await modelUsage();
   if (usage.remaining <= 0) return;
-  const jobs = await pool.query(
-    `SELECT j.id,j.name,j.data,j.priority,s.result->>'budgetKey' AS budget_key FROM pgboss.job j JOIN processing_steps s ON s.run_key='job:'||j.id::text AND s.stage='task' AND s.state='waiting'
-    WHERE j.name IN ('process','generate') AND j.state='completed' ORDER BY j.priority DESC,j.created_on LIMIT $1`,
-    [Math.min(usage.remaining, 50)],
-  );
   const currentBudget = await budgetKey();
+  const jobs = await pool.query(
+    `SELECT j.id,j.name,j.data,j.priority FROM pgboss.job j JOIN processing_steps s ON s.run_key='job:'||j.id::text AND s.stage='task' AND s.state='waiting'
+    WHERE j.name IN ('process','generate') AND j.state='completed'
+      AND (s.result->>'budgetKey') IS DISTINCT FROM $2
+    ORDER BY j.priority DESC,j.created_on LIMIT $1`,
+    [Math.min(usage.remaining, 50), currentBudget],
+  );
   for (const job of jobs.rows) {
-    if (job.budget_key === currentBudget) continue;
     const key = job.name === 'process' ? job.data.id : `${job.data.kind}:${job.data.date}`;
     const id = await enqueue(job.name, job.data, key, { priority: job.priority });
     if (id && job.data.requestId)

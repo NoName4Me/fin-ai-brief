@@ -1,3 +1,4 @@
+import { rotationChartSchema } from './rotation-chart.ts';
 import { mailConnectionSchema } from './mail-connection.ts';
 import { defaultTitlePrompt } from './title-writing.ts';
 import { z } from 'zod';
@@ -120,6 +121,7 @@ export const briefContentSchema = z.object({
       z.object({
         name: z.string(),
         displayName: z.string().trim().min(1).max(40).optional(),
+        chart: rotationChartSchema.optional(),
         text: z.string(),
         sources: z.array(sourceRefSchema).min(1),
       }),
@@ -231,6 +233,7 @@ export const settingsSchema = z.preprocess(
       reviewModel: z.string().max(200).default(''),
       briefModel: z.string().max(200).default(''),
       autoPublish: z.boolean(),
+      modelOffPeakOnly: z.boolean().default(true),
       modelDailyLimit: z.number().int().min(1).max(100000).default(100),
       modelConnection: z
         .object({
@@ -244,7 +247,6 @@ export const settingsSchema = z.preprocess(
       dailyEnabled: z.boolean(),
       weeklyEnabled: z.boolean(),
       monthlyEnabled: z.boolean(),
-      maxItems: z.number().int().min(2).max(50),
       minScore: z.number().int().min(0).max(100),
       editorialPrompt: z.string().max(6000),
     })
@@ -308,12 +310,12 @@ export const defaultSettings: Settings = {
   reviewModel: '',
   briefModel: '',
   autoPublish: true,
+  modelOffPeakOnly: true,
   modelDailyLimit: 100,
   dailyTime: '08:00',
   dailyEnabled: true,
   weeklyEnabled: false,
   monthlyEnabled: false,
-  maxItems: 19,
   minScore: 70,
   editorialPrompt: aiScope,
 };

@@ -1,3 +1,4 @@
+import { fixedSections } from './editorial.ts';
 import { generateDaily, previewDaily } from './daily.ts';
 import { pool } from './db.ts';
 import { briefLengthRepair, applyBriefLengthRepair } from './brief-length.ts';
@@ -31,6 +32,10 @@ const writtenSchema = z.object({
 });
 async function prepareBrief(kind: Kind, date: string) {
   const config = await getSettings();
+  const itemLimit = fixedSections(config.sections).reduce(
+    (total, section) => total + section.maxItems,
+    0,
+  );
   const range = rangeFor(
     kind,
     date,
@@ -55,7 +60,7 @@ async function prepareBrief(kind: Kind, date: string) {
     .limit(1);
   if (unfinished.length) throw new PendingArticles('统计时段内仍有资讯待处理，请处理完成后再生成');
   const weekly =
-    kind === 'weekly' ? await weeklyMaterials(range, config.minScore, config.maxItems) : undefined;
+    kind === 'weekly' ? await weeklyMaterials(range, config.minScore, itemLimit) : undefined;
   const selected = weekly
     ? weekly.selected
     : await db
@@ -69,7 +74,7 @@ async function prepareBrief(kind: Kind, date: string) {
           ),
         )
         .orderBy(desc(events.score), desc(events.occurredAt))
-        .limit(config.maxItems);
+        .limit(itemLimit);
   if (!selected.length) throw new Error('该时段没有达到选题标准的事件');
   const refs = weekly
     ? weekly.refs

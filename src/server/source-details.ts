@@ -322,7 +322,7 @@ export async function readSourceDetail(
       await loading.destroy();
     }
   }
-  if (!excerpt && content.find('img').length)
+  if (content.find('img').length && /^[\s\d\p{P}\p{S}]*$/u.test(excerpt))
     throw new UnsupportedSourceContentError('详情页仅含图片，没有可读取的文字正文');
   if (excerpt.length < 20) throw new Error('详情页正文不足或仅含附件');
   const title = (

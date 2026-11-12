@@ -1,6 +1,6 @@
 # 单机部署：本地打包，上传服务器运行
 
-适用环境：一台阿里云 ECS，4核8GB，公网IP访问。默认服务器为Ubuntu 24.04；服务器只安装Docker、Compose、Python 3和基础系统工具，不安装Node.js，不拉Git仓库，不编译应用。
+适用环境：一台阿里云轻量应用服务器或ECS，建议从2核4GB起步，公网IP访问。默认服务器为Ubuntu 24.04；服务器只安装Docker、Compose、Python 3和基础系统工具，不安装Node.js，不拉Git仓库，不编译应用。
 
 ## 1. 两边分别做什么
 
@@ -11,7 +11,7 @@
 
 服务器常驻4个容器：Nginx、Web、Worker、PostgreSQL。只有Nginx映射入口端口，Web3100和数据库5432不对公网开放。数据库使用独立数据卷，更新应用不删除数据。
 
-部署包包含四个服务的镜像、Compose、Nginx配置、初始化/部署/备份/恢复脚本和本文档。它不包含本地真实 `.env`、数据库或备份；Web和Worker所需的代码及依赖已经在镜像内。服务器在部署时不需要连接GitHub、npm或镜像仓库，业务运行仍需访问配置的信源、模型接口及SMTP。
+部署包分为两种：默认更新包只含Web、Worker镜像；`--full`完整包另外包含PostgreSQL、Nginx镜像，用于首次安装或新机恢复。两者都包含Compose、Nginx配置、初始化/部署/备份/恢复脚本和本文档。它不包含本地真实 `.env`、数据库或备份；Web和Worker所需的代码及依赖已经在镜像内。服务器在部署时不需要连接GitHub、npm或镜像仓库，业务运行仍需访问配置的信源、模型接口及SMTP。
 
 ## 2. 首次部署
 
@@ -35,19 +35,19 @@ uname -m
 在项目根目录，完成验证后执行（不需要先推送到远端仓库）：
 
 ```bash
-./scripts/package-release.sh
+./scripts/package-release.sh --full
 ```
 
 ARM服务器改为：
 
 ```bash
-./scripts/package-release.sh --platform linux/arm64
+./scripts/package-release.sh --full --platform linux/arm64
 ```
 
 脚本会构建Web和Worker，准备PostgreSQL与Nginx镜像，生成版本号、平台标识及文件校验清单。末尾打印部署包的完整路径，例如：
 
 ```text
-.data/releases/fin-ai-brief-20261103T090000Z-24e50c904152-amd64.tar.gz
+.data/releases/fin-ai-brief-20261103T090000Z-24e50c904152-full-amd64.tar.gz
 ```
 
 本地构建需要访问镜像仓库和npm源。首次较慢，后续复用Docker缓存；打包文件较大，先确认本地及服务器磁盘空间。
@@ -99,13 +99,13 @@ sudo chown "$USER":"$(id -gn)" /opt/fin-ai-brief
 将文件名替换为本次打包实际输出的路径：
 
 ```bash
-scp .data/releases/fin-ai-brief-本次版本-amd64.tar.gz 用户名@服务器公网IP:/tmp/
+scp .data/releases/fin-ai-brief-本次版本-full-amd64.tar.gz 用户名@服务器公网IP:/tmp/
 ```
 
 ### 2.5 服务器：解压、初始化并启动
 
 ```bash
-tar -xzf /tmp/fin-ai-brief-本次版本-amd64.tar.gz -C /opt/fin-ai-brief
+tar -xzf /tmp/fin-ai-brief-本次版本-full-amd64.tar.gz -C /opt/fin-ai-brief
 cd /opt/fin-ai-brief
 ./scripts/deploy.sh init 80 198.51.100.8/32
 # 在 deploy/.env 中填写 SITE_URL，例如 http://203.0.113.20
@@ -125,10 +125,10 @@ grep '^ADMIN_PASSWORD=' deploy/.env
 
 1. 校验部署包完整性及服务器架构，加载包内镜像，不在服务器构建。
 2. 首次启动PostgreSQL并创建应用账号；后续保留现有数据库容器和数据卷，不顺带升级数据库镜像。
-3. 停止旧Nginx、Web和Worker。
+3. 停止旧Web和Worker，Nginx继续运行；应用切换期间可能短暂返回502。
 4. 备份数据库、生产配置及当前版本。
 5. 用临时迁移容器执行数据库迁移。
-6. 启动Web、Worker、Nginx，等待全部健康，再记录成功版本。
+6. 启动Web、Worker并等待健康，再检查Nginx配置、重新加载，最后记录成功版本。Nginx仅在Compose检测到镜像或容器配置变化时重建。
 
 正常结果是4个常驻服务全部 `running/healthy`。浏览器访问初始化配置的地址，登录入口为 `/login`。
 
@@ -149,11 +149,11 @@ SMTP优先使用465和SSL/TLS。邮件确认、退订及刊期阅读链接使用
 
 ### 本地电脑
 
-修改并验证代码，然后重新打包、上传：
+修改并验证代码，然后生成默认更新包、上传。此模式只构建和打包Web、Worker，不检查、下载或打包PostgreSQL与Nginx镜像：
 
 ```bash
 ./scripts/package-release.sh
-scp .data/releases/fin-ai-brief-新版本-amd64.tar.gz 用户名@服务器公网IP:/tmp/
+scp .data/releases/fin-ai-brief-新版本-update-amd64.tar.gz 用户名@服务器公网IP:/tmp/
 ```
 
 ### 服务器
@@ -161,13 +161,15 @@ scp .data/releases/fin-ai-brief-新版本-amd64.tar.gz 用户名@服务器公网
 覆盖解压到原目录，再部署：
 
 ```bash
-tar -xzf /tmp/fin-ai-brief-新版本-amd64.tar.gz -C /opt/fin-ai-brief
+tar -xzf /tmp/fin-ai-brief-新版本-update-amd64.tar.gz -C /opt/fin-ai-brief
 cd /opt/fin-ai-brief
 ./scripts/deploy.sh deploy
 ./scripts/deploy.sh status
 ```
 
-不用拉代码、安装npm依赖、重新初始化或重新填写模型和邮件配置。包中不含真实 `deploy/.env`、`.state`和备份目录，覆盖解压会保留它们。不要先删除 `/opt/fin-ai-brief`，也不要同时进行两次解压部署。
+更新包沿用 `deploy/.state/postgres-image` 和 `deploy/.state/nginx-image` 中记录的服务器镜像，兼容之前的完整包部署。缺少基础镜像或部署状态时会在停止应用前报错；请恢复原镜像/状态或在新机使用 `--full` 完整包。旧的、不带包类型的完整包仍可加载。
+
+不用拉代码、安装npm依赖、重新初始化或重新填写模型和邮件配置。包中不含真实 `deploy/.env`、`.state`和备份目录，覆盖解压会保留它们，包括手动补充的 `JIANYU_RSA_PRIVATE_KEY`、`JIANYU_COOKIE`、管理员密码和签名密钥。首次迁移需单独填写这些环境配置，本地真实 `.env` 不会自动上传。不要先删除 `/opt/fin-ai-brief`，也不要同时进行两次解压部署。
 
 加载镜像期间旧服务继续运行；停应用、备份、迁移和重启期间短暂停机。失败时不会自动混用旧代码和新数据库，检查日志后修复重试，或按下一节恢复。
 
@@ -229,7 +231,7 @@ tar -xzf /保存路径/旧版本部署包.tar.gz -C /tmp/fin-ai-old-release
 
 ### 4.3 新机器灾难恢复
 
-1. 安装运行环境，解压备份对应的旧部署包到 `/opt/fin-ai-brief`。
+1. 安装运行环境，解压备份对应版本的**完整包**到 `/opt/fin-ai-brief`；更新包不含基础镜像，不能单独用于新机恢复。完整包在本地用 `./scripts/package-release.sh --full` 生成，应保留与备份对应的版本。
 2. 把备份的 `.env`复制到 `deploy/.env`，设为600权限，核对新服务器的IP和访问来源；不要重新生成 `APP_SECRET`。
 3. 载入镜像并恢复：
 

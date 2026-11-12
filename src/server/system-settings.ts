@@ -18,6 +18,7 @@ export async function connectionFromForm(form: FormData) {
 export async function saveSystemSettings(form: FormData) {
   return saveSettingsPatch({
     modelConnection: await connectionFromForm(form),
+    modelOffPeakOnly: form.has('modelOffPeakOnly'),
     modelDailyLimit: Number(text(form, 'modelDailyLimit')),
     retentionEnabled: form.has('retentionEnabled'),
     newsRetentionDays: Number(text(form, 'newsRetentionDays')),

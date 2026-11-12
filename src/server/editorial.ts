@@ -75,7 +75,8 @@ export const defaultRotations = [
     minItems: 1,
     maxItems: 5,
     budget: 300,
-    description: '一图一趋势或有出处的观点摘编，只使用可核对数字或归属明确的观点。',
+    description:
+      '围绕一个主题选择可核对的数据或具名来源观点，不混写泛泛综述；纯文字可以，口径可比较时配图表。',
   },
 ].map((s) => sectionRuleSchema.parse({ ...s, kind: 'rotation' }));
 export const defaultInternalColumn = sectionRuleSchema.parse({

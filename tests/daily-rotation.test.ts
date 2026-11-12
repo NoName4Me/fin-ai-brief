@@ -107,3 +107,143 @@ test('引用不足、重复和超长分开反馈，字数容差边界准确', ()
     /当前12字.*上限11字/,
   );
 });
+
+const dataRule = {
+  ...rule,
+  id: '数据一图／观点摘编',
+  name: '数据一图／观点摘编',
+  minItems: 1,
+  budget: 300,
+};
+const dataEvents = events.map((event, index) => ({
+  ...event,
+  developments: [
+    {
+      ...event.developments[0],
+      facts: [
+        {
+          statement: `研究机构报告：2026年受访机构${['甲', '乙', '丙'][index]}AI采用率为${[30, 45, 60][index]}%。`,
+          evidence: `研究机构报告：2026年受访机构${['甲', '乙', '丙'][index]}AI采用率为${[30, 45, 60][index]}%。`,
+          status: 'claim',
+        },
+      ],
+    },
+  ],
+}));
+const dataRequest = dailyRotationRequest('2026-11-06', dataRule, dataEvents, '', 10);
+const dataText = {
+  observation: {
+    kind: 'data',
+    text: '研究机构报告显示，2026年受访机构甲、乙、丙的AI采用率分别为30%、45%、60%；结果限于该调查样本。',
+    eventRefs: ['E01', 'E02', 'E03'],
+    basis: [
+      { eventRef: 'E01', factRef: 'F1' },
+      { eventRef: 'E02', factRef: 'F1' },
+      { eventRef: 'E03', factRef: 'F1' },
+    ],
+    chart: null,
+  },
+};
+const chart = {
+  title: '三家受访机构的AI采用率',
+  metric: 'AI采用率',
+  unit: '%',
+  period: '2026年调查样本',
+  points: ['甲', '乙', '丙'].map((label, index) => ({
+    label,
+    value: [30, 45, 60][index],
+    eventRef: `E0${index + 1}`,
+    factRef: 'F1',
+  })),
+};
+
+test('数据类可纯文字，配图时核验数据依据，读者名称为数据一图', () => {
+  const plain = dataRequest.resolve(dataRequest.schema.parse(dataText));
+  assert.equal(plain?.displayName, '数据一图');
+  assert.equal(plain?.chart, undefined);
+  const withChart = dataRequest.resolve(
+    dataRequest.schema.parse({
+      observation: { ...dataText.observation, chart },
+    }),
+  );
+  assert.equal(withChart?.chart?.points[0].value, 30);
+  assert.equal('eventRef' in withChart!.chart!.points[0], false);
+  assert.match(JSON.stringify(dataRequest.input.events[0].developments[0].facts[0]), /"ref":"F1"/);
+});
+
+test('观点必须有可核对的具名归属，不能以编辑总结充当来源观点', () => {
+  const viewpoint = {
+    observation: {
+      kind: 'viewpoints',
+      text: '研究机构认为该调查样本显示AI采用率存在差异，结果不代表整体行业。',
+      eventRefs: ['E01'],
+      basis: [{ eventRef: 'E01', factRef: 'F1', speaker: '研究机构' }],
+      chart: null,
+    },
+  };
+  assert.equal(dataRequest.resolve(dataRequest.schema.parse(viewpoint))?.displayName, '观点摘编');
+  for (const speaker of [undefined, '材料里没有的人']) {
+    assert.equal(
+      dataRequest.schema.safeParse({
+        observation: {
+          ...viewpoint.observation,
+          basis: [{ eventRef: 'E01', factRef: 'F1', speaker }],
+        },
+      }).success,
+      false,
+    );
+  }
+  assert.equal(
+    dataRequest.schema.safeParse({
+      observation: { ...viewpoint.observation, chart },
+    }).success,
+    false,
+  );
+});
+
+test('拒绝无依据数值、未知事实引用、重复标签以及未选择数据或观点的旧格式', () => {
+  assert.equal(dataRequest.schema.safeParse(valid).success, false);
+  for (const points of [
+    [{ ...chart.points[0], value: 99 }, chart.points[1]],
+    [{ ...chart.points[0], factRef: 'F9' }, chart.points[1]],
+    [chart.points[0], { ...chart.points[1], label: '甲' }],
+  ]) {
+    assert.equal(
+      dataRequest.schema.safeParse({
+        observation: { ...dataText.observation, chart: { ...chart, points } },
+      }).success,
+      false,
+    );
+  }
+});
+
+test('所有轮动正文拒绝内部引用编号，历史显示可移除标记', async () => {
+  const { rotationText } = await import('../src/server/rotation-text.ts');
+  assert.equal(
+    request.schema.safeParse({
+      observation: { ...valid.observation, text: '综合进展（E26）。' },
+    }).success,
+    false,
+  );
+  assert.equal(
+    rotationText('项目延期（E26）。融资条件变化 (E16、E28)。'),
+    '项目延期。融资条件变化。',
+  );
+  assert.match(request.system, /上周3至5件/);
+  const caseStudy = dailyRotationRequest(
+    '2026-11-06',
+    { ...rule, name: '他山之石' },
+    events,
+    '',
+    10,
+  );
+  assert.match(caseStudy.system, /只选择一家/);
+  const renamed = dailyRotationRequest(
+    '2026-11-06',
+    { ...dataRule, name: '数据专题' },
+    dataEvents,
+    '',
+    10,
+  );
+  assert.match(renamed.system, /必须二选一/);
+});

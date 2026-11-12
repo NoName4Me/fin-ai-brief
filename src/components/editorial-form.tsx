@@ -131,17 +131,6 @@ export function EditorialForm({
                 required
               />
             </label>
-            <label>
-              每期最多事件数
-              <input
-                name="maxItems"
-                type="number"
-                min={2}
-                max={50}
-                defaultValue={config.maxItems}
-                required
-              />
-            </label>
           </div>
           <div className="publication-title-settings">
             <label>

@@ -41,6 +41,7 @@ test('初始积压优先处理最新资讯，额度不足继续等待并保留�
   await saveSettings({
     ...oldSettings,
     modelDailyLimit: 2,
+    modelOffPeakOnly: false,
     dailyEnabled: false,
     weeklyEnabled: false,
     monthlyEnabled: false,
@@ -87,7 +88,7 @@ test('预算等待不作为失败，调高额度后恢复排队而不直接发�
   const { BudgetWait } = await import('../src/server/processing-log.ts');
   const config = await getSettings();
   await boss.deleteAllJobs('generate');
-  await saveSettings({ ...config, modelDailyLimit: 1 });
+  await saveSettings({ ...config, modelOffPeakOnly: false, modelDailyLimit: 1 });
   await pool.query('TRUNCATE model_calls,processing_steps CASCADE');
   const id = await enqueue('generate', { kind: 'daily', date: '2026-10-20' }, 'daily:2026-10-20');
   const [job] = await boss.fetch('generate');
@@ -113,7 +114,7 @@ test('预算等待不作为失败，调高额度后恢复排队而不直接发�
       .rowCount,
     0,
   );
-  await saveSettings({ ...config, modelDailyLimit: 5 });
+  await saveSettings({ ...config, modelOffPeakOnly: false, modelDailyLimit: 5 });
   await resumeBudgetWaiting();
   assert.equal(
     (await pool.query("SELECT 1 FROM pgboss.job WHERE name='generate' AND state='created'"))
@@ -142,4 +143,81 @@ test('模型任务失败自动进入重试并可完成，不需要人工放行',
   assert.equal(row.rows[0].state, 'completed');
   assert.equal(row.rows[0].retry_count, 1);
   await boss.deleteAllJobs('process');
+});
+
+test('模型任务在高峰等待且不重试，波谷自动恢复同一任务', async () => {
+  const { executeTask, resumeBudgetWaiting } = await import('../src/server/queue.ts');
+  const { modelWindowOpen } = await import('../src/server/periods.ts');
+  const peak = new Date('2026-11-05T11:59:59+08:00');
+  const offPeak = new Date('2026-11-05T12:00:00+08:00');
+  assert.equal(modelWindowOpen(true, peak), false);
+  assert.equal(modelWindowOpen(true, offPeak), true);
+  assert.equal(modelWindowOpen(true, new Date('2026-11-05T14:00:00+08:00')), false);
+  assert.equal(modelWindowOpen(true, new Date('2026-11-05T18:00:00+08:00')), true);
+  assert.equal(modelWindowOpen(true, new Date('2026-11-07T10:00:00+08:00')), true);
+  assert.equal(modelWindowOpen(false, peak), true);
+  const config = await getSettings();
+  await saveSettings({ ...config, modelOffPeakOnly: true });
+  await boss.deleteAllJobs('generate');
+  try {
+    const data = { kind: 'daily', date: '2026-11-05' };
+    await enqueue('generate', data, 'daily:2026-11-05');
+    const [job] = await boss.fetch('generate');
+    assert.deepEqual(
+      await executeTask('generate', job.id, data, async () => assert.fail('不应调用模型'), peak),
+      { waitingModelWindow: true },
+    );
+    await boss.complete('generate', job.id);
+    await resumeBudgetWaiting(peak);
+    assert.deepEqual(await boss.fetch('generate'), []);
+    await resumeBudgetWaiting(offPeak);
+    const [resumed] = await boss.fetch('generate');
+    assert.deepEqual(resumed.data, data);
+    assert.equal(
+      await executeTask('generate', resumed.id, data, async () => 'done', offPeak),
+      'done',
+    );
+  } finally {
+    await boss.deleteAllJobs('generate');
+    await saveSettings(config);
+  }
+});
+
+test('采集和资讯处理遇到网络错误时，队列至少等待五分钟再重试', async () => {
+  const { executeTask } = await import('../src/server/queue.ts');
+  const offPeak = new Date('2026-11-05T12:00:00+08:00');
+  for (const name of ['collect', 'process'] as const) {
+    const target = randomUUID();
+    const data = { id: target };
+    const id = (await boss.send(name, data, { retryLimit: 1, retryDelay: 10, priority: 1000 }))!;
+    try {
+      const [job] = await boss.fetch(name);
+      assert.equal(job.id, id);
+      const cause = Object.assign(new Error('connection reset'), { code: 'ECONNRESET' });
+      const failure = new AggregateError([new Error('详情读取失败', { cause })], '网络错误');
+      await assert.rejects(
+        executeTask(
+          name,
+          id,
+          data,
+          async () => {
+            throw failure;
+          },
+          offPeak,
+        ),
+        /网络错误/,
+      );
+      await boss.fail(name, id);
+      const [retry] = (
+        await pool.query(
+          "SELECT state, start_after >= now() + interval '299 seconds' AS delayed FROM pgboss.job WHERE id=$1",
+          [id],
+        )
+      ).rows;
+      assert.equal(retry.state, 'retry');
+      assert.equal(retry.delayed, true);
+    } finally {
+      await boss.deleteJob(name, id);
+    }
+  }
 });

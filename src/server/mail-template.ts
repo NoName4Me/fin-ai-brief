@@ -1,3 +1,5 @@
+import { rotationText } from './rotation-text.ts';
+import { chartNumber, type RotationChart } from './rotation-chart.ts';
 import { kindNames, type BriefContent, type Kind } from './types.ts';
 import { dateLabel, localDate } from './periods.ts';
 import { orderedSources, sourceName } from './source-presentation.ts';
@@ -20,6 +22,23 @@ const muted = '#626967';
 const table = (body: string, extra = '') =>
   `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed;${extra}">${body}</table>`;
 const paragraph = (text: string, style = '') => `<p style="margin:0;${style}">${text}</p>`;
+function chartMarkup(chart: RotationChart, accent: string) {
+  const max = Math.max(...chart.points.map((point) => point.value)) || 1;
+  const rows = chart.points
+    .map(
+      (point) => `<tr>
+    <td width="30%" style="padding:8px 10px 8px 0;font-size:13px;word-break:break-word;">${escapeHtml(point.label)}</td>
+    <td style="padding:8px 0;">${table(`<tr><td width="${(point.value / max) * 100}%" style="height:14px;background:${accent};font-size:0;line-height:0;">&nbsp;</td><td style="height:14px;font-size:0;line-height:0;">&nbsp;</td></tr>`)}</td>
+    <td width="20%" align="right" style="padding:8px 0 8px 8px;font-size:13px;font-variant-numeric:tabular-nums;">${escapeHtml(chartNumber(point.value))}</td>
+  </tr>`,
+    )
+    .join('');
+  return `<div role="img" aria-label="${escapeHtml(chart.title)}" style="margin:16px 0;">
+    ${paragraph(escapeHtml(chart.title), 'font-weight:600;')}
+    ${paragraph(escapeHtml(`${chart.period} · ${chart.metric}（${chart.unit}）`), `color:${muted};font-size:12px;margin-top:5px;`)}
+    ${table(rows)}
+  </div>`;
+}
 function summary(item: BriefContent['items'][number]) {
   const phrases = item.emphasis?.filter((phrase) => phrase && item.summary.includes(phrase)) ?? [];
   if (!phrases.length) return escapeHtml(item.summary);
@@ -49,6 +68,22 @@ export function renderEmail(
   const review = kind === 'weekly' && content.format === 'weekly-review-v1';
   const date = edition.date ?? localDate(new Date(content.rangeEnd));
   const accent = '#233c53';
+  function sourceLinks(sources: { name: string; url: string }[]) {
+    const seen = new Set<string>();
+    return orderedSources(sources)
+      .filter((source) => {
+        const name = sourceName(source.name);
+        if (seen.has(name)) return false;
+        seen.add(name);
+        return true;
+      })
+      .map(
+        (source) =>
+          `<a href="${escapeHtml(source.url)}" style="color:${accent};text-decoration:underline;text-underline-offset:3px;">${escapeHtml(sourceName(source.name))}</a>`,
+      )
+      .join(' / ');
+  }
+
   const mark = editionCalendar(kind, date, content);
   const known = edition.industries ?? [];
   const ids = [
@@ -96,12 +131,7 @@ export function renderEmail(
         : '') + (content.note ? paragraph(escapeHtml(content.note), 'margin:24px 0;') : '')
     : `<div style="background:#eeece5;padding:20px 10px 10px;margin:22px 0 28px;">${table(monthly ? overviewCells.map((cell) => `<tr>${cell}</tr>`).join('') : `<tr>${overviewCells.join('')}</tr>`)}</div>`;
   function story(item: BriefContent['items'][number], lead: boolean) {
-    const sources = orderedSources(item.sources)
-      .map(
-        (s) =>
-          `<a href="${escapeHtml(s.url)}" style="color:${accent};text-decoration:underline;text-underline-offset:3px;">${escapeHtml(sourceName(s.name))}</a>`,
-      )
-      .join(' / ');
+    const sources = sourceLinks(item.sources);
     const progress =
       review && item.progress?.length
         ? `<div style="margin:18px 0 0;"><p style="margin:0 0 8px;font-size:13px;font-weight:700;color:${accent};">本周进展</p>${table(item.progress.map((node) => `<tr><td width="64" valign="top" style="width:64px;padding:7px 12px 7px 0;color:${muted};font-size:12px;">${escapeHtml(node.date.slice(5).replace('-', '.'))}${node.endDate ? `<br>—${escapeHtml(node.endDate.slice(5).replace('-', '.'))}` : ''}<br>报道</td><td valign="top" style="padding:7px 0;font-size:14px;line-height:1.9;color:#4b5053;">${escapeHtml(node.text)}${paragraph(node.sourceUrls.map((url, i) => `<a href="${escapeHtml(url)}" style="color:${accent};font-size:12px;">依据${i + 1}</a>`).join('　'), 'margin-top:3px;')}</td></tr>`).join(''))}</div>`
@@ -147,7 +177,7 @@ export function renderEmail(
     })
     .join('');
   const renderRotation = (r: NonNullable<BriefContent['rotations']>[number]) =>
-    `<div style="margin:30px 0;"><h2 style="font-size:20px;color:${accent};">${escapeHtml(r.displayName ?? r.name)}</h2>${paragraph(escapeHtml(r.text).replace(/\n/g, '<br>'), 'line-height:2;')}${paragraph(r.sources.map((source) => `<a href="${escapeHtml(source.url)}" style="color:${accent}">${escapeHtml(source.name)}</a>`).join(' / '), 'margin-top:12px;font-size:12px;')}</div>`;
+    `<div style="margin:30px 0;"><h2 style="font-size:20px;color:${accent};">${escapeHtml(r.displayName ?? r.name)}</h2>${r.chart ? chartMarkup(r.chart, accent) : ''}${paragraph(escapeHtml(rotationText(r.text)).replace(/\n/g, '<br>'), 'line-height:2;')}${paragraph(sourceLinks(r.sources), 'margin-top:12px;font-size:12px;')}</div>`;
   const rotationMarkup = (content.rotations ?? []).map(renderRotation).join('');
   const bodySections = aiDaily
     ? dailySections(content)

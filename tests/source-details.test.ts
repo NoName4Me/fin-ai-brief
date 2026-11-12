@@ -378,7 +378,7 @@ test('纯图片资讯记为无有效文本，不阻断同批可读正文', async
       url === first
         ? listing('2026-10-28', image) + listing('2026-10-28')
         : url === new URL(image, first).href
-          ? '<div id="zoom"><img src="/poster.jpg"></div>'
+          ? '<div id="zoom"><img src="/poster.jpg"><span style="color: rgb(255, 255, 255)">1</span></div>'
           : '<div id="zoom">这是一篇含有完整信息的政策正文，说明了政策内容、适用范围和执行要求。</div>',
     new Date('2026-10-29T08:00:00Z'),
     { manual: true },

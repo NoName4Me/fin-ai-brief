@@ -30,10 +30,13 @@ def validate(values):
     network = ipaddress.ip_network(values.get('ACCESS_CIDR', ''), strict=False)
     if network.prefixlen == 0:
         raise ValueError('ACCESS_CIDR 请填写办公IP或可信网段，不要开放给全网')
-    for key, length in [('POSTGRES_PASSWORD', 32), ('APP_DB_PASSWORD', 32), ('ADMIN_PASSWORD', 12), ('APP_SECRET', 32)]:
+    for key, length in [('POSTGRES_PASSWORD', 32), ('APP_DB_PASSWORD', 32), ('ADMIN_PASSWORD', 12)]:
         value = values.get(key, '')
         if len(value) < length or not all(c in '0123456789abcdefABCDEF' for c in value):
             raise ValueError(f'{key} 请使用 init 生成的十六进制值，长度至少{length}位')
+    # Existing installations may use a non-hex signing key. Preserve it during migration.
+    if not re.fullmatch(r'[A-Za-z0-9_+/=.-]{32,}', values.get('APP_SECRET', '')):
+        raise ValueError('APP_SECRET 至少32位，只支持字母、数字及 _ + / = . -')
     for key, value in values.items():
         if any(c in value for c in ['\n', '\r', '$', '"', "'"]):
             raise ValueError(f'{key} 包含不支持的字符；私钥请填写去掉PEM头尾和换行的Base64正文')
@@ -46,8 +49,16 @@ def release(path, verify=False):
         raise ValueError('部署包版本无效')
     if value.get('platform') not in ['linux/amd64', 'linux/arm64']:
         raise ValueError('部署包平台无效')
+    # Packages made before update/full modes always contained all four images.
+    value.setdefault('mode', 'full')
+    if value['mode'] not in ['full', 'update']:
+        raise ValueError('部署包类型无效')
     for key, prefix in [('postgres_image', 'fin-ai-brief-postgres:'), ('nginx_image', 'fin-ai-brief-nginx:')]:
-        if not re.fullmatch(re.escape(prefix) + r'[A-Za-z0-9._-]+', value.get(key, '')):
+        if value['mode'] == 'update':
+            if value.get(key):
+                raise ValueError('更新包不应指定基础镜像；请使用服务器现有镜像')
+            value[key] = ''
+        elif not re.fullmatch(re.escape(prefix) + r'[A-Za-z0-9._-]+', value.get(key, '')):
             raise ValueError('部署包基础镜像名称无效')
     if verify:
         if 'release/images.tar' not in value['files']:

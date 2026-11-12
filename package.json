@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --env-file-if-exists=.data/test.env --test --test-concurrency=1 tests/*.test.ts",
     "test:browser": "playwright test",
-    "check": "npm run typecheck && npm test && npm run build",
+    "test:deploy": "python3 -m unittest discover -s tests -p deployment_test.py",
+    "check": "npm run typecheck && npm test && npm run test:deploy && npm run build",
     "format": "prettier --write src scripts tests *.ts *.json *.md docs",
     "format:check": "prettier --check src scripts tests *.ts *.json *.md docs"
   },

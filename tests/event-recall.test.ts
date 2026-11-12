@@ -26,8 +26,8 @@ after(async () => {
   globalThis.fetch = originalFetch;
   await pool.end();
 });
-test('14天内的旧融资事件在80条更新后仍被召回，重复报道不新增进展，超期事件不进入候选', async () => {
-  const now = Date.now();
+test('本期事件在80条更新后仍被召回，跨期事件不进入单篇分析', async () => {
+  const now = new Date('2026-11-06T12:00:00+08:00').getTime();
   const [old] = await db
     .insert(events)
     .values({
@@ -37,8 +37,8 @@ test('14天内的旧融资事件在80条更新后仍被召回，重复报道不�
       section: '资本与项目',
       score: 80,
       assessment,
-      occurredAt: new Date(now - 2 * 86400_000),
-      updatedAt: new Date(now - 2 * 86400_000),
+      occurredAt: new Date(now - 3600_000),
+      updatedAt: new Date(now - 3600_000),
     })
     .returning();
   const [expired] = await db
@@ -50,8 +50,8 @@ test('14天内的旧融资事件在80条更新后仍被召回，重复报道不�
       section: old.section,
       score: 80,
       assessment,
-      occurredAt: new Date(now - 15 * 86400_000),
-      updatedAt: new Date(now - 15 * 86400_000),
+      occurredAt: new Date(now - 86400_000),
+      updatedAt: new Date(now - 86400_000),
     })
     .returning();
   for (let i = 0; i < 85; i++)
@@ -123,7 +123,7 @@ test('14天内的旧融资事件在80条更新后仍被召回，重复报道不�
 });
 
 test('后续报道保存完整原文事实，但事件进展只写入新增条件', async () => {
-  const now = Date.now();
+  const now = new Date('2026-11-06T12:00:00+08:00').getTime();
   const [old] = await db
     .insert(events)
     .values({
@@ -133,7 +133,7 @@ test('后续报道保存完整原文事实，但事件进展只写入新增条�
       section: '资本与项目',
       score: 80,
       assessment,
-      occurredAt: new Date(now - 86400_000),
+      occurredAt: new Date(now - 3600_000),
     })
     .returning();
   const [article] = await importArticle({
@@ -181,14 +181,11 @@ test('后续报道保存完整原文事实，但事件进展只写入新增条�
   );
   globalThis.fetch = async (_url, init) => {
     const input = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
-    assert.deepEqual(
+    assert.equal(
       input.candidates.find((candidate: { id: string }) => candidate.id === old.id).knownFacts,
-      [[knownFact]],
+      undefined,
     );
-    assert.deepEqual(
-      input.previousCoverage.map(({ date, ...entry }: { date: string }) => entry),
-      [{ items: [priorItem] }],
-    );
+    assert.equal(input.previousCoverage, undefined);
     return new Response(
       JSON.stringify({
         usage: { prompt_tokens: 10, completion_tokens: 20 },
@@ -238,95 +235,4 @@ test('后续报道保存完整原文事实，但事件进展只写入新增条�
     development.facts.map((f: { statement: string }) => f.statement),
     ['贷款需要设备残值支持。'],
   );
-});
-
-test('初筛只拦截明确排除，异常回退，抽查发现分歧后暂停拦截', async () => {
-  const { screeningCohort } = await import('../src/server/article-screening.ts');
-  const { articles } = await import('../src/server/schema.ts');
-  const now = new Date();
-  const start = new Date(now.getTime() - 1000).toISOString();
-  const saved = process.env.ARTICLE_SCREENING_TRIAL_START;
-  process.env.ARTICLE_SCREENING_TRIAL_START = start;
-  let serial = 0;
-  const add = async (cohort: 'audit' | 'gate') => {
-    let id: string;
-    do {
-      id = `10000000-0000-4000-8000-${String(++serial).padStart(12, '0')}`;
-    } while (screeningCohort(id, now, start) !== cohort);
-    await db.insert(articles).values({
-      id,
-      industryId: 'ai',
-      sourceName: '媒体',
-      title: `算力融资 ${serial}`,
-      excerpt: '黑石安排630亿美元算力融资。',
-      url: `https://example.invalid/screen/${serial}`,
-      publishedAt: now,
-      createdAt: now,
-    });
-    return id;
-  };
-  const response = (content: unknown) =>
-    Response.json({
-      usage: { prompt_tokens: 5, completion_tokens: 2 },
-      choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }],
-    });
-  const purposes = async (id: string) =>
-    (
-      await pool.query('SELECT purpose FROM model_calls WHERE subject=$1 ORDER BY created_at', [
-        `article:${id}`,
-      ])
-    ).rows.map(({ purpose }) => purpose);
-  try {
-    let fail = false;
-    globalThis.fetch = async (_url, init) => {
-      const body = JSON.parse(String(init?.body));
-      if (body.max_tokens === 1600) {
-        const material = JSON.parse(body.messages[1].content);
-        assert.equal(material.candidates, undefined);
-        assert.equal(material.previousCoverage, undefined);
-        if (fail) throw new DOMException('请求超时', 'TimeoutError');
-        return response({ decision: 'exclude', reason: '初筛判为不相关' });
-      }
-      return response({
-        relevant: true,
-        title: '黑石安排算力融资',
-        summary: '黑石安排630亿美元算力融资。',
-        section: '资本与项目',
-        assessment,
-        existingEventId: null,
-        facts: [
-          {
-            statement: '黑石安排630亿美元算力融资。',
-            evidenceIds: ['S1'],
-            status: 'confirmed',
-            entities: ['黑石'],
-          },
-        ],
-      });
-    };
-    const gate = await add('gate');
-    await processArticle(gate);
-    assert.deepEqual(await purposes(gate), ['article-screening']);
-    assert.equal(
-      (await pool.query('SELECT state FROM articles WHERE id=$1', [gate])).rows[0].state,
-      'ignored',
-    );
-
-    fail = true;
-    const fallback = await add('gate');
-    await processArticle(fallback);
-    assert.deepEqual(await purposes(fallback), ['article-screening', 'article']);
-
-    fail = false;
-    const audit = await add('audit');
-    await processArticle(audit);
-    assert.deepEqual(await purposes(audit), ['article-screening', 'article']);
-
-    const stopped = await add('gate');
-    await processArticle(stopped);
-    assert.deepEqual(await purposes(stopped), ['article']);
-  } finally {
-    if (saved === undefined) delete process.env.ARTICLE_SCREENING_TRIAL_START;
-    else process.env.ARTICLE_SCREENING_TRIAL_START = saved;
-  }
 });

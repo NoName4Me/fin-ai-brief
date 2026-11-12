@@ -485,7 +485,7 @@ test('无效原文编号拒绝写入，纠错定位具体事实并保留失败�
   assert.equal(calls.rows[0].api_attempts, 2);
   assert.ok(calls.rows[0].response);
 });
-test('模型返回30条事实时明确反馈上限，修正为12条后才写入', async () => {
+test('模型连续返回30和13条事实时再次纠错，修正为12条后才写入', async () => {
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
   const [row] = await importArticle({
     title: 'AI芯片规划',
@@ -514,7 +514,7 @@ test('模型返回30条事实时明确反馈上限，修正为12条后才写入'
       section: '行业监管',
       assessment: testAssessment,
       existingEventId: null,
-      facts: Array.from({ length: attempts === 1 ? 30 : 12 }, (_, index) => ({
+      facts: Array.from({ length: attempts === 1 ? 30 : attempts === 2 ? 13 : 12 }, (_, index) => ({
         statement: `规划细节${index}`,
         evidenceIds: ['S1'],
         status: 'announced',
@@ -523,9 +523,24 @@ test('模型返回30条事实时明确反馈上限，修正为12条后才写入'
   };
   await processArticle(row.id);
   const [saved] = await db.select().from(articles).where(eq(articles.id, row.id));
-  assert.equal(attempts, 2);
+  assert.equal(attempts, 3);
   assert.equal((saved.facts as unknown[]).length, 12);
   assert.equal(saved.state, 'processed');
+});
+test('事实超限连续三轮未修正时保留失败和实际调用次数', async () => {
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts++;
+    return modelReply({ facts: Array.from({ length: 13 }, () => '事实') });
+  };
+  await assert.rejects(
+    modelJSON('article', '最多12条事实', {}, z.object({ facts: z.array(z.string()).max(12) })),
+    /Too big/,
+  );
+  assert.equal(attempts, 3);
+  const [call] = (await pool.query('SELECT state,api_attempts FROM model_calls')).rows;
+  assert.equal(call.state, 'failed');
+  assert.equal(call.api_attempts, 3);
 });
 test('评分总述自动归位，事实依据由原文编号提取', async () => {
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
@@ -858,10 +873,11 @@ test('并发更新同一事件时检测过期摘要，重试重新召回而不�
       ],
     });
   };
-  const results = await Promise.allSettled([processArticle(a.id), processArticle(b.id)]);
-  assert.equal(results.filter((r) => r.status === 'rejected').length, 1);
-  const retry = results[0].status === 'rejected' ? a.id : b.id;
-  await processArticle(retry);
+  await Promise.all([processArticle(a.id), processArticle(b.id)]);
+  const states = await pool.query('SELECT state FROM articles WHERE id=ANY($1::uuid[])', [
+    [a.id, b.id],
+  ]);
+  assert.ok(states.rows.every((r) => r.state === 'processed'));
   const saved = (await db.select().from(events).where(eq(events.id, ids[4])))[0];
   assert.match(saved.summary, /新增事实甲/);
   assert.match(saved.summary, /新增事实乙/);

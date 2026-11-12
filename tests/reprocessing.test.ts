@@ -35,6 +35,7 @@ beforeEach(async () => {
   );
   await saveSettings({
     ...defaultSettings,
+    modelOffPeakOnly: false,
     autoPublish: true,
     rotationsEnabled: false,
     processingConcurrency: 2,

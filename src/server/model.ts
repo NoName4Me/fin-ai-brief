@@ -67,7 +67,8 @@ export async function requestModel<T>(
   ];
   let inputTokens = 0;
   let outputTokens = 0;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  let attemptLimit = 2;
+  for (let attempt = 1; attempt <= attemptLimit; attempt++) {
     const response = await fetcher(`${config.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
@@ -81,7 +82,10 @@ export async function requestModel<T>(
       }),
       signal: AbortSignal.timeout(180_000),
     });
-    if (!response.ok) throw new Error(`模型请求失败：HTTP ${response.status}`);
+    if (!response.ok)
+      throw Object.assign(new Error(`模型请求失败：HTTP ${response.status}`), {
+        status: response.status,
+      });
     const body = z
       .object({
         choices: z
@@ -114,18 +118,22 @@ export async function requestModel<T>(
         return { value: result.data, inputTokens, outputTokens };
       }
       await capture?.(inputTokens, outputTokens, parsed, attempt);
-      if (attempt === 2) throw result.error;
+      const factsOverflow = result.error.issues.find(
+        (issue) => issue.code === 'too_big' && issue.path.length === 1 && issue.path[0] === 'facts',
+      );
+      if (factsOverflow) attemptLimit = 3;
+      if (attempt === attemptLimit) throw result.error;
       messages.push(
         { role: 'assistant', content },
         {
           role: 'user',
-          content: `上一轮输出未通过结构校验。请根据以下错误逐项修正，并重新输出完整JSON；不要解释，也不要沿用错误结构。\n${validationSummary(result.error)}`,
+          content: `上一轮输出未通过结构校验。请根据以下错误逐项修正，并重新输出完整JSON；不要解释，也不要沿用错误结构。\n${validationSummary(result.error)}${factsOverflow ? '\n请先统计facts长度，合并次要或相近事实，严格控制为最多12条；同步重建newFactIndexes，保证索引对应合并后的facts。输出前再次计数。' : ''}`,
         },
       );
     } catch (error) {
       if (error instanceof z.ZodError) throw error;
       await capture?.(inputTokens, outputTokens, content, attempt);
-      if (attempt === 2) throw error;
+      if (attempt === attemptLimit) throw error;
       messages.push(
         { role: 'assistant', content },
         {
@@ -154,7 +162,6 @@ export async function modelJSON<T>(
     maxTokens?: number;
     validationContext?: unknown;
     cacheNonce?: string;
-    timeoutMs?: number;
   } = {},
 ) {
   const base = await requireModelConfig();
@@ -162,14 +169,7 @@ export async function modelJSON<T>(
   const model = base.model;
   const config = { ...base, model };
   const maxTokens = options.maxTokens ?? 12000;
-  const stageName =
-    purpose === 'review'
-      ? 'review'
-      : purpose === 'article'
-        ? 'analyze'
-        : purpose === 'article-screening'
-          ? 'screening'
-          : 'task';
+  const stageName = purpose === 'review' ? 'review' : purpose === 'article' ? 'analyze' : 'task';
 
   const key = fingerprint({
     ...(options.cacheNonce === undefined ? {} : { cacheNonce: options.cacheNonce }),
@@ -265,14 +265,12 @@ export async function modelJSON<T>(
     if (!released) client.release();
   }
   try {
-    const signal =
-      options.timeoutMs === undefined ? undefined : AbortSignal.timeout(options.timeoutMs);
     const result = await requestModel(
       system,
       input,
       schema,
       config,
-      signal ? (url, init) => fetch(url, { ...init, signal }) : fetch,
+      fetch,
       maxTokens,
       async (inputTokens, outputTokens, response, attempts) => {
         await pool.query(

@@ -43,10 +43,11 @@ npm run dev
 | `npm run sources:verify` | 批量验证暂停且待验证的信源，结果写回信源记录 |
 | `npm run check`          | 类型检查、业务测试、生产构建                 |
 | `npm run test:browser`   | 浏览器测试                                   |
+| `npm run test:deploy`    | 发布脚本测试，模拟Docker，不操作真实容器     |
 | `npm run format`         | 格式化代码及文档                             |
 | `npm run format:check`   | 检查格式                                     |
 
-单机生产部署在本地构建镜像包，再上传服务器加载运行；服务器不拉源码、不执行npm安装或构建。首次和更新步骤见[部署文档](docs/deployment.md)，迁移和进程切换由部署脚本处理。
+单机生产部署在本地构建镜像包，再上传服务器加载运行；服务器不拉源码、不执行npm安装或构建。日常默认打包只包含Web和Worker镜像，首次安装或新机恢复加 `--full` 包含数据库与Nginx镜像。首次和更新步骤见[部署文档](docs/deployment.md)，迁移和进程切换由部署脚本处理。
 
 ## 管理入口
 

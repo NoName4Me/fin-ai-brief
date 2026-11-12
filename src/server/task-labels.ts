@@ -15,7 +15,7 @@ export const stageDescriptions: Record<string, string> = {
   retry: '队列自动重新执行本次任务，状态表示这次重试的整体结果',
   validate: '检查标题、摘要和来源材料',
   screening: '判断是否需要完整分析',
-  recall: '召回最近14天的候选事件',
+  recall: '召回本期候选事件',
   analyze: '相关性判断、评分、事实提取、标题摘要与事件归组',
   review: '对疑难归组和事实边界进行独立复核',
   save: '写入事件、新增事实和资讯处理结果',
@@ -45,6 +45,7 @@ export const stateNames: Record<string, string> = {
   failed: '失败',
   waiting: '等待额度',
   waiting_budget: '等待额度',
+  waiting_model_window: '等待波谷',
   waiting_articles: '等待资讯处理',
   skipped: '已续处理／跳过',
   pending: '待处理',
@@ -90,4 +91,9 @@ export function taskStamp(value: Date | string | null) {
       .map((p) => [p.type, p.value]),
   );
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
+export function taskStartStamp(value: Date | string | null, state: string) {
+  if (value) return taskStamp(value);
+  return state === 'created' || state === 'waiting_articles' ? '未开始' : '无记录';
 }
