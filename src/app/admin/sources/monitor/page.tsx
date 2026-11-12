@@ -70,9 +70,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
   const source = typeof query.source === 'string' ? query.source : '';
   const search = typeof query.q === 'string' ? query.q.slice(0, 200) : '';
   const periodView = query.view === 'period' && !query.date;
-  const data = await sourceQualityData(days, source && !periodView ? date : undefined);
+  const [data, overviewOverlaps] = await Promise.all([
+    sourceQualityData(days, source && !periodView ? date : undefined),
+    source ? Promise.resolve([]) : sourceOverlap(days),
+  ]);
   const selected = data.metrics.find((s) => s.id === source);
-  const overlaps = selected ? [] : await sourceOverlap(days);
+  const overlaps = selected ? [] : source ? await sourceOverlap(days) : overviewOverlaps;
   const enabledFilter = ['disabled', 'all'].includes(String(query.enabled))
     ? String(query.enabled)
     : 'enabled';

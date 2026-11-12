@@ -63,14 +63,23 @@ export interface ManagedTask {
 }
 const kindLabel = `CASE j.data->>'kind' WHEN 'daily' THEN '日报' WHEN 'weekly' THEN '周报' WHEN 'monthly' THEN '月报' ELSE '简报' END`;
 // Filter the combined projection before limiting: source activity cannot hide an article search.
-const taskProjection = `WITH unified AS (
+const taskProjection = `WITH waiting_jobs AS MATERIALIZED (
+  SELECT run_key,bool_or(result->>'waitingModelWindow'='true') model_window
+  FROM processing_steps WHERE stage='task' AND state='waiting' GROUP BY run_key
+), request_starts AS MATERIALIZED (
+  SELECT data->>'requestId' request_id,min(started_on) started_on
+  FROM pgboss.job WHERE name='generate' GROUP BY data->>'requestId'
+), batch_starts AS MATERIALIZED (
+  SELECT data->>'reprocessBatchId' batch_id,min(started_on) started_on
+  FROM pgboss.job WHERE data->>'reprocessBatchId' IS NOT NULL GROUP BY data->>'reprocessBatchId'
+), unified AS (
   SELECT 'job:'||j.id::text id,j.name queue,
     CASE j.name WHEN 'collect' THEN coalesce(j.data->>'sourceName',s.name,'已删除信源（'||coalesce(j.data->>'id','未知')||'）')
     WHEN 'process' THEN coalesce(j.data->>'articleTitle',a.title,'已删除资讯')
     ELSE ${kindLabel}||' '||coalesce(j.data->>'date','')||'（'||CASE WHEN j.data->>'trigger'='manual' OR j.data->>'expectedKey' IS NOT NULL THEN '手动' ELSE '自动' END||'）' END name,
     j.data->>'id' target_id,j.id job_id,NULL::uuid request_id,j.created_on,j.started_on,j.completed_on,
-    CASE WHEN j.state='completed' AND EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting' AND p.result->>'waitingModelWindow'='true') THEN 'waiting_model_window'
-      WHEN j.state='completed' AND EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting') THEN 'waiting_budget'
+    CASE WHEN j.state='completed' AND w.model_window THEN 'waiting_model_window'
+      WHEN j.state='completed' AND w.run_key IS NOT NULL THEN 'waiting_budget'
       WHEN j.state='completed' THEN 'succeeded' ELSE j.state::text END state,
     j.retry_count,j.retry_limit,j.data,
     coalesce(j.output->>'message',j.output->'value'->>'message',j.output->>'error') error,
@@ -78,17 +87,18 @@ const taskProjection = `WITH unified AS (
     CASE WHEN j.name='process' THEN first_value(j.id::text) OVER (PARTITION BY j.data->>'id' ORDER BY j.created_on DESC,j.id DESC) ELSE j.id::text END latest_job_id
   FROM pgboss.job j LEFT JOIN sources s ON j.name='collect' AND s.id::text=j.data->>'id'
     LEFT JOIN articles a ON j.name='process' AND a.id::text=j.data->>'id'
+    LEFT JOIN waiting_jobs w ON w.run_key='job:'||j.id::text
   WHERE j.name IN ('collect','process','generate') AND NOT (j.name='generate' AND EXISTS(SELECT 1 FROM brief_requests r WHERE r.id::text=j.data->>'requestId'))
   UNION ALL
   SELECT 'request:'||r.id::text,'generate',
     CASE r.kind WHEN 'daily' THEN '日报' WHEN 'weekly' THEN '周报' ELSE '月报' END||' '||r.period_date::text||'（手动）',
     NULL,r.job_id,r.id,r.created_at,
-    (SELECT min(h.started_on) FROM pgboss.job h WHERE h.name='generate' AND h.data->>'requestId'=r.id::text),
+    rs.started_on,
     coalesce(r.finished_at,j.completed_on),
     CASE WHEN r.state='waiting' THEN 'waiting_articles'
       WHEN j.state='cancelled' THEN 'cancelled'
-      WHEN j.state='completed' AND EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting' AND p.result->>'waitingModelWindow'='true') THEN 'waiting_model_window'
-      WHEN j.state='completed' AND EXISTS(SELECT 1 FROM processing_steps p WHERE p.run_key='job:'||j.id::text AND p.stage='task' AND p.state='waiting') THEN 'waiting_budget'
+      WHEN j.state='completed' AND w.model_window THEN 'waiting_model_window'
+      WHEN j.state='completed' AND w.run_key IS NOT NULL THEN 'waiting_budget'
       WHEN r.state='completed' OR j.state='completed' THEN 'succeeded'
       WHEN r.state='failed' OR j.state='failed' THEN 'failed'
       ELSE coalesce(j.state::text,'created') END,
@@ -97,6 +107,8 @@ const taskProjection = `WITH unified AS (
     coalesce(r.error,j.output->>'message',j.output->'value'->>'message',j.output->>'error'),
     1,NULL::text
   FROM brief_requests r LEFT JOIN pgboss.job j ON j.id=r.job_id AND j.name='generate'
+    LEFT JOIN waiting_jobs w ON w.run_key='job:'||j.id::text
+    LEFT JOIN request_starts rs ON rs.request_id=r.id::text
   UNION ALL
   SELECT 'article:'||a.id::text,'process',a.title,a.id::text,NULL::uuid,NULL::uuid,a.created_at,history.started_on,
     CASE WHEN a.state='failed' THEN history.completed_on ELSE NULL::timestamptz END,
@@ -112,14 +124,15 @@ const taskProjection = `WITH unified AS (
     CASE WHEN b.regenerate_date IS NOT NULL THEN b.regenerate_date::text||' 日报：重处理并重新生成'
       ELSE to_char(b.range_start AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI')||'—'||to_char(b.range_end AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI')||' 资讯重处理' END,
     b.id::text,b.generation_job_id,NULL::uuid,b.created_at,
-    (SELECT min(j.started_on) FROM pgboss.job j WHERE j.data->>'reprocessBatchId'=b.id::text),b.finished_at,
+    bs.started_on,b.finished_at,
     CASE b.state WHEN 'waiting' THEN 'created' WHEN 'processing' THEN CASE WHEN count(*) FILTER(WHERE i.state IN ('waiting','queued'))=0 AND b.regenerate_date IS NOT NULL THEN 'waiting_articles' ELSE 'active' END WHEN 'completed' THEN 'succeeded' ELSE b.state END,
     0,0,
     jsonb_build_object('batchId',b.id,'date',b.regenerate_date::text,'total',b.total,
       'processed',count(*) FILTER(WHERE i.state='processed'),'ignored',count(*) FILTER(WHERE i.state='ignored'),
       'failed',count(*) FILTER(WHERE i.state='failed'),'waiting',count(*) FILTER(WHERE i.state='waiting'),'queued',count(*) FILTER(WHERE i.state='queued')),
     b.error,1,NULL::text
-  FROM reprocessing_batches b LEFT JOIN reprocessing_items i ON i.batch_id=b.id GROUP BY b.id
+  FROM reprocessing_batches b LEFT JOIN reprocessing_items i ON i.batch_id=b.id
+    LEFT JOIN batch_starts bs ON bs.batch_id=b.id::text GROUP BY b.id,bs.started_on
 
 )`;
 export async function taskOverview(query = '', type = '', state = '', page = 1, pageSize = 100) {
@@ -135,12 +148,14 @@ export async function taskOverview(query = '', type = '', state = '', page = 1, 
     )
     SELECT *,count(*) OVER()::int total_count FROM ranked WHERE position=1 AND ($2='' OR state=$2)
       AND NOT ((queue='process' OR (queue='generate' AND $1<>'generate')) AND data->>'reprocessBatchId' IS NOT NULL)
-      AND NOT (queue='process' AND EXISTS (
-        SELECT 1 FROM reprocessing_items i JOIN reprocessing_batches b ON b.id=i.batch_id
-        WHERE i.article_id::text=ranked.target_id AND (
-          (b.state IN ('waiting','processing','generating') AND i.state IN ('waiting','queued'))
-          OR (ranked.job_id IS NULL AND i.state IN ('failed','waiting','queued'))
-        )
+      AND NOT (queue='process' AND (
+        coalesce(target_id IN (
+          SELECT i.article_id::text FROM reprocessing_items i JOIN reprocessing_batches b ON b.id=i.batch_id
+          WHERE b.state IN ('waiting','processing','generating') AND i.state IN ('waiting','queued')
+        ),false) OR (job_id IS NULL AND coalesce(target_id IN (
+          SELECT i.article_id::text FROM reprocessing_items i JOIN reprocessing_batches b ON b.id=i.batch_id
+          WHERE i.state IN ('failed','waiting','queued')
+        ),false))
       ))
     ORDER BY CASE WHEN queue='reprocess' AND state IN ('created','active','generating','waiting_articles','waiting_budget') THEN 0 ELSE 1 END,CASE WHEN queue='reprocess' THEN coalesce(completed_on,created_on) ELSE created_on END DESC,id DESC LIMIT $4 OFFSET $5`,
     [

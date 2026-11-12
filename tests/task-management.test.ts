@@ -69,6 +69,37 @@ test('三个任务类型在同一列表中，类型、状态和任务名在合�
   assert.equal(taskStamp('2026-10-23T15:33:17Z'), '2026-10-23 23:33:17');
 });
 
+test('完成的队列记录仍区分等待波谷和等待额度，列表与详情状态一致', async () => {
+  const offPeak = await article('等待波谷的资讯');
+  const budget = await article('等待额度的资讯');
+  const jobs = [
+    await enqueue('process', { id: offPeak }, offPeak),
+    await enqueue('process', { id: budget }, budget),
+  ];
+  await pool.query(
+    "UPDATE pgboss.job SET state='completed',completed_on=now() WHERE id=ANY($1::uuid[])",
+    [jobs],
+  );
+  for (const [index, id] of [offPeak, budget].entries()) {
+    await pool.query(
+      "INSERT INTO processing_steps(subject,run_key,stage,state,result) VALUES($1,$2,'task','waiting',$3)",
+      [
+        `article:${id}`,
+        `job:${jobs[index]}`,
+        JSON.stringify(index === 0 ? { waitingModelWindow: true } : {}),
+      ],
+    );
+  }
+  const waiting = await taskOverview('', 'process', 'waiting_model_window');
+  assert.deepEqual(
+    waiting.map((row) => row.target_id),
+    [offPeak],
+  );
+  assert.equal((await taskOverview('', 'process', 'waiting_budget'))[0]?.target_id, budget);
+  assert.equal((await taskDetail(`job:${jobs[0]}`))?.task.state, 'waiting_model_window');
+  assert.equal((await taskDetail(`job:${jobs[1]}`))?.task.state, 'waiting_budget');
+});
+
 test('自动重试保留一行，手动重试后仍按资讯合并，并保留每次处理记录', async () => {
   const id = await article();
   const jobId = await enqueue('process', { id }, id);

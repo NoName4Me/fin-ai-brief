@@ -13,6 +13,8 @@
     "dev:web": "next dev -p 3100",
     "dev:worker": "tsx watch --env-file-if-exists=.env src/worker.ts",
     "build": "next build",
+    "package": "bash scripts/package-release.sh",
+    "package:full": "bash scripts/package-release.sh --full",
     "prestart": "npm run db:migrate",
     "start": "next start -p 3100",
     "worker": "tsx --env-file-if-exists=.env src/worker.ts",

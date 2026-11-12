@@ -96,6 +96,12 @@ test('采集拒绝本机、私网、链路本地及IPv4映射IPv6地址', () => 
     assert.equal(publicAddress(ip), false, ip);
   assert.equal(publicAddress('8.8.8.8'), true);
 });
+test('采集允许 MIT 所在的公网网段，仍拒绝 192.0 的特殊用途地址', () => {
+  for (const ip of ['192.0.66.184', '192.0.78.24', '192.0.0.9', '192.0.0.10'])
+    assert.equal(publicAddress(ip), true, ip);
+  for (const ip of ['192.0.0.1', '192.0.0.8', '192.0.0.255', '192.0.2.1', '192.168.1.1'])
+    assert.equal(publicAddress(ip), false, ip);
+});
 test('按配置调用 OpenAI 兼容接口，校验JSON及截断结果', async () => {
   const config = {
     baseUrl: 'http://127.0.0.1:3425/v1/',

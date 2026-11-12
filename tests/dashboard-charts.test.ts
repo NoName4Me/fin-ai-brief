@@ -5,6 +5,8 @@ import { pool } from '../src/server/db.ts';
 import { sourceOverlap } from '../src/server/source-metrics.ts';
 import { migrate } from '../scripts/migrate.ts';
 import { dashboardCharts, dashboardRange } from '../src/server/dashboard-charts.ts';
+import { saveSettings } from '../src/server/settings.ts';
+import { defaultSettings } from '../src/server/types.ts';
 
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
   throw new Error('看板测试必须连接独立 _test 库');
@@ -12,7 +14,78 @@ if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL
 before(async () => migrate());
 beforeEach(async () => {
   await pool.query(
-    'TRUNCATE subscription_confirmations,subscriptions,source_discoveries,collection_runs,articles,events,sources,edition_runs,model_calls CASCADE',
+    'TRUNCATE subscription_confirmations,subscriptions,source_discoveries,collection_runs,articles,events,sources,edition_runs,model_calls,briefs CASCADE',
+  );
+});
+
+test('趋势合并查询保持前后期边界、事件去重和发布引用口径', async () => {
+  await saveSettings(defaultSettings);
+  const now = new Date('2026-11-11T04:00:00Z');
+  const source = (
+    await pool.query(
+      "INSERT INTO sources(name,url,format,industry_id,enabled) VALUES('贡献源','https://example.invalid/feed','json','ai',true) RETURNING id",
+    )
+  ).rows[0].id;
+  const assessment = Object.fromEntries(
+    defaultSettings.ratingRules.map((rule) => [rule.id, { score: 5, reason: '充分' }]),
+  );
+  const event = (
+    await pool.query(
+      "INSERT INTO events(industry_id,title,summary,section,score,occurred_at) VALUES('ai','事件','摘要','工具与开源',100,$1) RETURNING id",
+      [now],
+    )
+  ).rows[0].id;
+  const urls = [
+    'https://example.invalid/previous',
+    'https://example.invalid/current',
+    'https://example.invalid/duplicate',
+  ];
+  // Seven-day windows start at Beijing midnight. Re-observing an older item must not move it.
+  for (const [index, firstSeen] of [
+    '2026-11-04T15:59:59Z',
+    '2026-11-04T16:00:00Z',
+    '2026-11-05T01:00:00Z',
+  ].entries()) {
+    await pool.query(
+      `INSERT INTO articles(source_id,source_name,industry_id,url,title,excerpt,published_at,state,event_id,assessment)
+      VALUES($1,'贡献源','ai',$2,'资讯','摘要',$3,'processed',$4,$5)`,
+      [source, urls[index], firstSeen, event, JSON.stringify(assessment)],
+    );
+    await pool.query(
+      "INSERT INTO source_discoveries(source_id,url,title,first_seen_at,last_seen_at,inserted) VALUES($1,$2,'资讯',$3,$4,true)",
+      [source, urls[index], firstSeen, now],
+    );
+  }
+  await pool.query(
+    `INSERT INTO briefs(kind,period_date,published_at,published) VALUES('daily','2026-11-06',$1,$2)`,
+    [
+      now,
+      JSON.stringify({
+        items: [{ eventId: event, sources: [{ url: urls[1] }, { url: urls[1] }] }],
+        highlights: [{ eventId: event }],
+      }),
+    ],
+  );
+  const result = await dashboardCharts(7, now);
+  assert.deepEqual(result.summary, {
+    incoming: 2,
+    relevant: 2,
+    qualified: 1,
+    selected: 1,
+    adoption: 100,
+  });
+  assert.deepEqual(result.previousSummary, {
+    incoming: 1,
+    relevant: 1,
+    qualified: 1,
+    selected: 0,
+    adoption: 0,
+  });
+  assert.deepEqual(result.contributions, [{ id: source, name: '贡献源', selected: 1 }]);
+  assert.equal(result.trend.find((day) => day.date === '2026-11-05')?.qualified, 1);
+  assert.equal(
+    result.trend.reduce((sum, day) => sum + day.selected, 0),
+    1,
   );
 });
 after(async () => pool.end());

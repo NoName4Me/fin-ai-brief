@@ -35,24 +35,26 @@ uname -m
 在项目根目录，完成验证后执行（不需要先推送到远端仓库）：
 
 ```bash
-./scripts/package-release.sh --full
+npm run package:full
 ```
 
 ARM服务器改为：
 
 ```bash
-./scripts/package-release.sh --full --platform linux/arm64
+npm run package:full -- --platform linux/arm64
 ```
 
 脚本会构建Web和Worker，准备PostgreSQL与Nginx镜像，生成版本号、平台标识及文件校验清单。末尾打印部署包的完整路径，例如：
 
 ```text
-.data/releases/fin-ai-brief-20261103T090000Z-24e50c904152-full-amd64.tar.gz
+.data/releases/fin-ai-brief-full-amd64-24e50-20261112-001530.tar.gz
 ```
 
 本地构建需要访问镜像仓库和npm源。首次较慢，后续复用Docker缓存；打包文件较大，先确认本地及服务器磁盘空间。
 
-可以直接打包当前工作区，存在未提交修改时版本名会标记 `worktree`。正式发布建议先做本地提交，便于追溯；服务器始终使用部署包，不需要访问代码仓库。
+打包前请先手动提交代码，并填写准确的提交说明。脚本不执行暂存、提交或推送；检测到未提交修改（包括未跟踪的新文件）时停止打包，确保版本哈希对应实际发布代码。
+
+包名格式为 `fin-ai-brief-包类型-架构-Git短哈希-北京时间.tar.gz`，时间使用东八区、精确到秒；短哈希默认5位，Git遇到前缀冲突时自动加长。完整提交哈希保存在 `release/manifest.json` 的 `git_commit` 字段中。构建期间请勿修改代码或切换提交，检测到变化会停止打包。
 
 ### 2.3 服务器：安装运行环境，只做一次
 
@@ -99,13 +101,13 @@ sudo chown "$USER":"$(id -gn)" /opt/fin-ai-brief
 将文件名替换为本次打包实际输出的路径：
 
 ```bash
-scp .data/releases/fin-ai-brief-本次版本-full-amd64.tar.gz 用户名@服务器公网IP:/tmp/
+scp .data/releases/fin-ai-brief-full-amd64-本次版本.tar.gz 用户名@服务器公网IP:/tmp/
 ```
 
 ### 2.5 服务器：解压、初始化并启动
 
 ```bash
-tar -xzf /tmp/fin-ai-brief-本次版本-full-amd64.tar.gz -C /opt/fin-ai-brief
+tar -xzf /tmp/fin-ai-brief-full-amd64-本次版本.tar.gz -C /opt/fin-ai-brief
 cd /opt/fin-ai-brief
 ./scripts/deploy.sh init 80 198.51.100.8/32
 # 在 deploy/.env 中填写 SITE_URL，例如 http://203.0.113.20
@@ -152,8 +154,8 @@ SMTP优先使用465和SSL/TLS。邮件确认、退订及刊期阅读链接使用
 修改并验证代码，然后生成默认更新包、上传。此模式只构建和打包Web、Worker，不检查、下载或打包PostgreSQL与Nginx镜像：
 
 ```bash
-./scripts/package-release.sh
-scp .data/releases/fin-ai-brief-新版本-update-amd64.tar.gz 用户名@服务器公网IP:/tmp/
+npm run package
+scp .data/releases/fin-ai-brief-update-amd64-新版本.tar.gz 用户名@服务器公网IP:/tmp/
 ```
 
 ### 服务器
@@ -161,7 +163,7 @@ scp .data/releases/fin-ai-brief-新版本-update-amd64.tar.gz 用户名@服务�
 覆盖解压到原目录，再部署：
 
 ```bash
-tar -xzf /tmp/fin-ai-brief-新版本-update-amd64.tar.gz -C /opt/fin-ai-brief
+tar -xzf /tmp/fin-ai-brief-update-amd64-新版本.tar.gz -C /opt/fin-ai-brief
 cd /opt/fin-ai-brief
 ./scripts/deploy.sh deploy
 ./scripts/deploy.sh status
@@ -231,7 +233,7 @@ tar -xzf /保存路径/旧版本部署包.tar.gz -C /tmp/fin-ai-old-release
 
 ### 4.3 新机器灾难恢复
 
-1. 安装运行环境，解压备份对应版本的**完整包**到 `/opt/fin-ai-brief`；更新包不含基础镜像，不能单独用于新机恢复。完整包在本地用 `./scripts/package-release.sh --full` 生成，应保留与备份对应的版本。
+1. 安装运行环境，解压备份对应版本的**完整包**到 `/opt/fin-ai-brief`；更新包不含基础镜像，不能单独用于新机恢复。完整包在本地用 `npm run package:full` 生成，应保留与备份对应的版本。
 2. 把备份的 `.env`复制到 `deploy/.env`，设为600权限，核对新服务器的IP和访问来源；不要重新生成 `APP_SECRET`。
 3. 载入镜像并恢复：
 

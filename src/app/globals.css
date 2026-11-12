@@ -4895,6 +4895,19 @@ button:disabled {
   display: grid;
   gap: var(--overview-gap);
 }
+.dashboard-loading h2 {
+  font-size: 15px;
+}
+.dashboard-loading p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.dashboard-loading-placeholder {
+  min-height: 120px;
+  border-radius: 4px;
+  background: var(--line, #e8e6e1);
+  opacity: 0.35;
+}
 .overview-heading,
 .overview-section-heading,
 .overview-runtime {

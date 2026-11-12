@@ -17,14 +17,16 @@ export function needsLegacyRenegotiation(error: unknown) {
 export function publicAddress(ip: string, allowFakeIp = false) {
   const v = ip.toLowerCase();
   if (v.includes(':')) return !(/^(::|fe[89ab]|f[cd]|ff)/.test(v) || v.includes('ffff:'));
-  const [a, b] = v.split('.').map(Number);
+  const [a, b, c, d] = v.split('.').map(Number);
   return !(
     a === 0 ||
     a === 10 ||
     a === 127 ||
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && (b === 168 || b === 0)) ||
+    (a === 192 && b === 168) ||
+    // Special-use ranges are /24, not all of 192.0.0.0/16 (which includes public sites).
+    (a === 192 && b === 0 && (c === 2 || (c === 0 && d !== 9 && d !== 10))) ||
     (a === 100 && b >= 64 && b <= 127) ||
     a >= 224 ||
     (a === 198 && (b === 18 || b === 19) && !allowFakeIp)

@@ -22,6 +22,7 @@ test-results/
 *.sqlite3
 *.dump
 *.bak
+*.tar.gz
 
 # Production deployment state and private backups
 /deploy/.state/

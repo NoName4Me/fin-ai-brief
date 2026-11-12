@@ -153,8 +153,11 @@ function SubscriptionChart({ data }: { data: ChartData['subscriptions'] }) {
   );
 }
 
-export function DashboardCharts({ data }: { data: ChartData }) {
-  const contributionMax = Math.max(1, ...data.contributions.map((source) => source.selected));
+export function DashboardContentMetrics({
+  data,
+}: {
+  data: Pick<ChartData, 'summary' | 'previousSummary'>;
+}) {
   const metrics = [
     { label: '新增入库', value: data.summary.incoming, previous: data.previousSummary.incoming },
     { label: '筛选通过', value: data.summary.relevant, previous: data.previousSummary.relevant },
@@ -222,59 +225,78 @@ export function DashboardCharts({ data }: { data: ChartData }) {
           ))}
         </dl>
       </section>
-      <div className="overview-columns dashboard-period-columns">
-        <section className="overview-section" aria-labelledby="content-trend">
-          <div className="overview-section-heading">
-            <h2 id="content-trend">每日内容趋势</h2>
-            <span className="chart-legend">
-              <i />
-              合格事件 <i className="selected" />
-              日报采用
-            </span>
-          </div>
-          <ContentTrend data={data.trend} />
-        </section>
-        <section className="overview-section" aria-labelledby="subscription-trend">
-          <div className="overview-section-heading">
-            <h2 id="subscription-trend">订阅趋势</h2>
-            <Link href="/admin/subscriptions">订阅管理</Link>
-          </div>
-          <div className="subscription-summary">
-            <span>
-              期初 <strong>{data.subscriptions.start}</strong>
-            </span>
-            <span>
-              新增生效 <strong>{data.subscriptions.added}</strong>
-            </span>
-            <span>
-              退订 <strong>{data.subscriptions.cancelled}</strong>
-            </span>
-            <span>
-              净增长 <strong>{data.subscriptions.net}</strong>
-            </span>
-            <span>
-              当前有效 <strong>{data.subscriptions.current}</strong>
-            </span>
-            <span>
-              待确认 <strong>{data.subscriptions.pending}</strong>
-            </span>
-            <span>
-              已过期 <strong>{data.subscriptions.expired}</strong>
-            </span>
-            <span>
-              未确认合计 <strong>{data.subscriptions.unconfirmed}</strong>
-            </span>
-          </div>
-          <SubscriptionChart data={data.subscriptions} />
-          <p className="chart-legend">
+    </>
+  );
+}
+
+export function DashboardContentTrend({ data }: { data: Pick<ChartData, 'trend'> }) {
+  return (
+    <>
+      <section className="overview-section" aria-labelledby="content-trend">
+        <div className="overview-section-heading">
+          <h2 id="content-trend">每日内容趋势</h2>
+          <span className="chart-legend">
             <i />
-            新增生效 <i className="cancelled" />
-            退订 <i className="total" />
-            有效总量 <i className="unconfirmed" />
-            未确认
-          </p>
-        </section>
-      </div>
+            合格事件 <i className="selected" />
+            日报采用
+          </span>
+        </div>
+        <ContentTrend data={data.trend} />
+      </section>
+    </>
+  );
+}
+
+export function DashboardSubscriptions({ data }: { data: Pick<ChartData, 'subscriptions'> }) {
+  return (
+    <>
+      <section className="overview-section" aria-labelledby="subscription-trend">
+        <div className="overview-section-heading">
+          <h2 id="subscription-trend">订阅趋势</h2>
+          <Link href="/admin/subscriptions">订阅管理</Link>
+        </div>
+        <div className="subscription-summary">
+          <span>
+            期初 <strong>{data.subscriptions.start}</strong>
+          </span>
+          <span>
+            新增生效 <strong>{data.subscriptions.added}</strong>
+          </span>
+          <span>
+            退订 <strong>{data.subscriptions.cancelled}</strong>
+          </span>
+          <span>
+            净增长 <strong>{data.subscriptions.net}</strong>
+          </span>
+          <span>
+            当前有效 <strong>{data.subscriptions.current}</strong>
+          </span>
+          <span>
+            待确认 <strong>{data.subscriptions.pending}</strong>
+          </span>
+          <span>
+            已过期 <strong>{data.subscriptions.expired}</strong>
+          </span>
+          <span>
+            未确认合计 <strong>{data.subscriptions.unconfirmed}</strong>
+          </span>
+        </div>
+        <SubscriptionChart data={data.subscriptions} />
+        <p className="chart-legend">
+          <i />
+          新增生效 <i className="cancelled" />
+          退订 <i className="total" />
+          有效总量 <i className="unconfirmed" />
+          未确认
+        </p>
+      </section>
+    </>
+  );
+}
+
+export function DashboardSections({ data }: { data: Pick<ChartData, 'sections'> }) {
+  return (
+    <>
       <section className="overview-section" aria-labelledby="section-performance">
         <div className="overview-section-heading">
           <h2 id="section-performance">栏目表现</h2>
@@ -308,6 +330,18 @@ export function DashboardCharts({ data }: { data: ChartData }) {
         </div>
         {!data.sections.length && <p className="ranking-empty">本周期暂无出刊记录。</p>}
       </section>
+    </>
+  );
+}
+
+export function DashboardSources({
+  data,
+}: {
+  data: Pick<ChartData, 'days' | 'contributions' | 'lowEfficiency'>;
+}) {
+  const contributionMax = Math.max(1, ...data.contributions.map((source) => source.selected));
+  return (
+    <>
       <div className="overview-rankings">
         <section className="overview-section" aria-labelledby="contribution-ranking">
           <div className="overview-section-heading">
@@ -360,6 +394,13 @@ export function DashboardCharts({ data }: { data: ChartData }) {
           {!data.lowEfficiency.length && <p className="ranking-empty">暂无待评估信源。</p>}
         </section>
       </div>
+    </>
+  );
+}
+
+export function DashboardRuntime({ data }: { data: Pick<ChartData, 'runtime'> }) {
+  return (
+    <>
       <div className="overview-runtime">
         <span>
           采集成功率{' '}

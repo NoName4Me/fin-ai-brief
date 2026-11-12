@@ -146,17 +146,6 @@ export function TaskRow({ task }: { task: ManagedTask }) {
           className="source-dialog task-dialog"
           aria-labelledby={`${id}-title`}
           onClose={() => request.current?.abort()}
-          onClick={(event) => {
-            if (event.target !== event.currentTarget) return;
-            const bounds = event.currentTarget.getBoundingClientRect();
-            if (
-              event.clientX < bounds.left ||
-              event.clientX > bounds.right ||
-              event.clientY < bounds.top ||
-              event.clientY > bounds.bottom
-            )
-              event.currentTarget.close();
-          }}
         >
           <header className="dialog-header">
             <div>

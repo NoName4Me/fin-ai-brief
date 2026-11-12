@@ -6,6 +6,7 @@ import { collectSource } from '../src/server/collect.ts';
 import { sourceQualityData, discoveryRange } from '../src/server/source-metrics.ts';
 import { saveSettings } from '../src/server/settings.ts';
 import { defaultSettings } from '../src/server/types.ts';
+import { localDate } from '../src/server/periods.ts';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
   throw new Error('须使用独立_test库');
 before(async () => {
@@ -148,4 +149,51 @@ test('信源监控遵守配置顺序，启用状态和贡献量不改变位置�
     result.metrics.map((row) => row.name),
     ['第一项', '第二项', 'AIHOT'],
   );
+});
+
+test('发刊引用按事件和原文匹配，重复引用不放大采用数，早于发现的刊物不计采用', async () => {
+  const id = await source('发刊引用');
+  await collect(id, [item, { ...item, url: item.url + '/other' }]);
+  const event = (
+    await pool.query(
+      "INSERT INTO events(industry_id,title,summary,section,score,occurred_at) VALUES('ai','事件','摘要','工具与开源',100,$1) RETURNING id",
+      [now],
+    )
+  ).rows[0].id;
+  await pool.query("UPDATE articles SET state='processed',event_id=$1 WHERE source_id=$2", [
+    event,
+    id,
+  ]);
+  const published = {
+    rangeStart: new Date(now.getTime() - 86400_000).toISOString(),
+    rangeEnd: new Date(now.getTime() + 86400_000).toISOString(),
+    items: [{ eventId: event, sources: [{ url: item.url }, { url: item.url }] }],
+    highlights: [{ eventId: event }],
+  };
+  const edition = (
+    await pool.query(
+      "INSERT INTO briefs(kind,period_date,published,published_at) VALUES('daily',$1,$2,$3) RETURNING id",
+      [localDate(now), JSON.stringify(published), new Date(now.getTime() + 1000)],
+    )
+  ).rows[0].id;
+  let data = await sourceQualityData(7, undefined, now);
+  const adopted = data.discoveries.find((d) => d.url === item.url)!;
+  const other = data.discoveries.find((d) => d.url === item.url + '/other')!;
+  assert.equal(adopted.selected, true);
+  assert.equal(adopted.highlight, true);
+  assert.deepEqual(
+    adopted.editions.map((e) => e.id),
+    [edition],
+  );
+  assert.equal(other.selected, false);
+  assert.equal(other.highlight, false);
+  assert.equal(other.has_edition, true);
+  assert.equal(data.metrics[0].selected, 1);
+  await pool.query('UPDATE briefs SET published_at=$1 WHERE id=$2', [
+    new Date(now.getTime() - 1000),
+    edition,
+  ]);
+  data = await sourceQualityData(7, undefined, now);
+  assert.equal(data.metrics[0].selected, 0);
+  assert.equal(data.discoveries.find((d) => d.url === item.url)?.has_edition, true);
 });

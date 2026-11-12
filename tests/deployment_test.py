@@ -44,14 +44,15 @@ class DeploymentTest(unittest.TestCase):
         self.bin = self.root / 'bin'
         self.bin.mkdir()
         (self.bin / 'docker').write_text(DOCKER)
-        (self.bin / 'git').write_text('#!/bin/sh\nif [ "$1" = rev-parse ]; then echo abc123abc123; fi\n')
+        (self.bin / 'git').write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys\na=sys.argv[1:]\nmarker=pathlib.Path(os.environ['GIT_MARKER'])\nwith open(os.environ['GIT_LOG'],'a') as f: f.write(json.dumps(a)+'\\n')\nif a[0]=='status':\n    if os.environ.get('GIT_DIRTY') and not marker.exists(): print(' M src/example.ts')\nelif a[0]=='commit':\n    if os.environ.get('FAIL_COMMIT'): sys.exit(1)\n    marker.touch()\nelif a[0]=='rev-parse': print('abc12' if '--short=5' in a else 'a'*40)\n")
         # macOS lacks flock; this fixture tests deployment ordering rather than OS locking.
         (self.bin / 'flock').write_text('#!/bin/sh\nexit 0\n')
         for file in self.bin.iterdir():
             file.chmod(0o755)
         self.log = self.root / 'docker.log'
         self.env = {**os.environ, 'PATH': str(self.bin) + os.pathsep + os.environ['PATH'],
-                    'DOCKER_LOG': str(self.log)}
+                    'DOCKER_LOG': str(self.log), 'GIT_LOG': str(self.root / 'git.log'),
+                    'GIT_MARKER': str(self.root / 'git-committed')}
         for key in ['APP_VERSION', 'POSTGRES_IMAGE', 'NGINX_IMAGE', 'DEPLOY_ENV_FILE',
                     'DEPLOY_STATE_DIR', 'DEPLOY_BACKUP_DIR', 'DEPLOY_PROJECT']:
             self.env.pop(key, None)
@@ -93,6 +94,22 @@ class DeploymentTest(unittest.TestCase):
             (state / 'postgres-image').write_text('fin-ai-brief-postgres:17-existing\n')
             (state / 'nginx-image').write_text('fin-ai-brief-nginx:existing\n')
         return env_file.read_bytes()
+
+    def test_package_name_and_full_commit_metadata(self):
+        value = self.package()
+        name = next((self.root / '.data/releases').glob('*.tar.gz')).name
+        self.assertRegex(name, r'^fin-ai-brief-update-amd64-abc12-\d{8}-\d{6}\.tar\.gz$')
+        self.assertEqual(value['git_commit'], 'a' * 40)
+        calls = [json.loads(line) for line in (self.root / 'git.log').read_text().splitlines()]
+        self.assertFalse(any(call[0] in ['add', 'commit'] for call in calls))
+
+    def test_dirty_package_requires_manual_commit(self):
+        self.env['GIT_DIRTY'] = '1'
+        result = self.command('package-release.sh', ok=False)
+        self.assertIn('请先手动提交', result.stderr)
+        self.assertFalse(self.log.exists())
+        calls = [json.loads(line) for line in (self.root / 'git.log').read_text().splitlines()]
+        self.assertFalse(any(call[0] in ['add', 'commit', 'push'] for call in calls))
 
     def test_update_contains_only_application_images_and_no_private_env(self):
         value = self.package()
@@ -203,7 +220,7 @@ class DeploymentTest(unittest.TestCase):
 
     def test_arm_update_package_records_platform_without_base_images(self):
         self.command('package-release.sh', '--platform', 'linux/arm64')
-        path = next((self.root / '.data/releases').glob('*-update-arm64.tar.gz'))
+        path = next((self.root / '.data/releases').glob('fin-ai-brief-update-arm64-*.tar.gz'))
         with tarfile.open(path) as archive:
             value = json.loads(archive.extractfile('./release/manifest.json').read())
             images = json.loads(archive.extractfile('./release/images.tar').read())

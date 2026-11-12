@@ -19,10 +19,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ $PLATFORM == linux/amd64 || $PLATFORM == linux/arm64 ]] || { echo '仅支持 linux/amd64 或 linux/arm64' >&2; exit 1; }
-VERSION="$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short=12 HEAD)"
-if [[ -n $(git status --porcelain) ]]; then
-  VERSION=$VERSION-worktree
-fi
+command -v docker >/dev/null
+RELEASE_TIME=$(TZ=Asia/Shanghai date +%Y%m%d-%H%M%S)
+# The release hash must identify the packaged source; commits remain a manual operation.
+[[ -z $(git status --porcelain) ]] || { echo '存在未提交修改，请先手动提交后再打包。' >&2; exit 1; }
+GIT_COMMIT=$(git rev-parse HEAD)
+VERSION="$(git rev-parse --short=5 HEAD)-$RELEASE_TIME"
 mkdir -p "$OUTPUT"
 OUTPUT=$(cd "$OUTPUT" && pwd)
 STAGING=$(mktemp -d)
@@ -33,6 +35,9 @@ WORKER_IMAGE=fin-ai-brief-worker:$VERSION
 printf '打包版本: %s\n目标平台: %s\n包类型: %s\n' "$VERSION" "$PLATFORM" "$MODE"
 docker buildx build --platform "$PLATFORM" --pull --load --target web -t "$WEB_IMAGE" .
 docker buildx build --platform "$PLATFORM" --load --target worker -t "$WORKER_IMAGE" .
+[[ -z $(git status --porcelain) && $(git rev-parse HEAD) == "$GIT_COMMIT" ]] || {
+  echo '构建期间代码或提交发生变化，停止打包，请重新执行。' >&2; exit 1;
+}
 IMAGES=("$WEB_IMAGE" "$WORKER_IMAGE")
 POSTGRES_IMAGE=
 NGINX_IMAGE=
@@ -58,7 +63,7 @@ cp deploy/compose.yaml deploy/config.py deploy/.env.example "$STAGING/deploy/"
 cp deploy/nginx/default.conf.template "$STAGING/deploy/nginx/"
 cp deploy/postgres/10-app-role.sh "$STAGING/deploy/postgres/"
 cp docs/deployment.md docs/sources.md "$STAGING/docs/"
-python3 - "$STAGING" "$VERSION" "$PLATFORM" "$MODE" "$POSTGRES_IMAGE" "$NGINX_IMAGE" <<'PY'
+python3 - "$STAGING" "$VERSION" "$PLATFORM" "$MODE" "$POSTGRES_IMAGE" "$NGINX_IMAGE" "$GIT_COMMIT" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
 root=Path(sys.argv[1])
@@ -68,13 +73,13 @@ def digest(path):
         for chunk in iter(lambda:f.read(1024*1024),b''):
             h.update(chunk)
         return h.hexdigest()
-manifest={'version':sys.argv[2],'platform':sys.argv[3],'mode':sys.argv[4],
+manifest={'version':sys.argv[2],'platform':sys.argv[3],'mode':sys.argv[4],'git_commit':sys.argv[7],
           'files':{str(p.relative_to(root)):digest(p) for p in sorted(root.rglob('*')) if p.is_file()}}
 if sys.argv[4] == 'full':
     manifest.update(postgres_image=sys.argv[5],nginx_image=sys.argv[6])
 (root/'release/manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 PY
-FILE="$OUTPUT/fin-ai-brief-$VERSION-$MODE-${PLATFORM#linux/}.tar.gz"
+FILE="$OUTPUT/fin-ai-brief-$MODE-${PLATFORM#linux/}-$VERSION.tar.gz"
 # COPYFILE_DISABLE prevents macOS resource-fork files from entering the Linux bundle.
 COPYFILE_DISABLE=1 tar --no-xattrs -czf "$FILE.tmp" -C "$STAGING" .
 mv "$FILE.tmp" "$FILE"

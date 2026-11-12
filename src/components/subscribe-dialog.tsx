@@ -22,17 +22,6 @@ function SubscribeDialog({ close }: { close: () => void }) {
       className="subscription-reader-dialog"
       aria-labelledby={titleId}
       onClose={close}
-      onClick={(event) => {
-        if (event.target !== event.currentTarget) return;
-        const rect = event.currentTarget.getBoundingClientRect();
-        if (
-          event.clientX < rect.left ||
-          event.clientX > rect.right ||
-          event.clientY < rect.top ||
-          event.clientY > rect.bottom
-        )
-          dialog.current?.close();
-      }}
     >
       <button
         type="button"

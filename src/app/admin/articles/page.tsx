@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { FilePlus2, RotateCw, Settings2, ListFilter, RefreshCw } from 'lucide-react';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
@@ -32,22 +33,12 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
   };
   const state = typeof query.state === 'string' && query.state in states ? query.state : '';
   const page = Math.max(1, Math.min(1000000, Number.parseInt(String(query.page), 10) || 1));
-  let [tasks, config] = await Promise.all([taskOverview(q, type, state, page, 50), getSettings()]);
   const params = new URLSearchParams({
     q,
     type,
     state,
     ...(page > 1 ? { page: String(page) } : {}),
   });
-  if (!tasks.length && page > 1) {
-    const first = await taskOverview(q, type, state, 1, 50);
-    const last = Math.max(1, Math.ceil((first[0]?.total_count ?? 0) / 50));
-    redirect(`/admin/articles?${new URLSearchParams({ q, type, state, page: String(last) })}`);
-  }
-  const total = tasks[0]?.total_count ?? 0;
-  const pages = Math.max(1, Math.ceil(total / 50));
-  const pageHref = (value: number) =>
-    `/admin/articles?${new URLSearchParams({ q, type, state, page: String(value) })}`;
   return (
     <>
       <Notice query={query} />
@@ -84,7 +75,9 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
       )}
       {query.configure === 'tasks' && (
         <SourceManagementDialog title="任务处理配置" closeHref={`/admin/articles?${params}`}>
-          <TaskSettingsForm config={config} />
+          <Suspense fallback={<p role="status">正在加载任务配置…</p>}>
+            <TaskConfiguration />
+          </Suspense>
         </SourceManagementDialog>
       )}
       {query.configure === 'reprocess' && (
@@ -133,6 +126,48 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
         </Link>
       </form>
 
+      <Suspense
+        key={`${q}:${type}:${state}:${page}`}
+        fallback={
+          <div className="table-wrap" aria-busy="true" aria-label="任务列表">
+            <p role="status">正在加载任务列表…</p>
+          </div>
+        }
+      >
+        <TaskResults q={q} type={type} state={state} page={page} batch={query.batch} />
+      </Suspense>
+    </>
+  );
+}
+
+async function TaskConfiguration() {
+  return <TaskSettingsForm config={await getSettings()} />;
+}
+async function TaskResults({
+  q,
+  type,
+  state,
+  page,
+  batch,
+}: {
+  q: string;
+  type: string;
+  state: string;
+  page: number;
+  batch: Query['batch'];
+}) {
+  const tasks = await taskOverview(q, type, state, page, 50);
+  if (!tasks.length && page > 1) {
+    const first = await taskOverview(q, type, state, 1, 50);
+    const last = Math.max(1, Math.ceil((first[0]?.total_count ?? 0) / 50));
+    redirect(`/admin/articles?${new URLSearchParams({ q, type, state, page: String(last) })}`);
+  }
+  const total = tasks[0]?.total_count ?? 0;
+  const pages = Math.max(1, Math.ceil(total / 50));
+  const pageHref = (value: number) =>
+    `/admin/articles?${new URLSearchParams({ q, type, state, page: String(value) })}`;
+  return (
+    <>
       <div className="table-wrap">
         <table className="managed-task-table" aria-label="任务列表">
           <thead>
@@ -147,11 +182,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
           <tbody>
             {tasks.map((task) =>
               task.queue === 'reprocess' ? (
-                <BatchTaskRow
-                  key={task.id}
-                  task={task}
-                  initiallyOpen={query.batch === task.target_id}
-                />
+                <BatchTaskRow key={task.id} task={task} initiallyOpen={batch === task.target_id} />
               ) : (
                 <TaskRow key={task.id} task={task} />
               ),

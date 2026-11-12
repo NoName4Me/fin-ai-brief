@@ -108,18 +108,30 @@ export async function sourceQualityData(
       [now, config.collectionEnabled],
     ),
     pool.query<SourceDiscovery>(
-      `SELECT d.*,a.published_precision,a.provenance->'snapshot' AS snapshot,a.excerpt,a.id article_id,coalesce(a.state,CASE WHEN EXISTS(SELECT 1 FROM collection_items ci WHERE ci.source_id=d.source_id AND ci.url=d.url AND ci.outcome='failed') THEN 'failed' WHEN EXISTS(SELECT 1 FROM collection_items ci WHERE ci.source_id=d.source_id AND ci.url=d.url AND ci.outcome='invalid') THEN 'invalid' ELSE 'removed' END) state,a.event_id,e.title event_title,a.assessment,e.score,a.review_note,
+      `WITH editions AS MATERIALIZED (
+        SELECT id,period_date,published_at,published,
+          nullif(published->>'rangeStart','')::timestamptz range_start,
+          nullif(published->>'rangeEnd','')::timestamptz range_end
+        FROM briefs WHERE kind='daily' AND published IS NOT NULL
+      ), edition_refs AS MATERIALIZED (
+        SELECT b.id,b.period_date,b.published_at,i->>'eventId' event_id,ref->>'url' url,
+          EXISTS(SELECT 1 FROM jsonb_array_elements(coalesce(b.published->'highlights','[]'::jsonb)) h
+            WHERE h->>'eventId'=i->>'eventId') highlight
+        FROM editions b
+        CROSS JOIN LATERAL jsonb_array_elements(coalesce(b.published->'items','[]'::jsonb)) i
+        CROSS JOIN LATERAL jsonb_array_elements(coalesce(i->'sources','[]'::jsonb)) ref
+      )
+      SELECT d.*,a.published_precision,a.provenance->'snapshot' AS snapshot,a.excerpt,a.id article_id,coalesce(a.state,CASE WHEN EXISTS(SELECT 1 FROM collection_items ci WHERE ci.source_id=d.source_id AND ci.url=d.url AND ci.outcome='failed') THEN 'failed' WHEN EXISTS(SELECT 1 FROM collection_items ci WHERE ci.source_id=d.source_id AND ci.url=d.url AND ci.outcome='invalid') THEN 'invalid' ELSE 'removed' END) state,a.event_id,e.title event_title,a.assessment,e.score,a.review_note,
       (SELECT p.result->'ratingRules' FROM processing_steps p WHERE p.subject='article:'||a.id::text AND p.stage='validate' AND p.state='succeeded' ORDER BY p.finished_at DESC LIMIT 1) rating_rules,
       EXISTS(SELECT 1 FROM event_developments v WHERE v.article_id=a.id AND v.event_id=a.event_id) development,
-      EXISTS(SELECT 1 FROM briefs b WHERE b.kind='daily' AND b.published IS NOT NULL
-        AND a.published_at>=nullif(b.published->>'rangeStart','')::timestamptz AND a.published_at<nullif(b.published->>'rangeEnd','')::timestamptz) has_edition,
+      EXISTS(SELECT 1 FROM editions b WHERE a.published_at>=b.range_start AND a.published_at<b.range_end) has_edition,
       coalesce(c.editions,'[]'::jsonb) editions, coalesce(c.selected,false) selected,coalesce(c.highlight,false) highlight
       FROM source_discoveries d LEFT JOIN articles a ON a.url=d.url LEFT JOIN events e ON e.id=a.event_id
       LEFT JOIN LATERAL (
         SELECT jsonb_agg(DISTINCT jsonb_build_object('id',b.id,'date',b.period_date::text)) editions,
-          bool_or(true) selected,bool_or(EXISTS(SELECT 1 FROM jsonb_array_elements(coalesce(b.published->'highlights','[]'::jsonb)) h WHERE h->>'eventId'=a.event_id::text)) highlight
-        FROM briefs b WHERE b.kind='daily' AND b.published IS NOT NULL
-          AND b.published_at>=d.first_seen_at AND EXISTS(SELECT 1 FROM jsonb_array_elements(coalesce(b.published->'items','[]'::jsonb)) i CROSS JOIN LATERAL jsonb_array_elements(coalesce(i->'sources','[]'::jsonb)) ref WHERE i->>'eventId'=a.event_id::text AND ref->>'url'=d.url)
+          bool_or(true) selected,bool_or(b.highlight) highlight
+        FROM edition_refs b WHERE b.published_at>=d.first_seen_at
+          AND b.event_id=a.event_id::text AND b.url=d.url
       ) c ON true
       WHERE d.first_seen_at<$2 AND (d.last_seen_at >= $1 OR EXISTS(
         SELECT 1 FROM source_discoveries peer JOIN articles pa ON pa.url=peer.url
