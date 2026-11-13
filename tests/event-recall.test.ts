@@ -1,10 +1,11 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { pool, db } from '../src/server/db.ts';
 import { events } from '../src/server/schema.ts';
 import { migrate } from '../scripts/migrate.ts';
 import { defaultSettings } from '../src/server/types.ts';
-import { saveSettings } from '../src/server/settings.ts';
+
 import { importArticle } from '../src/server/collect.ts';
 import { processArticle } from '../src/server/process.ts';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
@@ -27,6 +28,7 @@ after(async () => {
   await pool.end();
 });
 test('本期事件在80条更新后仍被召回，跨期事件不进入单篇分析', async () => {
+  await syncModelSettings();
   const now = new Date('2026-11-06T12:00:00+08:00').getTime();
   const [old] = await db
     .insert(events)
@@ -123,6 +125,7 @@ test('本期事件在80条更新后仍被召回，跨期事件不进入单篇分
 });
 
 test('后续报道保存完整原文事实，但事件进展只写入新增条件', async () => {
+  await syncModelSettings();
   const now = new Date('2026-11-06T12:00:00+08:00').getTime();
   const [old] = await db
     .insert(events)

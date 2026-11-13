@@ -1,3 +1,4 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +9,7 @@ import { migrate } from '../scripts/migrate.ts';
 import { db, pool } from '../src/server/db.ts';
 import { articles, events, sources } from '../src/server/schema.ts';
 import { defaultSettings, briefContentSchema } from '../src/server/types.ts';
-import { saveSettings, getSettings } from '../src/server/settings.ts';
+import { getSettings } from '../src/server/settings.ts';
 import {
   assessmentSchema,
   weightedRating,
@@ -89,6 +90,7 @@ after(async () => {
   await pool.end();
 });
 test('复核收到已采集的来源与发布时间，避免将漏传元数据误判为证据不足', async () => {
+  await syncModelSettings();
   await saveSettings({ ...(await getSettings()), reviewEnabled: true });
   const [article] = await importArticle({
     title: '官方公布AI工具更新',
@@ -236,6 +238,7 @@ test('隔周排期按基准所在周计算，关键词命中只作线索', () =>
   ]);
 });
 test('不同旧行业来源共享事件归组，保存五维分数并忽略旧标签', async () => {
+  await syncModelSettings();
   const existing = await seed('2026-10-21T12:00:00Z', assessment, '政策与监管', 'finance');
   const [article] = await importArticle({
     title: 'AI监管进展',
@@ -279,6 +282,7 @@ test('不同旧行业来源共享事件归组，保存五维分数并忽略旧�
   assert.deepEqual(event.rows[0].tags, []);
 });
 test('普通金融资讯可被AI关联检查淘汰，不产生事件', async () => {
+  await syncModelSettings();
   const [article] = await importArticle({
     title: '普通金融新闻',
     url: 'https://example.invalid/finance',
@@ -297,6 +301,7 @@ test('普通金融资讯可被AI关联检查淘汰，不产生事件', async () 
   assert.equal((await pool.query('SELECT count(*)::int n FROM events')).rows[0].n, 0);
 });
 test('显式重处理更新已有事件评分和编辑快照，但不制造新事实进展', async () => {
+  await syncModelSettings();
   const old = await seed('2026-10-21T12:00:00Z', assessment);
   await pool.query("UPDATE articles SET state='pending' WHERE id=$1", [old.articleId]);
   globalThis.fetch = async (_url, init) => {
@@ -332,6 +337,7 @@ test('显式重处理更新已有事件评分和编辑快照，但不制造新�
   );
 });
 test('旧未评分事件不能把重新处理的首条新流程资料吞成重复报道', async () => {
+  await syncModelSettings();
   const legacy = await seed('2026-10-21T12:00:00Z', assessment, '工具与开源', 'finance');
   await pool.query('UPDATE events SET assessment=NULL WHERE id=$1', [legacy.id]);
   await pool.query(
@@ -377,6 +383,7 @@ test('旧未评分事件不能把重新处理的首条新流程资料吞成重�
   assert.equal(saved.draft!.items[0].rating, 4.3);
 });
 test('日报按当期事实快照取材，包含起点排除终点及未来状态', async () => {
+  await syncModelSettings();
   const keep = await seed('2026-10-21T00:00:00Z');
   await seed('2026-10-22T00:00:00Z');
   await pool.query(
@@ -393,6 +400,7 @@ test('日报按当期事实快照取材，包含起点排除终点及未来状�
   assert.equal(saved.draft!.items[0].rating, 4.3);
 });
 test('人工审核阻断网页和投递，发布后同步记录且修订不重复发送', async () => {
+  await syncModelSettings();
   await seed();
   process.env.MAIL_ENABLED = 'true';
   await syncMailSettings();
@@ -416,6 +424,7 @@ test('人工审核阻断网页和投递，发布后同步记录且修订不重�
   assert.equal((await pool.query('SELECT count(*)::int n FROM deliveries')).rows[0].n, 1);
 });
 test('正常空刊不调用模型，栏目空缺与未排期分别记录', async () => {
+  await syncModelSettings();
   process.env.MODEL_CALLS_ENABLED = 'false';
   globalThis.fetch = async () => {
     throw new Error('不应调用模型');
@@ -428,6 +437,7 @@ test('正常空刊不调用模型，栏目空缺与未排期分别记录', async
   assert.equal(logs.rows.find((r) => r.section === '一周观察').status, 'unscheduled');
 });
 test('来源采集异常不能当作正常无内容，不发布空刊', async () => {
+  await syncModelSettings();
   await db.insert(sources).values({
     name: '异常来源',
     url: 'https://example.invalid/rss',
@@ -443,6 +453,7 @@ test('来源采集异常不能当作正常无内容，不发布空刊', async ()
   assert.equal(logs.filter((r) => r.status === 'unscheduled').length, 3);
 });
 test('评审拒绝的零分事件不会因五维分数高重新入刊', async () => {
+  await syncModelSettings();
   const event = await seed();
   await pool.query(
     "UPDATE event_developments SET editorial=jsonb_set(editorial,'{score}','0'::jsonb) WHERE event_id=$1",
@@ -452,6 +463,7 @@ test('评审拒绝的零分事件不会因五维分数高重新入刊', async ()
   assert.equal(saved.draft!.items.length, 0);
 });
 test('栏目预算、要览门槛、重复和遗漏事件均校验，失败不落正式稿', async () => {
+  await syncModelSettings();
   await seed();
   await saveSettings({ ...(await getSettings()), autoPublish: true });
   globalThis.fetch = async (_url, init) => {
@@ -486,6 +498,7 @@ test('栏目预算、要览门槛、重复和遗漏事件均校验，失败不�
   await assert.rejects(generateBrief('daily', '2026-10-22'), /无效或重复/);
 });
 test('超预算时系统只压缩对应栏目，保留其他内容并复用初稿与压缩缓存', async () => {
+  await syncModelSettings();
   await seed('2026-10-21T12:00:00Z', topAssessment, '工具与开源');
   await seed('2026-10-21T13:00:00Z', topAssessment, '工具与开源');
   const policy = await seed('2026-10-21T14:00:00Z', topAssessment, '政策与监管');
@@ -540,6 +553,7 @@ test('超预算时系统只压缩对应栏目，保留其他内容并复用初�
   assert.equal(calls, 6);
 });
 test('不满栏目下限仍出短刊，网页邮件共享星级、要览和来源', async () => {
+  await syncModelSettings();
   await seed();
   const saved = await generateBrief('daily', '2026-10-22');
   const content = saved.draft!;
@@ -559,6 +573,7 @@ test('不满栏目下限仍出短刊，网页邮件共享星级、要览和来�
   assert.equal(briefContentSchema.safeParse(content).success, true);
 });
 test('预览只读，规则变化使生成确认失效', async () => {
+  await syncModelSettings();
   await seed();
   const preview = await previewBrief('daily', '2026-10-22');
   assert.equal((await pool.query('SELECT count(*)::int n FROM model_calls')).rows[0].n, 0);
@@ -569,6 +584,7 @@ test('预览只读，规则变化使生成确认失效', async () => {
   await assert.rejects(generateBrief('daily', '2026-10-22', preview.key), /重新预览/);
 });
 test('暂停周月报的新请求与已排队生成', async () => {
+  await syncModelSettings();
   await assert.rejects(requestGeneration('weekly', '2026-10-26'), /只生成数智参阅/);
   assert.deepEqual(await runGeneration(randomUUID(), { kind: 'monthly', date: '2026-11-01' }), {
     skipped: true,
@@ -576,6 +592,7 @@ test('暂停周月报的新请求与已排队生成', async () => {
   });
 });
 test('新版补刊始终待审且不自动推送，普通修订也不补发', async () => {
+  await syncModelSettings();
   await seed();
   await saveSettings({ ...(await getSettings()), autoPublish: true });
   process.env.MAIL_ENABLED = 'true';
@@ -596,6 +613,7 @@ test('新版补刊始终待审且不自动推送，普通修订也不补发', as
   assert.equal((await pool.query('SELECT count(*)::int n FROM deliveries')).rows[0].n, 0);
 });
 test('重处理后的日报更新仍遵循人工审核开关', async () => {
+  await syncModelSettings();
   await seed();
   process.env.MAIL_ENABLED = 'true';
   await syncMailSettings();
@@ -613,6 +631,7 @@ test('重处理后的日报更新仍遵循人工审核开关', async () => {
   assert.equal((await pool.query('SELECT count(*)::int n FROM deliveries')).rows[0].n, 0);
 });
 test('轮动只暴露事件短编号，错误引用按明确反馈修正并映射回真实事件', async () => {
+  await syncModelSettings();
   await saveSettings({ ...(await getSettings()), rotationsEnabled: true, startDate: '2026-10-19' });
   const events = [
     await seed('2026-10-20T12:00:00Z'),
@@ -661,6 +680,7 @@ test('轮动只暴露事件短编号，错误引用按明确反馈修正并映�
 });
 
 test('周一轮动可以引用七天材料，普通日报仍只引用一天材料', async () => {
+  await syncModelSettings();
   await saveSettings({ ...(await getSettings()), rotationsEnabled: true, startDate: '2026-10-19' });
   await seed('2026-10-20T12:00:00Z');
   await seed('2026-10-22T12:00:00Z');
@@ -686,6 +706,7 @@ test('周一轮动可以引用七天材料，普通日报仍只引用一天材�
 });
 
 test('栏目失败仅重试该栏，已成功栏目不重复生成', async () => {
+  await syncModelSettings();
   await seed('2026-10-21T12:00:00Z', topAssessment, '工具与开源');
   await seed('2026-10-21T13:00:00Z', topAssessment, '政策与监管');
   const calls = new Map<string, number>();
@@ -710,6 +731,7 @@ test('栏目失败仅重试该栏，已成功栏目不重复生成', async () =>
 });
 
 test('要览错误ID重试仅重做要览，候选只含达标正文', async () => {
+  await syncModelSettings();
   const event = await seed();
   await seed('2026-10-21T13:00:00Z', assessment, '政策与监管');
   const calls = new Map<string, number>();
@@ -749,6 +771,7 @@ test('要览错误ID重试仅重做要览，候选只含达标正文', async () 
 });
 
 test('仅登刊检查收到7天已刊内容，正文得到新增事实，预览不调用模型', async () => {
+  await syncModelSettings();
   const { id } = await seed('2026-10-31T04:00:00Z', topAssessment, '资本与项目', 'ai');
   const oldContent = {
     title: 'Anthropic完成630亿美元融资',
@@ -805,6 +828,7 @@ test('仅登刊检查收到7天已刊内容，正文得到新增事实，预览�
 });
 
 test('固定栏目重复只补一位，补位仍重复就留空，不继续检查第三位', async () => {
+  await syncModelSettings();
   const current = await getSettings();
   await saveSettings({
     ...current,
@@ -868,6 +892,7 @@ test('固定栏目重复只补一位，补位仍重复就留空，不继续检�
 });
 
 test('旧的全刊事件数配置不再截断栏目上限，未刊内容不触发历史检查', async () => {
+  await syncModelSettings();
   const current = await getSettings();
   await saveSettings({
     ...current,
@@ -898,6 +923,7 @@ test('旧的全刊事件数配置不再截断栏目上限，未刊内容不触�
 });
 
 test('登刊检查失败不覆盖正式版，后续写作失败重试复用检查回执', async () => {
+  await syncModelSettings();
   await seed('2026-10-31T04:00:00Z');
   const priorId = randomUUID();
   const prior = {
@@ -948,6 +974,7 @@ test('登刊检查失败不覆盖正式版，后续写作失败重试复用检�
 });
 
 test('登刊检查为模型推理预留输出预算，不因1600上限截断空正文而阻塞整期', async () => {
+  await syncModelSettings();
   await seed('2026-10-31T04:00:00Z');
   await pool.query(
     "INSERT INTO briefs(kind,period_date,published,published_at) VALUES('daily','2026-10-30',$1,'2026-10-30T00:00:00Z')",
@@ -1007,6 +1034,7 @@ test('登刊检查为模型推理预留输出预算，不因1600上限截断空�
 });
 
 test('数据轮动保存类型名和可选图表，同时按稳定栏目名记录出刊状态', async () => {
+  await syncModelSettings();
   const current = await getSettings();
   await saveSettings({
     ...current,

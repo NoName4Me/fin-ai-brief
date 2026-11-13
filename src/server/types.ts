@@ -136,13 +136,47 @@ export const briefContentSchema = z.object({
   items: z.array(briefItemSchema).max(100),
 });
 export type BriefContent = z.infer<typeof briefContentSchema>;
+export const modelConnectionEntrySchema = z.object({
+  id: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .regex(/^[a-zA-Z0-9_-]+$/, '模型配置ID格式无效'),
+  name: z.string().trim().min(1).max(80),
+  enabled: z.boolean().default(true),
+  baseUrl: z.string().trim().max(2000),
+  apiKey: z.string().trim().max(4000),
+  model: z.string().trim().max(200),
+});
+export type ModelConnectionEntry = z.infer<typeof modelConnectionEntrySchema>;
 export const settingsSchema = z.preprocess(
   (input) => {
     const migrated = migrateEditorialSettings(input);
     if (!migrated || typeof migrated !== 'object') return migrated;
     const value = migrated as Record<string, unknown>;
+    const legacy =
+      value.modelConnection && typeof value.modelConnection === 'object'
+        ? (value.modelConnection as Record<string, unknown>)
+        : null;
+    const modelConnections =
+      Array.isArray(value.modelConnections) && value.modelConnections.length
+        ? value.modelConnections
+        : legacy
+          ? [
+              {
+                id: 'legacy-primary',
+                name: String(legacy.model || '').trim() || '主力模型',
+                enabled: legacy.enabled === true,
+                baseUrl: legacy.baseUrl ?? '',
+                apiKey: legacy.apiKey ?? '',
+                model: legacy.model ?? '',
+              },
+            ]
+          : [];
     return {
       ...value,
+      modelConnections,
       highlightsMinItems:
         value.highlightsMinItems ?? Math.min(3, Number(value.highlightsMaxItems ?? 5)),
     };
@@ -233,8 +267,19 @@ export const settingsSchema = z.preprocess(
       reviewModel: z.string().max(200).default(''),
       briefModel: z.string().max(200).default(''),
       autoPublish: z.boolean(),
+      modelSchedulingEnabled: z.boolean().default(false),
       modelOffPeakOnly: z.boolean().default(true),
       modelDailyLimit: z.number().int().min(1).max(100000).default(100),
+      modelLogRetentionDays: z.number().int().min(1).max(365).default(7),
+      modelConnections: z
+        .array(modelConnectionEntrySchema)
+        .max(10)
+        .default([])
+        .refine((v) => new Set(v.map((entry) => entry.id)).size === v.length, '模型配置ID不能重复')
+        .refine(
+          (v) => new Set(v.map((entry) => entry.name)).size === v.length,
+          '模型配置名称不能重复',
+        ),
       modelConnection: z
         .object({
           enabled: z.boolean(),
@@ -256,15 +301,27 @@ export const settingsSchema = z.preprocess(
       (v) => v.highlightsDeleted || !v.sections.some((s) => s.name === v.highlightsName),
       '栏目名称不能重复',
     )
-    .transform((v) => ({
-      ...v,
-      rotationAnchor: v.startDate,
-      sections: v.sections.map((s) =>
-        s.kind === 'rotation'
-          ? { ...s, anchorDate: v.startDate, lookbackDays: s.intervalWeeks * 7 }
-          : s,
-      ),
-    })),
+    .transform((v) => {
+      const primary = v.modelConnections[0];
+      return {
+        ...v,
+        modelSchedulingEnabled: v.modelConnections.length > 0 && v.modelSchedulingEnabled,
+        modelConnection: primary
+          ? {
+              enabled: v.modelConnections.some((entry) => entry.enabled),
+              baseUrl: primary.baseUrl,
+              apiKey: primary.apiKey,
+              model: primary.model,
+            }
+          : undefined,
+        rotationAnchor: v.startDate,
+        sections: v.sections.map((s) =>
+          s.kind === 'rotation'
+            ? { ...s, anchorDate: v.startDate, lookbackDays: s.intervalWeeks * 7 }
+            : s,
+        ),
+      };
+    }),
 );
 export type Settings = z.infer<typeof settingsSchema>;
 export const defaultSettings: Settings = {
@@ -310,8 +367,12 @@ export const defaultSettings: Settings = {
   reviewModel: '',
   briefModel: '',
   autoPublish: true,
+  modelSchedulingEnabled: false,
   modelOffPeakOnly: true,
   modelDailyLimit: 100,
+  modelLogRetentionDays: 7,
+  modelConnections: [],
+  modelConnection: undefined,
   dailyTime: '08:00',
   dailyEnabled: true,
   weeklyEnabled: false,

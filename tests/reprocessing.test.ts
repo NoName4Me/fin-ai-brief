@@ -1,3 +1,4 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +9,7 @@ import { pool } from '../src/server/db.ts';
 import { getQueue, executeTask } from '../src/server/queue.ts';
 import { processingController } from '../src/server/processing-worker.ts';
 import { defaultSettings } from '../src/server/types.ts';
-import { saveSettings, getSettings } from '../src/server/settings.ts';
+import { getSettings } from '../src/server/settings.ts';
 import {
   requestReprocessing,
   dispatchReprocessingBatches,
@@ -66,6 +67,7 @@ async function article(title = 'AI工具更新') {
   ).rows[0].id as string;
 }
 test('创建批次只记录范围和原始状态，不直接改资讯或调用模型', async () => {
+  await syncModelSettings();
   const id = await article();
   const batch = await requestReprocessing(range);
   assert.equal(batch.total, 1);
@@ -86,6 +88,7 @@ test('创建批次只记录范围和原始状态，不直接改资讯或调用�
   );
 });
 test('调度器创建正常处理任务并传递批次版本，重复调度不重复入队', async () => {
+  await syncModelSettings();
   const id = await article();
   const batch = await requestReprocessing(range);
   await dispatchReprocessingBatches();
@@ -103,11 +106,13 @@ test('调度器创建正常处理任务并传递批次版本，重复调度不�
   );
 });
 test('重叠批次拒绝创建，不能重复消费同一批资讯', async () => {
+  await syncModelSettings();
   await article();
   await requestReprocessing(range);
   await assert.rejects(requestReprocessing(range), /未完成/);
 });
 test('额度不足保持待安排，不重置资讯或绕过额度', async () => {
+  await syncModelSettings();
   const id = await article();
   await saveSettings({ ...(await getSettings()), modelDailyLimit: 1 });
   await requestReprocessing(range);
@@ -119,6 +124,7 @@ test('额度不足保持待安排，不重置资讯或绕过额度', async () =>
   assert.equal((await reprocessingBatches())[0].waiting, 1);
 });
 test('原处理任务执行时等待，不能覆盖进行中的工作', async () => {
+  await syncModelSettings();
   const id = await article();
   await boss.send('process', { id }, { singletonKey: id });
   await boss.fetch('process');
@@ -131,6 +137,7 @@ test('原处理任务执行时等待，不能覆盖进行中的工作', async ()
   );
 });
 test('默认仅重跑旧规则或失败资讯，并校验日报覆盖范围', async () => {
+  await syncModelSettings();
   await article();
   await assert.rejects(
     requestReprocessing({ ...range, from: '2026-10-21T12:00:00Z', regenerateDate: '2026-10-22' }),
@@ -139,6 +146,7 @@ test('默认仅重跑旧规则或失败资讯，并校验日报覆盖范围', as
   await assert.rejects(requestReprocessing({ ...range, to: '2026-12-01T00:00:00Z' }), /31天/);
 });
 test('从任务管理重试失败出刊时恢复批次关联，保持不发送邮件标记', async () => {
+  await syncModelSettings();
   await article();
   const batch = await requestReprocessing({ ...range, regenerateDate: '2026-10-22' });
   const previous = await boss.send('generate', {
@@ -169,6 +177,7 @@ test('从任务管理重试失败出刊时恢复批次关联，保持不发送�
   );
 });
 test('真实队列消费者完成重处理、归组与日报更新，原刊保留到更新成功且不产生投递', async () => {
+  await syncModelSettings();
   await article();
   await article('普通金融消息');
   process.env.MAIL_ENABLED = 'true';

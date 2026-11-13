@@ -1,3 +1,4 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -5,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { pool } from '../src/server/db.ts';
 import { migrate } from '../scripts/migrate.ts';
 import { settingsSchema, defaultSettings } from '../src/server/types.ts';
-import { saveSettings } from '../src/server/settings.ts';
+
 import { getQueue, enqueue, executeTask, reconcileFailedArticles } from '../src/server/queue.ts';
 import {
   requestGeneration,
@@ -58,6 +59,7 @@ test('配置默认重试1次、并发3篇，拒绝超过3次重试或20个并发
 });
 
 test('配置的重试次数写入任务，耗尽后失败不再阻塞，并支持手动重开', async () => {
+  await syncModelSettings();
   for (const limit of [0, 1, 3]) {
     await saveSettings({ ...defaultSettings, modelOffPeakOnly: false, taskRetryLimit: limit });
     const id = await article();
@@ -101,6 +103,7 @@ test('配置的重试次数写入任务，耗尽后失败不再阻塞，并支�
 });
 
 test('强制生成只提升本期资讯优先级，不重复入队，依赖终结后优先出刊', async () => {
+  await syncModelSettings();
   const inside = await article();
   const outside = await article('2026-10-23T12:00:00Z');
   await enqueue('process', { id: outside }, outside);
@@ -140,6 +143,7 @@ test('强制生成只提升本期资讯优先级，不重复入队，依赖终�
 });
 
 test('Worker中断遗留的终态失败会被归档，强制生成继续进行', async () => {
+  await syncModelSettings();
   const id = await article();
   const jobId = await boss.send('process', { id }, { retryLimit: 0 });
   await boss.fetch('process');
@@ -161,6 +165,7 @@ test('Worker中断遗留的终态失败会被归档，强制生成继续进行',
 });
 
 test('实际Worker同时处理3篇且不超过配置，运行时可调整为1篇及20篇', async () => {
+  await syncModelSettings();
   let active = 0,
     maximum = 0,
     started = 0;
@@ -246,6 +251,7 @@ test('实际Worker同时处理3篇且不超过配置，运行时可调整为1篇
 });
 
 test('强制出刊等待额度时不反复入队，恢复后保留优先级', async () => {
+  await syncModelSettings();
   const { BudgetWait } = await import('../src/server/processing-log.ts');
   const { resumeBudgetWaiting } = await import('../src/server/queue.ts');
   await saveSettings({ ...defaultSettings, modelOffPeakOnly: false, modelDailyLimit: 1 });
@@ -274,6 +280,7 @@ test('强制出刊等待额度时不反复入队，恢复后保留优先级', as
 });
 
 test('出刊入队后新到的资讯返回依赖等待，不消耗生成重试', async () => {
+  await syncModelSettings();
   const { runGeneration } = await import('../src/server/generation-requests.ts');
   const requestId = await requestGeneration('daily', '2026-10-22', { force: true });
   const [job] =

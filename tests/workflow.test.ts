@@ -1,3 +1,4 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,7 +16,7 @@ import {
   subscriptions,
 } from '../src/server/schema.ts';
 import { defaultSettings } from '../src/server/types.ts';
-import { getSettings, saveSettings } from '../src/server/settings.ts';
+import { getSettings } from '../src/server/settings.ts';
 import { generateLegacyBrief as generateBrief, publishBrief } from '../src/server/briefs.ts';
 import { listPublished, publishedBrief } from '../src/server/publication.ts';
 import { importArticle } from '../src/server/collect.ts';
@@ -107,6 +108,7 @@ beforeEach(async () => {
   await syncMailSettings();
 });
 test('关闭自动发布时草稿不出现在任何正式简报读取中；审核后可见', async () => {
+  await syncModelSettings();
   const row = await generateBrief('daily', '2026-10-22');
   assert.ok(row.draft);
   assert.equal(row.published, null);
@@ -118,6 +120,7 @@ test('关闭自动发布时草稿不出现在任何正式简报读取中；审�
   await assert.rejects(() => publishBrief(row.id), /没有待发布/);
 });
 test('重新生成待审稿时原正式版保持可见', async () => {
+  await syncModelSettings();
   await saveSettings({ ...defaultSettings, autoPublish: true });
   const row = await generateBrief('daily', '2026-10-22');
   await saveSettings({
@@ -152,6 +155,7 @@ test('重新生成待审稿时原正式版保持可见', async () => {
   assert.equal((await publishedBrief(row.id))?.content?.title, '测试简报');
 });
 test('发布方式在任务开始时读取，中途修改不改变当前任务', async () => {
+  await syncModelSettings();
   const response = globalThis.fetch;
   globalThis.fetch = async (...args) => {
     await saveSettings({ ...defaultSettings, autoPublish: true });
@@ -162,6 +166,7 @@ test('发布方式在任务开始时读取，中途修改不改变当前任务',
   assert.equal(row.published, null);
 });
 test('无效事件引用拒绝写入；模型回执保留token数', async () => {
+  await syncModelSettings();
   globalThis.fetch = async () =>
     new Response(
       JSON.stringify({
@@ -189,13 +194,17 @@ test('无效事件引用拒绝写入；模型回执保留token数', async () => 
   assert.equal(calls[0].apiAttempts, 2);
 });
 test('付费调用开关和每日额度在请求前生效', async () => {
+  await syncModelSettings();
   let called = 0;
   const response = globalThis.fetch;
   globalThis.fetch = async (...args) => {
     called++;
     return response(...args);
   };
-  process.env.MODEL_CALLS_ENABLED = 'false';
+  await saveSettings({
+    ...(await getSettings()),
+    modelConnection: { ...(await getSettings()).modelConnection!, enabled: false },
+  });
   await assert.rejects(() => generateBrief('daily', '2026-10-22'), /开启模型/);
   assert.equal(called, 0);
   process.env.MODEL_CALLS_ENABLED = 'true';
@@ -213,10 +222,14 @@ test('付费调用开关和每日额度在请求前生效', async () => {
   assert.deepEqual(await modelUsage(), { used: 2, limit: 2, remaining: 0 });
 });
 test('模型配置缺失不记调用回执，HTTP失败计入额度且不自动重试', async () => {
+  await syncModelSettings();
   const key = process.env.LLM_API_KEY;
-  delete process.env.LLM_API_KEY;
+  await saveSettings({
+    ...(await getSettings()),
+    modelConnection: { ...(await getSettings()).modelConnection!, apiKey: '' },
+  });
   try {
-    await assert.rejects(() => generateBrief('daily', '2026-10-22'), /系统设置.*API Key/);
+    await assert.rejects(() => generateBrief('daily', '2026-10-22'), /API Key/);
     assert.equal((await modelUsage()).used, 0);
   } finally {
     process.env.LLM_API_KEY = key;
@@ -234,6 +247,7 @@ test('模型配置缺失不记调用回执，HTTP失败计入额度且不自动�
   assert.equal((await db.select().from(modelCalls))[0].state, 'failed');
 });
 test('手工导入按规范化URL去重，模型归入已有事件', async () => {
+  await syncModelSettings();
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
   const input = {
     title: '新的进展',
@@ -277,6 +291,7 @@ test('手工导入按规范化URL去重，模型归入已有事件', async () =>
   assert.equal((await db.select().from(events)).length, 8);
 });
 test('订阅去重不泄露凭据或修改偏好，退订幂等', async () => {
+  await syncModelSettings();
   const token = await subscribe({ email: 'Test@Example.com', kinds: ['daily'] });
   assert.ok(token);
   assert.equal(await subscribe({ email: 'test@example.com', kinds: ['monthly'] }), null);
@@ -296,6 +311,7 @@ test('订阅去重不泄露凭据或修改偏好，退订幂等', async () => {
   await assert.rejects(() => unsubscribe('bad'), /无效/);
 });
 test('首次发布创建投递，重出不重发，即使投递记录已清理', async () => {
+  await syncModelSettings();
   process.env.MAIL_ENABLED = 'true';
   await syncMailSettings();
   await subscribe({ email: 'one@example.com', kinds: ['daily'] });
@@ -314,6 +330,7 @@ test('首次发布创建投递，重出不重发，即使投递记录已清理',
 });
 
 test('关闭发信时发布的简报，之后重出也不会补发', async () => {
+  await syncModelSettings();
   await subscribe({ email: 'one@example.com', kinds: ['daily'] });
   const row = await generateBrief('daily', '2026-10-22');
   await publishBrief(row.id);
@@ -325,6 +342,7 @@ test('关闭发信时发布的简报，之后重出也不会补发', async () =>
 });
 
 test('补刊任务忽略自动发布设置，审核发布及后续重出均不自动推送', async () => {
+  await syncModelSettings();
   await saveSettings({ ...defaultSettings, autoPublish: true });
   process.env.MAIL_ENABLED = 'true';
   await syncMailSettings();
@@ -346,6 +364,7 @@ test('补刊任务忽略自动发布设置，审核发布及后续重出均不�
 });
 
 test('时段内有待处理资讯时不生成不完整简报，也不调用模型', async () => {
+  await syncModelSettings();
   await importArticle({
     title: '待处理',
     url: 'https://example.invalid/pending',
@@ -364,6 +383,7 @@ test('时段内有待处理资讯时不生成不完整简报，也不调用模�
 });
 
 test('期号按类型和年度独立分配，并发发布不重复，修订不换号', async () => {
+  await syncModelSettings();
   const content = fixtureContent();
   const rows = await db
     .insert(briefs)
@@ -382,6 +402,7 @@ test('期号按类型和年度独立分配，并发发布不重复，修订不�
   assert.equal((await publishBrief(rows[0].id)).issueNumber, assigned[0].issueNumber);
 });
 test('媒体无关材料仅返回不相关决定即可忽略，不要求分类或建立事件', async () => {
+  await syncModelSettings();
   const [row] = await importArticle({
     title: '非AI消费新闻',
     url: 'https://example.invalid/unrelated-media',
@@ -407,6 +428,7 @@ test('媒体无关材料仅返回不相关决定即可忽略，不要求分类�
 });
 
 test('AI本期标题允许36字，超出时拒绝覆盖已生成稿', async () => {
+  await syncModelSettings();
   let title = '金'.repeat(36);
   globalThis.fetch = async () =>
     new Response(
@@ -440,6 +462,7 @@ function modelReply(value: unknown) {
   );
 }
 test('无效原文编号拒绝写入，纠错定位具体事实并保留失败结果', async () => {
+  await syncModelSettings();
   const [row] = await importArticle({
     title: '监管公告',
     url: 'https://example.invalid/evidence',
@@ -486,6 +509,7 @@ test('无效原文编号拒绝写入，纠错定位具体事实并保留失败�
   assert.ok(calls.rows[0].response);
 });
 test('模型连续返回30和13条事实时再次纠错，修正为12条后才写入', async () => {
+  await syncModelSettings();
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
   const [row] = await importArticle({
     title: 'AI芯片规划',
@@ -528,6 +552,7 @@ test('模型连续返回30和13条事实时再次纠错，修正为12条后才�
   assert.equal(saved.state, 'processed');
 });
 test('事实超限连续三轮未修正时保留失败和实际调用次数', async () => {
+  await syncModelSettings();
   let attempts = 0;
   globalThis.fetch = async () => {
     attempts++;
@@ -543,6 +568,7 @@ test('事实超限连续三轮未修正时保留失败和实际调用次数', as
   assert.equal(call.api_attempts, 3);
 });
 test('评分总述自动归位，事实依据由原文编号提取', async () => {
+  await syncModelSettings();
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
   const [row] = await importArticle({
     title: '监管试点',
@@ -584,6 +610,7 @@ test('评分总述自动归位，事实依据由原文编号提取', async () =>
   assert.equal(saved.assessment?.scoreReason, undefined);
 });
 test('复核失败后仅重试复核，主处理结果复用；不同意合并则保留独立低分原文', async () => {
+  await syncModelSettings();
   const excerpt = '机构公布试点计划。';
   const [row] = await importArticle({
     title: '监管试点',
@@ -638,6 +665,7 @@ test('复核失败后仅重试复核，主处理结果复用；不同意合并�
   assert.ok(steps.rows.find((s) => s.stage === 'analyze').call_id);
 });
 test('重复报道只挂接证据，不重写事件或制造实时新增提示', async () => {
+  await syncModelSettings();
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
   const [row] = await importArticle({
     title: '转载材料',
@@ -667,6 +695,7 @@ test('重复报道只挂接证据，不重写事件或制造实时新增提示',
   assert.equal((await pool.query('SELECT * FROM news_changes')).rowCount, 0);
 });
 test('实时变更按游标续接，保留筛选条件并一次返回多个事件', async () => {
+  await syncModelSettings();
   const { newsSnapshot, newsChanges } = await import('../src/server/publication.ts');
   const initial = await newsSnapshot('finance');
   await pool.query('INSERT INTO news_changes(event_id) VALUES($1),($2),($3)', [
@@ -682,6 +711,7 @@ test('实时变更按游标续接，保留筛选条件并一次返回多个事�
   assert.equal(only.items.length, 1);
 });
 test('模型超时后无需人工放行，重试重新请求并计入次数', async () => {
+  await syncModelSettings();
   let calls = 0;
   globalThis.fetch = async () => {
     calls++;
@@ -697,6 +727,7 @@ test('模型超时后无需人工放行，重试重新请求并计入次数', as
   assert.equal(log.rows[1].state, 'succeeded');
 });
 test('生成前预览不请求模型，资料变更后拒绝使用旧预览发起调用', async () => {
+  await syncModelSettings();
   const { previewLegacyBrief: previewBrief } = await import('../src/server/briefs.ts');
   let calls = 0;
   const response = globalThis.fetch;
@@ -715,6 +746,7 @@ test('生成前预览不请求模型，资料变更后拒绝使用旧预览发�
 });
 
 test('简报标题上限配置同时约束提示词和结果，保留既有长标题', async () => {
+  await syncModelSettings();
   let title = '金'.repeat(48),
     prompt = '';
   globalThis.fetch = async (_url, init) => {
@@ -740,6 +772,7 @@ test('简报标题上限配置同时约束提示词和结果，保留既有长�
 });
 
 test('金融篇幅容差内原样接受，AI摘要保持原有长度', async () => {
+  await syncModelSettings();
   const content = fixtureContent();
   content.items[0].summary = '金'.repeat(154);
   content.overview.finance = '融'.repeat(132);
@@ -757,6 +790,7 @@ test('金融篇幅容差内原样接受，AI摘要保持原有长度', async () 
 });
 
 test('重试耗尽的资讯保留失败记录，不阻塞同周期简报生成', async () => {
+  await syncModelSettings();
   const [row] = await importArticle({
     title: '失败资讯',
     url: 'https://example.invalid/exhausted',
@@ -775,6 +809,7 @@ test('重试耗尽的资讯保留失败记录，不阻塞同周期简报生成',
 });
 
 test('并发分析相同事实的两条来源，只建立一个事件', async () => {
+  await syncModelSettings();
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
   const input = {
     title: '并发相同公告',
@@ -827,6 +862,7 @@ test('并发分析相同事实的两条来源，只建立一个事件', async ()
 });
 
 test('并发更新同一事件时检测过期摘要，重试重新召回而不覆盖新结果', async () => {
+  await syncModelSettings();
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
   const base = { sourceName: '测试', industryId: 'ai', publishedAt: '2026-10-22T07:00:00+08:00' };
   const [a] = await importArticle({
@@ -885,6 +921,7 @@ test('并发更新同一事件时检测过期摘要，重试重新召回而不�
 });
 
 test('完全相同的并发生成共用一次模型请求，不消耗重试次数', async () => {
+  await syncModelSettings();
   let calls = 0;
   globalThis.fetch = async () => {
     calls++;
@@ -904,6 +941,7 @@ test('完全相同的并发生成共用一次模型请求，不消耗重试次�
 });
 
 test('简报提示词给出实际行业键的JSON示例，避免模型照抄行业ID占位符', async () => {
+  await syncModelSettings();
   const response = globalThis.fetch;
   let prompt = '';
   globalThis.fetch = async (...args) => {
@@ -917,6 +955,7 @@ test('简报提示词给出实际行业键的JSON示例，避免模型照抄行�
 });
 
 test('行业概览格式错误时指出错误键、字段路径及允许值', async () => {
+  await syncModelSettings();
   globalThis.fetch = async () =>
     modelReply({ ...fixtureContent(), overview: { industryId: 'finance' } });
   await assert.rejects(generateBrief('daily', '2026-10-22'), (error: unknown) => {
@@ -932,6 +971,7 @@ test('行业概览格式错误时指出错误键、字段路径及允许值', as
 });
 
 test('拒绝漏写已入选行业的概览，未入选行业可省略', async () => {
+  await syncModelSettings();
   const content = fixtureContent();
   globalThis.fetch = async () => modelReply({ ...content, overview: { ai: 'AI要情' } });
   await assert.rejects(generateBrief('daily', '2026-10-22'), /缺少finance行业概览/);
@@ -947,6 +987,7 @@ test('拒绝漏写已入选行业的概览，未入选行业可省略', async ()
 });
 
 test('超出容差只压缩对应段落，保留其余内容、标题和事件顺序', async () => {
+  await syncModelSettings();
   const content = fixtureContent();
   content.items[0].summary = '金'.repeat(170);
   content.items[1].summary = '融'.repeat(150);
@@ -989,6 +1030,7 @@ test('超出容差只压缩对应段落，保留其余内容、标题和事件�
 });
 
 test('压缩失败后重试复用初稿，修正成功前不落库或发布', async () => {
+  await syncModelSettings();
   const content = fixtureContent();
   content.items[0].summary = '金'.repeat(170);
   let calls = 0;
@@ -1013,6 +1055,7 @@ test('压缩失败后重试复用初稿，修正成功前不落库或发布', as
 });
 
 test('篇幅配置持久化并约束生成，支持关闭容差及拒绝无效配置', async () => {
+  await syncModelSettings();
   await saveSettings({
     ...(await getSettings()),
     financeSummaryMaxLength: 100,
@@ -1056,6 +1099,7 @@ test('篇幅配置持久化并约束生成，支持关闭容差及拒绝无效�
 });
 
 test('压缩响应不得遗漏、重复或改写未指定段落', async () => {
+  await syncModelSettings();
   const content = fixtureContent();
   content.items[0].summary = '金'.repeat(155);
   const target = { id: `summary:${ids[0]}`, text: '合格摘要' };
@@ -1083,13 +1127,15 @@ test('压缩响应不得遗漏、重复或改写未指定段落', async () => {
 });
 
 test('容差变化会使旧生成预览失效', async () => {
+  await syncModelSettings();
   const { previewLegacyBrief: previewBrief } = await import('../src/server/briefs.ts');
   const preview = await previewBrief('daily', '2026-10-22');
   await saveSettings({ ...(await getSettings()), briefLengthTolerancePercent: 20 });
   await assert.rejects(generateBrief('daily', '2026-10-22', preview.key), /重新预览/);
 });
 
-test('各任务统一使用环境默认模型，旧的分任务模型设置不再生效', async () => {
+test('各任务统一使用已保存的主力模型，旧的分任务模型设置不再生效', async () => {
+  await syncModelSettings();
   await saveSettings({
     ...(await getSettings()),
     processingModel: 'legacy-process',

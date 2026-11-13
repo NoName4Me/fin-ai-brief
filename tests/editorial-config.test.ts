@@ -1,3 +1,4 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,12 +7,7 @@ import { migrate } from '../scripts/migrate.ts';
 import { pool, db } from '../src/server/db.ts';
 import { sources, events, articles } from '../src/server/schema.ts';
 import { defaultSettings, settingsSchema } from '../src/server/types.ts';
-import {
-  getSettings,
-  saveSettings,
-  saveEditorialConfig,
-  saveSettingsPatch,
-} from '../src/server/settings.ts';
+import { getSettings, saveEditorialConfig, saveSettingsPatch } from '../src/server/settings.ts';
 import {
   defaultRatingRules,
   defaultSections,
@@ -198,6 +194,7 @@ test('自定义轮动改名、星期、隔周和取材范围使用配置，不�
   assert.equal(rotationRules('2026-10-28', '2026-10-26', [rule])[0].scheduled, false);
 });
 test('栏目改名同步信源范围且旧进展仍可选；删除已关联栏目不会把信源意外变成通用', async () => {
+  await syncModelSettings();
   const { source } = await seed();
   const before = await getSettings();
   const changed = {
@@ -237,6 +234,7 @@ test('栏目改名同步信源范围且旧进展仍可选；删除已关联栏�
   assert.equal((await weeklyMaterials(range, 0, 100, await getSettings())).selected.length, 0);
 });
 test('暂停指标后按新权重重新筛选旧资讯，旧的低总分不能继续挡住入选', async () => {
+  await syncModelSettings();
   await seed();
   const settings = await getSettings();
   const updated = {
@@ -282,6 +280,7 @@ test('暂停指标后按新权重重新筛选旧资讯，旧的低总分不能�
   );
 });
 test('新指标描述进入处理提示词，暂停项不再要求输出，自定义栏目可采集归类', async () => {
+  await syncModelSettings();
   const settings = await getSettings();
   const custom = sectionRuleSchema.parse({
     id: randomUUID(),
@@ -366,6 +365,7 @@ test('新指标描述进入处理提示词，暂停项不再要求输出，自�
 });
 
 test('新增或修改启用指标的含义时，旧评分标为待重评，不发布空白日报掩盖缺失', async () => {
+  await syncModelSettings();
   await seed();
   const settings = await getSettings();
   const added = {
@@ -391,6 +391,7 @@ test('新增或修改启用指标的含义时，旧评分标为待重评，不�
 });
 
 test('新增轮动栏目按自定义排期、事件数和预算出刊，超预算不覆盖正式版', async () => {
+  await syncModelSettings();
   await seed();
   const settings = await getSettings();
   const rotation = sectionRuleSchema.parse({
@@ -459,6 +460,7 @@ test('新增轮动栏目按自定义排期、事件数和预算出刊，超预�
 });
 
 test('分页面保存只更新本页字段，互不清空栏目、评分和运行参数', async () => {
+  await syncModelSettings();
   const original = await getSettings();
   const changedSections = original.sections.map((s, index) =>
     index === 0 ? { ...s, budget: 601 } : s,

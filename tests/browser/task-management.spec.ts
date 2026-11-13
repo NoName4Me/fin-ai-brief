@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
 
 test('管理台品牌、右上退出、菜单高亮及所有业务页无大块标题区', async ({ page }) => {
   await expect(
-    page.getByRole('banner').getByRole('link', { name: '数智参阅 管理台' }),
+    page.getByRole('banner').getByRole('link', { name: /数智\s*参阅\s*管理台/ }),
   ).toBeVisible();
   await expect(page.getByRole('banner').getByRole('button', { name: '退出管理台' })).toBeVisible();
   await expect(page.getByRole('link', { name: '邮箱订阅', exact: true })).toHaveCount(0);

@@ -7,10 +7,14 @@ import { X } from 'lucide-react';
 export function SourceManagementDialog({
   title,
   closeHref,
+  className = '',
+  open = true,
   children,
 }: {
   title: string;
   closeHref: string;
+  className?: string;
+  open?: boolean;
   children: React.ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -18,20 +22,29 @@ export function SourceManagementDialog({
   const router = useRouter();
 
   useEffect(() => {
-    dialog.current?.showModal();
+    const element = dialog.current;
+    if (!element) return;
+    if (open && !element.open) element.showModal();
+    if (!open && element.open) element.close();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = overflow;
     };
-  }, []);
+  }, [open]);
 
   return (
     <dialog
       ref={dialog}
-      className="source-dialog source-management-dialog"
+      className={`source-dialog source-management-dialog ${className}`.trim()}
       aria-labelledby={titleId}
-      onClose={() => router.replace(closeHref, { scroll: false })}
+      onClose={() => {
+        if (open) router.replace(closeHref, { scroll: false });
+      }}
     >
       <header className="dialog-header">
         <h2 id={titleId}>{title}</h2>

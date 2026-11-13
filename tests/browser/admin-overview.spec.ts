@@ -33,6 +33,14 @@ test('首页展示运行总览，出刊管理独立，手机无横向溢出', as
     await expect(actions.getByText('当前异常信源', { exact: true }).locator('..')).toContainText(
       '1个',
     );
+    const modelMetric = actions.locator('.overview-action-metrics > div').first();
+    await expect(modelMetric.getByText('模型状况', { exact: true })).toBeVisible();
+    await expect(modelMetric.getByRole('link')).toBeVisible();
+    expect(
+      await modelMetric.getByRole('link').evaluate((element) => getComputedStyle(element).color),
+    ).not.toBe('rgb(35, 60, 83)');
+    await expect(actions.locator('.overview-action-metrics > div')).toHaveCount(5);
+    await expect(page.locator('.overview-model-status')).toHaveCount(0);
     await expect(page.getByText('待处理事项', { exact: true })).toHaveCount(0);
     await expect(page.getByText('运行异常', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: /异常与待办/ })).toBeVisible();

@@ -12,20 +12,76 @@ export async function getSettings() {
   };
 }
 export async function saveSettings(input: unknown) {
-  const value = settingsSchema.parse(input);
+  let normalized = input;
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    const candidate = input as Record<string, unknown>;
+    const legacy = candidate.modelConnection;
+    const configured = candidate.modelConnections;
+    if (legacy && typeof legacy === 'object') {
+      const connection = legacy as Record<string, unknown>;
+      const models = Array.isArray(configured) ? configured : [];
+      const first =
+        models[0] && typeof models[0] === 'object'
+          ? (models[0] as Record<string, unknown>)
+          : undefined;
+      const differs =
+        !first ||
+        first.enabled !== connection.enabled ||
+        first.baseUrl !== connection.baseUrl ||
+        first.apiKey !== connection.apiKey ||
+        first.model !== connection.model;
+      if (differs)
+        normalized = {
+          ...candidate,
+          modelConnections: [
+            {
+              id: first?.id ?? 'legacy-primary',
+              name: first?.name ?? (String(connection.model ?? '').trim() || '主力模型'),
+              ...connection,
+            },
+            ...models.slice(1),
+          ],
+          modelConnection: undefined,
+        };
+    }
+  }
+  const value = settingsSchema.parse(normalized);
   await db
     .insert(settings)
     .values({ id: 1, value })
     .onConflictDoUpdate({ target: settings.id, set: { value } });
 }
 
-export async function saveSettingsPatch(patch: Partial<Settings>) {
+export async function saveSettingsPatch(
+  update: Partial<Settings> | ((current: Settings) => Partial<Settings>),
+) {
   return db.transaction(async (tx) => {
     const [row] = await tx.select().from(settings).where(eq(settings.id, 1)).for('update');
-    const value = settingsSchema.parse({
-      ...settingsSchema.parse(row?.value ?? defaultSettings),
+    const current = settingsSchema.parse(row?.value ?? defaultSettings);
+    const patch = typeof update === 'function' ? update(current) : update;
+    const input = {
+      ...current,
       ...patch,
-    });
+    };
+    if (patch.modelConnections !== undefined && patch.modelConnection === undefined)
+      input.modelConnection = undefined;
+    // Older callers still patch the single legacy connection. Treat that as an update
+    // to the first model so they cannot silently bypass the new ordered list.
+    if (patch.modelConnection !== undefined && patch.modelConnections === undefined) {
+      const first = current.modelConnections[0];
+      input.modelConnections = [
+        {
+          id: first?.id ?? 'legacy-primary',
+          name: first?.name ?? patch.modelConnection.model ?? '主力模型',
+          enabled: patch.modelConnection.enabled,
+          baseUrl: patch.modelConnection.baseUrl,
+          apiKey: patch.modelConnection.apiKey,
+          model: patch.modelConnection.model,
+        },
+        ...current.modelConnections.slice(1),
+      ];
+    }
+    const value = settingsSchema.parse(input);
     await tx
       .insert(settings)
       .values({ id: 1, value })

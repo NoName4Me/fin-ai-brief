@@ -6,6 +6,7 @@ import { getSettings } from './settings.ts';
 import { modelUsage } from './model.ts';
 import { localDate, publicationCycle } from './periods.ts';
 import { runtimeExceptions } from './runtime-exceptions.ts';
+import { modelOverviewStatus } from './admin-models.ts';
 
 interface EditionSection {
   section: string;
@@ -104,6 +105,7 @@ export async function adminOverview(now = new Date()) {
     latestGeneration(nextIssueDate),
   ]);
   const exceptions = await runtimeExceptions(now, config.dailyTime);
+  const model = await modelOverviewStatus(now);
   const editionTask =
     sections.rows[0]?.period_date === nextIssueDate
       ? await latestEditionTask(sections.rows[0].period_date)
@@ -184,6 +186,7 @@ export async function adminOverview(now = new Date()) {
     currentIssue,
     latestPublished,
     tokenUsage,
+    model,
     status,
     generationError: run?.state === 'failed' ? run.error : null,
   };

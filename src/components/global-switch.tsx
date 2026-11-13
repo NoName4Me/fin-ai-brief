@@ -6,17 +6,25 @@ export function GlobalSwitch({
   setting,
   label,
   enabled,
+  disabled = false,
 }: {
-  setting: 'collectionEnabled' | 'deliveryEnabled';
+  setting: 'collectionEnabled' | 'deliveryEnabled' | 'modelSchedulingEnabled';
   label: string;
   enabled: boolean;
+  disabled?: boolean;
 }) {
   const [result, action, pending] = useActionState(globalSwitchAction, null);
   return (
     <form action={action} className="source-toggle-form global-switch">
       <input type="hidden" name="setting" value={setting} />
       <input type="hidden" name="enabled" value={String(!enabled)} />
-      <Switch type="submit" aria-label={label} checked={enabled} disabled={pending} size="medium" />
+      <Switch
+        type="submit"
+        aria-label={label}
+        checked={enabled}
+        disabled={pending || disabled}
+        size="medium"
+      />
       <span>
         {label}
         {pending ? ' · 保存中' : ''}

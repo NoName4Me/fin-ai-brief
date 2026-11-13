@@ -244,10 +244,54 @@ export async function testModelConnectionAction(form: FormData) {
     return { ok: false, response: error instanceof Error ? error.message : '连接失败' };
   }
 }
+export async function modelSaveAction(form: FormData) {
+  const { saveManagedModel } = await import('../server/model-config.ts');
+  await perform(text(form, 'returnTo') || '/admin/models', () => saveManagedModel(form));
+}
+export async function modelToggleAction(form: FormData) {
+  const { toggleManagedModel } = await import('../server/model-config.ts');
+  await perform(text(form, 'returnTo') || '/admin/models', () =>
+    toggleManagedModel(text(form, 'id'), text(form, 'enabled') === 'true'),
+  );
+}
+export async function modelPrimaryAction(form: FormData) {
+  const { setPrimaryModel } = await import('../server/model-config.ts');
+  await perform(text(form, 'returnTo') || '/admin/models', () => setPrimaryModel(text(form, 'id')));
+}
+export async function modelReorderAction(form: FormData) {
+  await requireAdmin();
+  try {
+    const { reorderManagedModels } = await import('../server/model-config.ts');
+    await reorderManagedModels(form.getAll('id').map(String));
+    revalidatePath('/admin/models');
+    return { ok: true as const, error: '' };
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : '调整顺序失败',
+    };
+  }
+}
+export async function modelRemoveAction(form: FormData) {
+  const { removeManagedModel } = await import('../server/model-config.ts');
+  await perform(text(form, 'returnTo') || '/admin/models', () =>
+    removeManagedModel(text(form, 'id')),
+  );
+}
+export async function modelPolicyAction(form: FormData) {
+  await perform(text(form, 'returnTo') || '/admin/models', () =>
+    saveSettingsPatch({
+      modelOffPeakOnly: form.has('modelOffPeakOnly'),
+      modelDailyLimit: Number(text(form, 'modelDailyLimit')),
+    }),
+  );
+}
 export async function globalSwitchAction(_previous: { error: string } | null, form: FormData) {
   await requireAdmin();
   try {
-    const setting = z.enum(['collectionEnabled', 'deliveryEnabled']).parse(text(form, 'setting'));
+    const setting = z
+      .enum(['collectionEnabled', 'deliveryEnabled', 'modelSchedulingEnabled'])
+      .parse(text(form, 'setting'));
     await saveSettingsPatch({ [setting]: text(form, 'enabled') === 'true' });
     revalidatePath('/', 'layout');
     return null;

@@ -1,3 +1,4 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -5,7 +6,7 @@ import { pool } from '../src/server/db.ts';
 import { migrate } from '../scripts/migrate.ts';
 import { fixtureContent } from './fixtures.ts';
 import { defaultSettings } from '../src/server/types.ts';
-import { saveSettings, getSettings, saveEditorialConfig } from '../src/server/settings.ts';
+import { getSettings, saveEditorialConfig } from '../src/server/settings.ts';
 import { saveBriefEdit, rewriteBriefField, revisionVersion } from '../src/server/brief-editing.ts';
 import { defaultTitlePrompt } from '../src/server/title-writing.ts';
 import { replaceField } from '../src/server/brief-edit-fields.ts';
@@ -30,6 +31,7 @@ async function issue() {
 }
 
 test('标题要求兼容旧配置，分页面保存保留要求且共用生成请求', async () => {
+  await syncModelSettings();
   const { briefTitlePrompt: _, ...old } = defaultSettings;
   await saveSettings(old);
   assert.equal((await getSettings()).briefTitlePrompt, defaultTitlePrompt);
@@ -43,6 +45,7 @@ test('标题要求兼容旧配置，分页面保存保留要求且共用生成�
   );
 });
 test('全文修订先保存草稿，更新正式版保留时间、正文关联与期号，并记录前后版本', async () => {
+  await syncModelSettings();
   const row = await issue(),
     content = structuredClone(row.published);
   content.title = '金管局明确智能体责任边界';
@@ -75,6 +78,7 @@ test('全文修订先保存草稿，更新正式版保留时间、正文关联�
   assert.deepEqual(audit[1].result.after, content);
 });
 test('拒绝过期编辑与事件来源篡改，草稿可保存超预算标题但发布必须校验', async () => {
+  await syncModelSettings();
   const row = await issue(),
     content = structuredClone(row.published),
     req = { id: row.id, version: revisionVersion(row), base: 'published', content };
@@ -95,6 +99,7 @@ test('拒绝过期编辑与事件来源篡改，草稿可保存超预算标题�
   );
 });
 test('逐字段AI读取当前编辑稿和原始材料，只返回候选不修改期刊', async () => {
+  await syncModelSettings();
   const row = await issue(),
     content = structuredClone(row.published);
   content.items[0].summary = '用户尚未保存的措辞';
@@ -149,6 +154,7 @@ test('逐字段AI读取当前编辑稿和原始材料，只返回候选不修改
 });
 
 test('栏目名在成稿编辑中保持固定，历史显示名仍正确呈现', async () => {
+  await syncModelSettings();
   const row = await issue();
   const content = structuredClone(row.published);
   content.rotations = [
@@ -182,6 +188,7 @@ test('栏目名在成稿编辑中保持固定，历史显示名仍正确呈现',
 });
 
 test('手动重复重写相同字段每次请求模型，不复用成功缓存，并携带最近候选', async () => {
+  await syncModelSettings();
   const row = await issue();
   Object.assign(process.env, {
     MODEL_CALLS_ENABLED: 'true',

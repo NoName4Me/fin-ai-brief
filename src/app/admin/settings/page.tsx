@@ -1,13 +1,10 @@
 import { requireAdmin } from '../../../server/auth.ts';
 import { getSettings } from '../../../server/settings.ts';
-import { modelUsage, getModelConnection } from '../../../server/model.ts';
 import { systemSettingsAction } from '../../actions.ts';
 import { RetentionSettingsFields } from '../../../components/settings-forms.tsx';
 import { Notice, type Query } from '../../../components/notice.tsx';
 import { redirect } from 'next/navigation';
 import { Save } from 'lucide-react';
-import { Switch } from '../../../components/switch.tsx';
-import { ModelConnectionTest } from '../../../components/model-connection-test.tsx';
 export default async function Page({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
   const query = await searchParams;
@@ -17,75 +14,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Que
       if (typeof value === 'string') params.set(key, value);
     redirect(`/admin/backfill?${params}`);
   }
-  const [config, usage, connection] = await Promise.all([
-    getSettings(),
-    modelUsage(),
-    getModelConnection(),
-  ]);
+  const config = await getSettings();
   return (
     <>
       <Notice query={query} />
       <form action={systemSettingsAction} className="stack-form system-settings-form">
-        <fieldset>
-          <legend>模型配置与额度</legend>
-          <label className="settings-switch-label">
-            <Switch
-              name="modelCallsEnabled"
-              defaultChecked={connection.enabled}
-              aria-label="开启模型调用"
-            />
-            开启模型调用
-          </label>
-          <label className="settings-switch-label">
-            <Switch
-              name="modelOffPeakOnly"
-              defaultChecked={config.modelOffPeakOnly}
-              aria-label="模型任务仅在波谷运行"
-            />
-            模型任务仅在波谷运行
-          </label>
-          <p className="form-hint">北京时间周一至周五 09:00–12:00、14:00–18:00 等待，采集照常。</p>
-          <label>
-            API 地址
-            <input
-              name="modelBaseUrl"
-              type="url"
-              defaultValue={connection.baseUrl}
-              placeholder="https://api.example.com/v1"
-            />
-          </label>
-          <label>
-            API Key
-            <input
-              name="modelApiKey"
-              type="password"
-              autoComplete="new-password"
-              placeholder={connection.apiKey ? '已配置，留空保留' : '填写 API Key'}
-            />
-          </label>
-          <div className="settings-field-grid">
-            <label>
-              模型名称
-              <input name="modelName" defaultValue={connection.model} />
-            </label>
-            <label>
-              每日调用次数上限
-              <input
-                type="number"
-                name="modelDailyLimit"
-                min={1}
-                max={100000}
-                defaultValue={config.modelDailyLimit}
-                required
-              />
-            </label>
-          </div>
-          <p className="form-hint">
-            今日已用 {usage.used} 次，剩余 {usage.remaining}{' '}
-            次。北京时间零点重置，失败请求也计入次数。
-          </p>
-          <ModelConnectionTest />
-        </fieldset>
         <RetentionSettingsFields config={config} />
         <button className="solid-button">
           <Save className="icon" strokeWidth={1.75} aria-hidden="true" />

@@ -1,9 +1,10 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { getQueue, enqueue, enqueuePendingArticles } from '../src/server/queue.ts';
 import { pool } from '../src/server/db.ts';
-import { getSettings, saveSettings } from '../src/server/settings.ts';
+import { getSettings } from '../src/server/settings.ts';
 import type { PgBoss } from 'pg-boss';
 import { migrate } from '../scripts/migrate.ts';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
@@ -19,6 +20,7 @@ after(async () => {
   await pool.end();
 });
 test('同一简报在排队或执行中不重复入队，完成后允许重新生成', async () => {
+  await syncModelSettings();
   const key = randomUUID();
   const data = { kind: 'daily', date: '2026-10-22' };
   const id = await enqueue('generate', data, key);
@@ -33,6 +35,7 @@ test('同一简报在排队或执行中不重复入队，完成后允许重新�
 });
 
 test('初始积压优先处理最新资讯，额度不足继续等待并保留一次出刊调用', async () => {
+  await syncModelSettings();
   await boss.deleteAllJobs('process');
   await pool.query('TRUNCATE articles,model_calls CASCADE');
   const rows =
@@ -117,6 +120,7 @@ test('初始积压优先处理最新资讯，额度不足继续等待并保留�
 });
 
 test('预算等待不作为失败，调高额度后恢复排队而不直接发送模型请求', async () => {
+  await syncModelSettings();
   const { executeTask, resumeBudgetWaiting } = await import('../src/server/queue.ts');
   const { BudgetWait } = await import('../src/server/processing-log.ts');
   const config = await getSettings();
@@ -160,6 +164,7 @@ test('预算等待不作为失败，调高额度后恢复排队而不直接发�
 });
 
 test('模型任务失败自动进入重试并可完成，不需要人工放行', async () => {
+  await syncModelSettings();
   await boss.deleteAllJobs('process');
   const id = await boss.send(
     'process',
@@ -179,6 +184,7 @@ test('模型任务失败自动进入重试并可完成，不需要人工放行',
 });
 
 test('模型任务在高峰等待且不重试，波谷自动恢复同一任务', async () => {
+  await syncModelSettings();
   const { executeTask, resumeBudgetWaiting } = await import('../src/server/queue.ts');
   const { modelWindowOpen } = await import('../src/server/periods.ts');
   const peak = new Date('2026-11-05T11:59:59+08:00');
@@ -217,6 +223,7 @@ test('模型任务在高峰等待且不重试，波谷自动恢复同一任务',
 });
 
 test('采集和资讯处理遇到网络错误时，队列至少等待五分钟再重试', async () => {
+  await syncModelSettings();
   const { executeTask } = await import('../src/server/queue.ts');
   const offPeak = new Date('2026-11-05T12:00:00+08:00');
   for (const name of ['collect', 'process'] as const) {

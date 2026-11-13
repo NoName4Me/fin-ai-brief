@@ -161,6 +161,7 @@ export const modelCalls = pgTable('model_calls', {
   id: uuid().defaultRandom().primaryKey(),
   purpose: text().notNull(),
   state: text().notNull(),
+  modelConfigId: text('model_config_id'),
   inputTokens: integer('input_tokens'),
   outputTokens: integer('output_tokens'),
   apiAttempts: integer('api_attempts').notNull().default(0),

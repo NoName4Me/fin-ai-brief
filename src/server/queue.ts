@@ -100,6 +100,7 @@ async function budgetKey() {
   return fingerprint({
     day: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }),
     count: config.modelDailyLimit,
+    scheduling: config.modelSchedulingEnabled,
   });
 }
 class ModelWindowWait extends BudgetWait {}
@@ -135,6 +136,11 @@ export async function executeTask<T>(
     );
   try {
     const result = await stage(subject, `job:${id}`, 'task', async () => {
+      if (
+        (name === 'process' || name === 'generate') &&
+        !(await getSettings()).modelSchedulingEnabled
+      )
+        throw new BudgetWait('模型调度已暂停');
       if (
         (name === 'process' || name === 'generate') &&
         !modelWindowOpen((await getSettings()).modelOffPeakOnly, now)

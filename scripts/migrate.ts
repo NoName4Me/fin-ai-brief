@@ -41,7 +41,7 @@ export async function migrate() {
     ]);
     // Import legacy deployment configuration once; subsequent edits belong to the admin UI.
     await client.query(
-      "UPDATE settings SET value=jsonb_set(value,'{modelConnection}',$1::jsonb) WHERE id=1 AND NOT value ? 'modelConnection'",
+      "UPDATE settings SET value=jsonb_set(value,'{modelConnection}',$1::jsonb) WHERE id=1 AND NOT value ? 'modelConnection' AND NOT value ? 'modelConnections'",
       [
         JSON.stringify({
           enabled: process.env.MODEL_CALLS_ENABLED === 'true',

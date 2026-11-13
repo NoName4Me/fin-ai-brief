@@ -7,6 +7,7 @@ import { normalizedRatingRules, type SectionRule, type RatingRule } from '../ser
 import { editorialAction } from '../app/actions.ts';
 import { Save } from 'lucide-react';
 
+type EditorialConfig = Omit<Settings, 'modelConnection' | 'modelConnections'>;
 const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
 function parseWeekdays(value: string) {
   const tokens = value
@@ -22,7 +23,7 @@ export function EditorialForm({
   config,
   section = 'all',
 }: {
-  config: Settings;
+  config: EditorialConfig;
   section?: 'columns' | 'ratings' | 'content' | 'all';
 }) {
   const showColumns = section === 'columns' || section === 'all';

@@ -118,7 +118,7 @@ test('全文编辑、AI候选确认、修订稿与正式版分离，手机可操
       await page.getByRole('button', { name: '保留原文', exact: true }).click();
     } else {
       await expect(page.locator('.brief-editor').getByRole('alert')).toContainText(
-        'MODEL_CALLS_ENABLED',
+        '请在模型管理开启模型调用，并启用至少一个模型',
       );
     }
     if (modelEnabled) {

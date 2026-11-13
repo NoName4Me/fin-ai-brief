@@ -62,7 +62,7 @@ cp scripts/deploy.sh "$STAGING/scripts/"
 cp deploy/compose.yaml deploy/config.py deploy/.env.example "$STAGING/deploy/"
 cp deploy/nginx/default.conf.template "$STAGING/deploy/nginx/"
 cp deploy/postgres/10-app-role.sh "$STAGING/deploy/postgres/"
-cp docs/deployment.md docs/sources.md "$STAGING/docs/"
+cp docs/deployment.md docs/sources.md docs/architecture.md docs/model-runtime.md "$STAGING/docs/"
 python3 - "$STAGING" "$VERSION" "$PLATFORM" "$MODE" "$POSTGRES_IMAGE" "$NGINX_IMAGE" "$GIT_COMMIT" <<'PY'
 import hashlib, json, sys
 from pathlib import Path

@@ -16,7 +16,7 @@ import { processingController } from './server/processing-worker.ts';
 import { cleanupRetention } from './server/retention.ts';
 import { deliver } from './server/mail.ts';
 import { getSettings } from './server/settings.ts';
-import { getModelConnection } from './server/model.ts';
+import { getModelConnection, probeUnavailableModels } from './server/model.ts';
 import { duePeriods, modelWindowOpen, preCollectionCutoff, rangeFor } from './server/periods.ts';
 import { dispatchReprocessingBatches } from './server/reprocessing.ts';
 import {
@@ -64,7 +64,9 @@ async function tick() {
     for (const source of due) await enqueue('collect', { id: source.id }, source.id);
   }
   // 模型任务失败后由队列自动重试；达到每日次数上限则等待额度恢复。
-  if (modelWindowOpen(config.modelOffPeakOnly) && (await getModelConnection()).enabled) {
+  const modelEnabled = config.modelSchedulingEnabled && (await getModelConnection()).enabled;
+  if (modelEnabled) await probeUnavailableModels();
+  if (modelWindowOpen(config.modelOffPeakOnly) && modelEnabled) {
     await reconcileFailedArticles();
     await dispatchReprocessingBatches();
     await dispatchGenerationRequests();
@@ -137,7 +139,8 @@ const dispatcher = setInterval(() => {
   dispatching = true;
   void (async () => {
     if (!modelWindowOpen((await getSettings()).modelOffPeakOnly)) return;
-    if (!(await getModelConnection()).enabled) return;
+    if (!(await getSettings()).modelSchedulingEnabled || !(await getModelConnection()).enabled)
+      return;
     await reconcileFailedArticles();
     await dispatchReprocessingBatches();
     await enqueuePendingArticles();

@@ -122,7 +122,21 @@ export function RetentionSettingsFields({ config }: { config: Settings }) {
             required
           />
         </label>
+        <label>
+          模型运行日志保留天数
+          <input
+            name="modelLogRetentionDays"
+            type="number"
+            min={1}
+            max={365}
+            defaultValue={config.modelLogRetentionDays}
+            required
+          />
+        </label>
       </div>
+      <p className="form-hint">
+        模型异常、探测和切换日志按此期限清理；任务与缓存记录仍按各自规则保留。
+      </p>
     </fieldset>
   );
 }

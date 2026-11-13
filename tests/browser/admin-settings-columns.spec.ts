@@ -30,8 +30,10 @@ test('配置归位、栏目要求与关键词、拖拽保存及轮动自动规�
     await expect(page.getByLabel('资讯处理并发数')).toHaveCount(0);
     await expect(page.getByLabel('起刊日期')).toHaveCount(0);
     await expect(page.getByLabel('原始资讯保留天数')).toBeVisible();
-    await page.getByLabel('每日调用次数上限').fill('101');
-    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByLabel('每日调用上限')).toHaveCount(0);
+    await page.goto('/admin/models');
+    await page.getByLabel('每日调用上限').fill('101');
+    await page.getByRole('button', { name: '保存策略', exact: true }).click();
     await page.goto('/admin/editorial/columns');
     await expect(page.getByLabel('政策与监管栏目要求')).not.toHaveValue('');
     await page.getByLabel('政策与监管辅助关键词').fill('生成式AI；备案');

@@ -1,9 +1,10 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { pool } from '../src/server/db.ts';
 import { migrate } from '../scripts/migrate.ts';
-import { saveSettings } from '../src/server/settings.ts';
+
 import { defaultSettings } from '../src/server/types.ts';
 import { fixtureContent } from './fixtures.ts';
 import { dailyTitleRequest } from '../src/server/daily-title.ts';
@@ -31,6 +32,7 @@ test('标题拒绝定位式泛化主题与超限文字，接受具体主体和�
 });
 
 test('已发布期刊只修改标题，正文、待审稿、时间、期号及投递均不变，保留修订记录', async () => {
+  await syncModelSettings();
   const content = fixtureContent();
   const {
     rows: [before],
@@ -58,6 +60,7 @@ test('已发布期刊只修改标题，正文、待审稿、时间、期号及�
 });
 
 test('标题生成期间原稿改变则拒绝覆盖', async () => {
+  await syncModelSettings();
   const {
     rows: [row],
   } = await pool.query(
@@ -96,6 +99,7 @@ test('标题生成期间原稿改变则拒绝覆盖', async () => {
 });
 
 test('周期按配置的北京时间切分，实际发布不影响，旧问题仅在上一周期回顾', async () => {
+  await syncModelSettings();
   const now = new Date('2035-01-02T12:00:00Z');
   const publishedAt = new Date('2035-01-02T08:00:00Z');
   await pool.query(
@@ -147,6 +151,7 @@ test('周期按配置的北京时间切分，实际发布不影响，旧问题�
 });
 
 test('本轮最新采集成功即恢复，不受失败次数影响；重试去重且跨周期不带入', async () => {
+  await syncModelSettings();
   const now = new Date('2035-01-02T12:00:00Z');
   const source = randomUUID();
   await pool.query(
@@ -174,6 +179,7 @@ test('本轮最新采集成功即恢复，不受失败次数影响；重试去�
 });
 
 test('本轮出刊失败重试仍计一项，成功后移除，旧的处理失败重试运行不伪装成本轮新异常', async () => {
+  await syncModelSettings();
   const now = new Date('2035-01-02T12:00:00Z');
   const article = randomUUID();
   await pool.query(

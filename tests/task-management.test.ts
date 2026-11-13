@@ -1,3 +1,4 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -6,7 +7,7 @@ import { migrate } from '../scripts/migrate.ts';
 import { getQueue, enqueue, executeTask } from '../src/server/queue.ts';
 import { taskOverview, taskDetail, retryManagedTask } from '../src/server/admin-tasks.ts';
 import { requestGeneration } from '../src/server/generation-requests.ts';
-import { saveSettings } from '../src/server/settings.ts';
+
 import { defaultSettings } from '../src/server/types.ts';
 import { taskStamp, taskStartStamp } from '../src/server/task-labels.ts';
 import type { PgBoss } from 'pg-boss';
@@ -46,6 +47,7 @@ async function source() {
 }
 
 test('三个任务类型在同一列表中，类型、状态和任务名在合并后筛选', async () => {
+  await syncModelSettings();
   const sourceId = await source(),
     articleId = await article();
   const collectId = await enqueue('collect', { id: sourceId }, sourceId);
@@ -71,6 +73,7 @@ test('三个任务类型在同一列表中，类型、状态和任务名在合�
 });
 
 test('完成的队列记录仍区分等待波谷和等待额度，列表与详情状态一致', async () => {
+  await syncModelSettings();
   const offPeak = await article('等待波谷的资讯');
   const budget = await article('等待额度的资讯');
   const jobs = [
@@ -102,6 +105,7 @@ test('完成的队列记录仍区分等待波谷和等待额度，列表与详�
 });
 
 test('自动重试保留一行，手动重试后仍按资讯合并，并保留每次处理记录', async () => {
+  await syncModelSettings();
   const id = await article();
   const jobId = await enqueue('process', { id }, id);
   await pool.query('UPDATE pgboss.job SET retry_delay=0,retry_backoff=false WHERE id=$1', [jobId]);
@@ -140,6 +144,7 @@ test('自动重试保留一行，手动重试后仍按资讯合并，并保留�
 });
 
 test('重试成功后不再把较早失败标为当前失败', async () => {
+  await syncModelSettings();
   const id = await article();
   const jobId = await enqueue('process', { id }, id);
   await pool.query(
@@ -154,6 +159,7 @@ test('重试成功后不再把较早失败标为当前失败', async () => {
 });
 
 test('手动出刊请求从等待资讯到进入队列只显示一行，保留手动标签', async () => {
+  await syncModelSettings();
   const requestId = await requestGeneration('daily', '2026-10-22', { force: true });
   const tasks = await taskOverview('', 'generate');
   assert.equal(tasks.length, 1);
@@ -166,6 +172,7 @@ test('手动出刊请求从等待资讯到进入队列只显示一行，保留�
 });
 
 test('未入队资讯不伪造开始时间，入队后不重复显示占位任务', async () => {
+  await syncModelSettings();
   const id = await article();
   const waiting = await taskOverview();
   assert.equal(waiting.length, 1);
@@ -181,6 +188,7 @@ test('未入队资讯不伪造开始时间，入队后不重复显示占位任�
 });
 
 test('迁移后没有队列的失败资讯仍能读取历史时间、失败原因和处理详情', async () => {
+  await syncModelSettings();
   const id = await article('迁移失败资讯');
   const jobId = randomUUID();
   await pool.query("UPDATE articles SET state='failed' WHERE id=$1", [id]);
@@ -203,6 +211,7 @@ test('迁移后没有队列的失败资讯仍能读取历史时间、失败原�
 });
 
 test('无队列且没有处理历史的失败资讯详情可读取，时间显示无记录', async () => {
+  await syncModelSettings();
   const id = await article();
   await pool.query("UPDATE articles SET state='failed' WHERE id=$1", [id]);
   const detail = await taskDetail(`article:${id}`);
@@ -214,6 +223,7 @@ test('无队列且没有处理历史的失败资讯详情可读取，时间显�
 });
 
 test('信源改名或删除后保留入队时的任务名，详情时间线倒序', async () => {
+  await syncModelSettings();
   const id = await source();
   const jobId = await enqueue('collect', { id }, id);
   await pool.query('DELETE FROM sources WHERE id=$1', [id]);
@@ -230,6 +240,7 @@ test('信源改名或删除后保留入队时的任务名，详情时间线倒�
 });
 
 test('分页覆盖100条以外的任务，过滤后总数与页数一致', async () => {
+  await syncModelSettings();
   await pool.query(`INSERT INTO articles(title,url,excerpt,published_at,source_name,industry_id)
     SELECT '分页资讯'||n,'https://example.invalid/page/'||n,'摘要',now(),'分页信源','ai' FROM generate_series(1,123) n`);
   const first = await taskOverview('分页资讯', 'process', '', 1, 50);

@@ -6,6 +6,7 @@ import {
   ListChecks,
   Mail,
   Newspaper,
+  BrainCircuit,
   Rss,
   Settings,
   SlidersHorizontal,
@@ -83,6 +84,10 @@ export function AdminNavigation() {
       >
         <Mail className="icon" strokeWidth={1.75} aria-hidden="true" />
         订阅与推送
+      </Link>
+      <Link href="/admin/models" aria-current={path === '/admin/models' ? 'page' : undefined}>
+        <BrainCircuit className="icon" strokeWidth={1.75} aria-hidden="true" />
+        模型管理
       </Link>
       <Link
         href="/admin/settings"

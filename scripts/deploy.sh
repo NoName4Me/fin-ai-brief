@@ -138,7 +138,7 @@ case "$1" in
     compose run --rm --no-deps migrate
     # A point-in-time restore must not resend mail or resume stale queued automation.
     compose exec -T db psql -U finbrief -d fin_ai_brief -v ON_ERROR_STOP=1 <<'SQL'
-UPDATE settings SET value=value || '{"collectionEnabled":false,"deliveryEnabled":false,"dailyEnabled":false}'::jsonb
+UPDATE settings SET value=value || '{"collectionEnabled":false,"deliveryEnabled":false,"dailyEnabled":false,"modelSchedulingEnabled":false}'::jsonb
   || CASE WHEN value ? 'modelConnection' THEN jsonb_build_object('modelConnection',(value->'modelConnection') || '{"enabled":false}'::jsonb) ELSE '{}'::jsonb END WHERE id=1;
 SQL
     start_apps

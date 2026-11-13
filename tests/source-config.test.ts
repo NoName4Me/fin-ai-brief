@@ -1,3 +1,4 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,7 +8,7 @@ import { sources } from '../src/server/schema.ts';
 import { saveSourceConfig, toggleSource } from '../src/server/source-config.ts';
 import { verifySource, advertisedFeeds } from '../src/server/source-verification.ts';
 import { defaultSettings } from '../src/server/types.ts';
-import { saveSettings } from '../src/server/settings.ts';
+
 import { processArticle } from '../src/server/process.ts';
 import { importArticle } from '../src/server/collect.ts';
 import { weeklyMaterials } from '../src/server/weekly-review.ts';
@@ -45,6 +46,7 @@ const config = {
   maxIntervalMinutes: 240,
 };
 test('候选可无采集入口入库，默认关闭且不能绕过验证启用', async () => {
+  await syncModelSettings();
   const row = await saveSourceConfig(undefined, config);
   assert.equal(row.enabled, false);
   assert.equal(row.url, null);
@@ -70,6 +72,7 @@ test('候选可无采集入口入库，默认关闭且不能绕过验证启用',
   );
 });
 test('移除采集入口会关闭信源并撤销旧验证，非法栏目不能保存', async () => {
+  await syncModelSettings();
   const [row] = await db
     .insert(sources)
     .values({
@@ -89,6 +92,7 @@ test('移除采集入口会关闭信源并撤销旧验证，非法栏目不能�
   await assert.rejects(saveSourceConfig(undefined, { ...config, sections: ['不存在的栏目'] }));
 });
 test('从官网声明发现RSS，保存样本但不导入、不启用，失败也留记录', async () => {
+  await syncModelSettings();
   const row = await saveSourceConfig(undefined, {
     ...config,
     originAddress: 'https://example.invalid/',
@@ -203,6 +207,7 @@ async function processed(configured: string[], chosen: string) {
   return { source, article, inputs };
 }
 test('多栏目只处理一次、只允许所选栏目，修改范围后出刊候选同步受限', async () => {
+  await syncModelSettings();
   const { source, article, inputs } = await processed(['技术与模型', '工具与开源'], '工具与开源');
   await processArticle(article.id);
   assert.deepEqual(inputs[0].industry.sections, ['技术与模型', '工具与开源']);
@@ -218,6 +223,7 @@ test('多栏目只处理一次、只允许所选栏目，修改范围后出刊�
   assert.equal((await weeklyMaterials(range, 0, 100)).selected.length, 1);
 });
 test('通用来源接收全部栏目，越界栏目输出被拦截', async () => {
+  await syncModelSettings();
   const general = await processed([], '风险与安全');
   await processArticle(general.article.id);
   assert.equal(general.inputs[0].industry.sections.length, 6);

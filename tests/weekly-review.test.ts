@@ -1,3 +1,4 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,7 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { db, pool } from '../src/server/db.ts';
 import { articles, events, briefs } from '../src/server/schema.ts';
 import { migrate } from '../scripts/migrate.ts';
-import { saveSettings } from '../src/server/settings.ts';
+
 import { defaultSettings, briefContentSchema } from '../src/server/types.ts';
 import { weeklyMaterials, weeklyProgress } from '../src/server/weekly-review.ts';
 import { generateBrief, previewBrief } from '../src/server/briefs.ts';
@@ -125,6 +126,7 @@ beforeEach(async () => {
 });
 
 test('周报按周内事实选题，采用当期评分与分类，不带入未来摘要；重复报道保留来源', async () => {
+  await syncModelSettings();
   const materials = await weeklyMaterials(range, 60, 16);
   assert.equal(materials.selected.length, 1);
   assert.equal(materials.selected[0].section, '行业监管');
@@ -140,6 +142,7 @@ test('周报按周内事实选题，采用当期评分与分类，不带入未�
 });
 
 test('进展按报道日期排序，依据、网页与邮件独立归档，清理原始资讯后仍可读', async () => {
+  await syncModelSettings();
   const row = await generateBrief('weekly', '2026-10-26');
   const content = row.draft!;
   assert.equal(content.format, 'weekly-review-v1');
@@ -181,6 +184,7 @@ test('进展按报道日期排序，依据、网页与邮件独立归档，清�
 });
 
 test('拒绝跨事件、跨周、虚构及重复依据，不将重复报道列为新增进展', async () => {
+  await syncModelSettings();
   const materials = await weeklyMaterials(range, 60, 16);
   const valid = { text: '试点启动', developmentIds: [developmentIds[1]] };
   const check = (other: { text: string; developmentIds: string[] }) =>
@@ -230,6 +234,7 @@ test('拒绝跨事件、跨周、虚构及重复依据，不将重复报道列�
 });
 
 test('模型引用伪造进展时拒绝落库；单次变化允许无进展列表', async () => {
+  await syncModelSettings();
   const response = globalThis.fetch;
   globalThis.fetch = async (...args) => {
     const body = await (await response(...args)).json();

@@ -5,6 +5,7 @@ import { dashboardRange } from '../../server/dashboard-charts.ts';
 import { redirect } from 'next/navigation';
 import { requireAdmin } from '../../server/auth.ts';
 import { adminOverview } from '../../server/admin-overview.ts';
+import { describeModelOverviewStatus } from '../../server/admin-models.ts';
 import { taskStamp } from '../../server/task-labels.ts';
 import { rangeFor, localDate } from '../../server/periods.ts';
 import { Notice, type Query } from '../../components/notice.tsx';
@@ -30,6 +31,14 @@ async function CurrentCycle({ overview }: { overview: Overview }) {
     }))
     .filter((item) => item.count > 0);
   const sectionErrors = data.sections.filter((section) => section.status === 'error');
+  const modelStatus = describeModelOverviewStatus({
+    status: data.model.status,
+    enabledCount: data.model.enabledCount,
+    usableCount: data.model.usableCount,
+    currentName: data.model.current?.name,
+    primaryName: data.model.primary?.name,
+    primaryEnabled: data.model.primary?.enabled,
+  });
   const latestCycle = data.latestPublished
     ? rangeFor('daily', data.latestPublished.period_date, data.config.dailyTime)
     : null;
@@ -42,6 +51,22 @@ async function CurrentCycle({ overview }: { overview: Overview }) {
           </h2>
         </div>
         <dl className="overview-action-metrics">
+          <div className="overview-model-metric">
+            <dt>模型状况</dt>
+            <dd className={`overview-model-metric-value state-${data.model.status}`}>
+              <Link href="/admin/models?panel=logs&tab=events">
+                <span
+                  className={`overview-model-state-icon state-${data.model.status}`}
+                  aria-hidden="true"
+                />
+                {modelStatus.label}
+              </Link>
+              <small className="overview-model-metric-detail">
+                {modelStatus.detail}
+                {' · '}异常 {data.model.failures} 次 · 切换 {data.model.fallbacks} 次
+              </small>
+            </dd>
+          </div>
           <div>
             <dt>处理失败资讯</dt>
             <dd className={data.counts.failed ? 'overview-problem' : undefined}>

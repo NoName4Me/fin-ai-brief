@@ -25,7 +25,7 @@ beforeEach(async () => {
   for (const queue of ['collect', 'process', 'generate', 'deliver', 'tick', 'cleanup'])
     await boss.deleteAllJobs(queue);
   await pool.query(
-    'TRUNCATE processing_steps, collection_runs, model_calls, brief_requests, subscriptions, briefs, articles, events CASCADE',
+    'TRUNCATE processing_steps, collection_runs, model_calls, model_events, brief_requests, subscriptions, briefs, articles, events CASCADE',
   );
   await saveSettings({
     ...defaultSettings,
@@ -83,6 +83,16 @@ test('过期资讯、任务与过程数据清理后，已发布简报的快照�
     [old, 'article:' + source.articleId],
   );
   await pool.query(
+    `INSERT INTO model_attempts(
+      call_id,model_config_id,model_name,provider_model,state,started_at,finished_at
+    ) VALUES($1,'test','测试模型','test-model','failed',$2,$2)`,
+    [calls.rows[0].id, old],
+  );
+  await pool.query(
+    "INSERT INTO model_events(model_config_id,event_type,message,created_at) VALUES('test','unavailable','测试异常',$1)",
+    [old],
+  );
+  await pool.query(
     "INSERT INTO processing_steps(subject,run_key,stage,state,started_at,finished_at,call_id) VALUES($2,'test','analyze','succeeded',$1,$1,$3)",
     [old, 'article:' + source.articleId, calls.rows[0].id],
   );
@@ -96,6 +106,8 @@ test('过期资讯、任务与过程数据清理后，已发布简报的快照�
   assert.equal(result.counts.articles, 1);
   assert.equal(result.counts.processingSteps, 1);
   assert.equal(result.counts.modelCalls, 1);
+  assert.equal(result.counts.modelAttempts, 1);
+  assert.equal(result.counts.modelEvents, 1);
   assert.equal(result.counts.collectionRuns, 1);
   assert.equal(result.counts.jobs, 1);
   assert.deepEqual((await publishedBrief(brief.id))?.content, content);

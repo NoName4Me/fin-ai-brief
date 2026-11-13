@@ -10,7 +10,11 @@ export async function EditorialSettingsPage({
   section: 'columns' | 'ratings' | 'content';
 }) {
   await requireAdmin();
-  const { modelConnection: _connection, ...config } = await getSettings();
+  const {
+    modelConnection: _connection,
+    modelConnections: _models,
+    ...config
+  } = await getSettings();
   return (
     <>
       <Notice query={await searchParams} />

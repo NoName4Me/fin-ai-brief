@@ -11,7 +11,10 @@ export default async function setup() {
     throw new Error('界面测试必须使用独立_test数据库');
   await migrate();
   await pool.query(
-    'TRUNCATE reprocessing_batches,edition_runs,processing_steps,model_calls,brief_requests,collection_runs,source_hosts,deliveries,subscriptions,briefs,articles,events,sources,login_attempts,sessions CASCADE',
+    'TRUNCATE reprocessing_batches,edition_runs,processing_steps,model_calls,model_health,model_events,brief_requests,collection_runs,source_hosts,deliveries,subscriptions,briefs,articles,events,sources,login_attempts,sessions CASCADE',
+  );
+  await pool.query(
+    'UPDATE model_routing SET current_model_config_id=NULL,current_model_healthy=NULL WHERE id=1',
   );
   await saveSettings({ ...defaultSettings, collectionEnabled: false });
   const base = fixtureContent();

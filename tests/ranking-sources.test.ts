@@ -1,3 +1,4 @@
+import { saveSettings, syncModelSettings } from './model-settings-fixture.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { pool } from '../src/server/db.ts';
@@ -5,7 +6,7 @@ import { migrate } from '../scripts/migrate.ts';
 import { collectSource } from '../src/server/collect.ts';
 import { verifySource } from '../src/server/source-verification.ts';
 import { processArticle } from '../src/server/process.ts';
-import { saveSettings } from '../src/server/settings.ts';
+
 import { defaultSettings } from '../src/server/types.ts';
 import {
   githubRanking,
@@ -114,6 +115,7 @@ async function source() {
   ).rows[0].id as string;
 }
 test('同日重复不再请求、不覆盖首份快照；跨日保存并与前一日比较', async () => {
+  await syncModelSettings();
   const id = await source();
   let calls = 0;
   const first = await collectSource(
@@ -158,6 +160,7 @@ test('同日重复不再请求、不覆盖首份快照；跨日保存并与前�
   assert.equal(quality.discoveries[0].snapshot?.entries.length, 2);
 });
 test('验证只读取榜单，失败不留假快照，重试后可正常保存', async () => {
+  await syncModelSettings();
   const id = await source();
   const result = await verifySource(id, async () => listing());
   assert.equal(result.status, 'approved');
@@ -179,6 +182,7 @@ test('验证只读取榜单，失败不留假快照，重试后可正常保存',
   assert.equal((await collectSource(id, async () => listing(), now, { manual: true })).inserted, 1);
 });
 test('后续分析收到采集时间，不能把快照时间作为资讯发布时间', async () => {
+  await syncModelSettings();
   const sourceId = await source();
   await collectSource(sourceId, async () => listing(), now, { manual: true });
   const {

@@ -96,6 +96,13 @@ export async function cleanupRetention(now = new Date()) {
       AND NOT EXISTS(SELECT 1 FROM processing_steps s WHERE s.call_id=m.id)`,
       [taskCutoff],
     );
+    const modelLogCutoff = new Date(now.getTime() - config.modelLogRetentionDays * day);
+    await remove(
+      'modelAttempts',
+      'DELETE FROM model_attempts WHERE coalesce(finished_at,started_at)<$1',
+      [modelLogCutoff],
+    );
+    await remove('modelEvents', 'DELETE FROM model_events WHERE created_at<$1', [modelLogCutoff]);
     await remove(
       'collectionRuns',
       "DELETE FROM collection_runs WHERE finished_at<$1 AND state IN ('succeeded','failed')",

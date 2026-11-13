@@ -33,9 +33,11 @@ test('匿名管理访问被拦截，审核开关与额度可以保存', async ({
     await expect(page.getByLabel('截稿时间（北京时间）')).toHaveValue('08:00');
     await expect(page.getByLabel('周报出刊日', { exact: true })).toHaveCount(0);
     await page.goto('/admin/settings');
-    const limit = page.getByLabel('每日调用次数上限');
+    await expect(page.getByLabel('每日调用上限')).toHaveCount(0);
+    await page.goto('/admin/models');
+    const limit = page.getByLabel('每日调用上限');
     await limit.fill('99');
-    await page.getByRole('button', { name: '保存模型额度', exact: true }).click();
+    await page.getByRole('button', { name: '保存策略', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await expect(limit).toHaveValue('99');
