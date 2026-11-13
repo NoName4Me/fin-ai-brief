@@ -6889,7 +6889,6 @@ button:disabled {
 .rotation-chart {
   margin: 20px 0;
   padding: 16px 0;
-  border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
 .rotation-chart figcaption {

@@ -5,10 +5,12 @@ import { getQueue, enqueue, enqueuePendingArticles } from '../src/server/queue.t
 import { pool } from '../src/server/db.ts';
 import { getSettings, saveSettings } from '../src/server/settings.ts';
 import type { PgBoss } from 'pg-boss';
+import { migrate } from '../scripts/migrate.ts';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
   throw new Error('队列测试必须连接独立 _test 库');
 let boss: PgBoss;
 before(async () => {
+  await migrate();
   boss = await getQueue();
   await boss.deleteAllJobs('generate');
 });
@@ -38,9 +40,39 @@ test('初始积压优先处理最新资讯，额度不足继续等待并保留�
     ('旧材料','https://example.invalid/old-budget','摘要',now()-interval '2 days','本地测试','ai'),
     ('新材料','https://example.invalid/new-budget','摘要',now()-interval '1 hour','本地测试','ai') RETURNING id`);
   const oldSettings = await getSettings();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    const input = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: {
+              content: JSON.stringify({
+                results: input.articles.map((a: { id: string }) => ({
+                  id: a.id,
+                  decision: 'PASS',
+                  reason: '继续分析',
+                })),
+              }),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 10 },
+      }),
+    );
+  };
+  await pool.query("UPDATE articles SET created_at=now()-interval '31 seconds'");
   await saveSettings({
     ...oldSettings,
-    modelDailyLimit: 2,
+    modelDailyLimit: 3,
+    modelConnection: {
+      enabled: true,
+      baseUrl: 'https://queue.invalid/v1',
+      apiKey: 'test-only',
+      model: 'test',
+    },
     modelOffPeakOnly: false,
     dailyEnabled: false,
     weeklyEnabled: false,
@@ -78,6 +110,7 @@ test('初始积压优先处理最新资讯，额度不足继续等待并保留�
       2,
     );
   } finally {
+    globalThis.fetch = originalFetch;
     await saveSettings(oldSettings);
     await boss.deleteAllJobs('process');
   }

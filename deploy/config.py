@@ -27,9 +27,6 @@ def validate(values):
     if not 1 <= port <= 65535:
         raise ValueError('HTTP_PORT 必须在 1 到 65535 之间')
     ipaddress.ip_address(values.get('BIND_ADDRESS', '0.0.0.0'))
-    network = ipaddress.ip_network(values.get('ACCESS_CIDR', ''), strict=False)
-    if network.prefixlen == 0:
-        raise ValueError('ACCESS_CIDR 请填写办公IP或可信网段，不要开放给全网')
     for key, length in [('POSTGRES_PASSWORD', 32), ('APP_DB_PASSWORD', 32), ('ADMIN_PASSWORD', 12)]:
         value = values.get(key, '')
         if len(value) < length or not all(c in '0123456789abcdefABCDEF' for c in value):
@@ -85,11 +82,11 @@ def main():
     elif command == 'init':
         if path.exists():
             raise ValueError('配置文件已存在，未覆盖')
-        if len(args) != 2:
-            raise ValueError('用法: init HTTP_PORT 办公IP/32')
-        port, cidr = args
+        if len(args) != 1:
+            raise ValueError('用法: init HTTP_PORT')
+        port = args[0]
         values = read(Path(__file__).with_name('.env.example'))
-        values.update(HTTP_PORT=port, ACCESS_CIDR=cidr)
+        values.update(HTTP_PORT=port)
         for key in ['POSTGRES_PASSWORD', 'APP_DB_PASSWORD', 'ADMIN_PASSWORD', 'APP_SECRET']:
             values[key] = secrets.token_hex(32)
         validate(values)

@@ -4,10 +4,6 @@ server {
     server_tokens off;
     client_max_body_size 2m;
 
-    allow 127.0.0.1;
-    allow ${ACCESS_CIDR};
-    deny all;
-
     location = /healthz {
         access_log off;
         return 200 'ok\n';

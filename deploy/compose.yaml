@@ -97,9 +97,6 @@ services:
     restart: unless-stopped
     ports:
       - '${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}:80'
-    environment:
-      ACCESS_CIDR: ${ACCESS_CIDR:?Set your office IP range}
-      NGINX_ENVSUBST_FILTER: '^ACCESS_CIDR$$'
     volumes:
       - ./nginx:/etc/nginx/templates:ro
     depends_on:

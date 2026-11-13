@@ -10,10 +10,10 @@ PROJECT=${DEPLOY_PROJECT:-fin-ai-brief}
 mkdir -p "$STATE_DIR" "$BACKUP_DIR"
 
 usage() {
-  echo '用法: scripts/deploy.sh init HTTP_PORT TRUSTED_CIDR | deploy | status | logs [service] | backup | load [RELEASE_DIR] | restore FILE VERSION --confirm | stop'
+  echo '用法: scripts/deploy.sh init HTTP_PORT | deploy | status | logs [service] | backup | load [RELEASE_DIR] | restore FILE VERSION --confirm | stop'
 }
 if [[ ${1:-} == init ]]; then
-  python3 deploy/config.py init "$ENV_FILE" "${2:-}" "${3:-}"
+  python3 deploy/config.py init "$ENV_FILE" "${@:2}"
   exit
 fi
 [[ $# -ge 1 ]] || { usage; exit 1; }

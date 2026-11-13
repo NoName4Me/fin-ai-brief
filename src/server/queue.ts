@@ -5,6 +5,7 @@ import { PgBoss, type SendOptions } from 'pg-boss';
 import { pool } from './db.ts';
 import { getSettings } from './settings.ts';
 import { isTransientNetworkError } from './network-error.ts';
+import { screenPendingArticles } from './article-screening.ts';
 const taskRetryDelay = 10;
 const networkRetryDelay = 5 * 60;
 const globalQueue = globalThis as typeof globalThis & { briefBoss?: Promise<PgBoss> };
@@ -69,16 +70,27 @@ export async function enqueuePendingArticles() {
     duePeriods(new Date(), config).filter((p) => config[`${p.kind}Enabled`]).length,
   );
   const budget = await pool.query(`SELECT
-      (SELECT count(*)::int FROM model_calls WHERE created_at >= date_trunc('day',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai') AS used,
+      (SELECT coalesce(sum(greatest(api_attempts,1)),0)::int FROM model_calls WHERE created_at >= date_trunc('day',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai') AS used,
       (SELECT count(*)::int FROM pgboss.job WHERE name IN ('process','generate') AND state IN ('created','active','retry')) AS queued`);
   // 为出刊保留一次调用；超额材料继续等待，不创建必然触发额度错误的任务。
   const slots = Math.max(
     0,
     Math.min(100, limit - budget.rows[0].used - budget.rows[0].queued - reserve),
   );
+  if (!slots) return;
+  const ready = await screenPendingArticles();
+  if (!ready.length) return;
+  // Screening has its own paid requests; refresh capacity before creating full analysis jobs.
+  const afterScreening = await pool.query(`SELECT
+    (SELECT coalesce(sum(greatest(api_attempts,1)),0)::int FROM model_calls WHERE created_at >= date_trunc('day',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai') used,
+    (SELECT count(*)::int FROM pgboss.job WHERE name IN ('process','generate') AND state IN ('created','active','retry')) queued`);
+  const remaining = Math.max(
+    0,
+    Math.min(slots, limit - afterScreening.rows[0].used - afterScreening.rows[0].queued - reserve),
+  );
   const pending = await pool.query(
-    "SELECT a.id FROM articles a WHERE state='pending' AND NOT EXISTS (SELECT 1 FROM pgboss.job j WHERE name='process' AND state <> 'cancelled' AND data->>'id'=a.id::text) ORDER BY published_at DESC, created_at LIMIT $1",
-    [slots],
+    "SELECT a.id FROM articles a WHERE state='pending' AND a.id=ANY($2::uuid[]) AND NOT EXISTS (SELECT 1 FROM pgboss.job j WHERE name='process' AND state <> 'cancelled' AND data->>'id'=a.id::text) ORDER BY published_at DESC, created_at LIMIT $1",
+    [remaining, ready],
   );
   for (const article of pending.rows) await enqueue('process', { id: article.id }, article.id);
 }

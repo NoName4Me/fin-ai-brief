@@ -14,6 +14,7 @@ import {
 import { processingController } from '../src/server/processing-worker.ts';
 import { retryArticle } from '../src/server/admin-tasks.ts';
 import type { PgBoss } from 'pg-boss';
+import { enqueueScreenedArticles } from './screening-fixture.ts';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
   throw new Error('调度测试必须连接独立 _test 库');
 let boss: PgBoss;
@@ -293,6 +294,7 @@ test('出刊入队后新到的资讯返回依赖等待，不消耗生成重试',
       .retry_count,
     0,
   );
+  await enqueueScreenedArticles();
   const [dependency] = await boss.fetch<{ id: string }>('process');
   assert.equal(dependency.data.id, id);
 });

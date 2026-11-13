@@ -24,6 +24,7 @@ export { stageNames } from './task-labels.ts';
 import { taskTypes } from './admin-task-labels.ts';
 import { explainEditionRecord } from './edition-status.ts';
 import { retryBatchFailures } from './admin-reprocessing.ts';
+import { screeningTokenShare } from './screening-usage.ts';
 export type TaskType = keyof typeof taskTypes;
 export interface ManagedTask {
   total_count?: number;
@@ -111,14 +112,17 @@ const taskProjection = `WITH waiting_jobs AS MATERIALIZED (
     LEFT JOIN request_starts rs ON rs.request_id=r.id::text
   UNION ALL
   SELECT 'article:'||a.id::text,'process',a.title,a.id::text,NULL::uuid,NULL::uuid,a.created_at,history.started_on,
-    CASE WHEN a.state='failed' THEN history.completed_on ELSE NULL::timestamptz END,
-    CASE WHEN a.state='failed' THEN 'failed' ELSE 'created' END,0,0,jsonb_build_object('id',a.id),history.error,1,NULL::text
+    CASE WHEN a.state IN ('failed','ignored') THEN history.completed_on ELSE NULL::timestamptz END,
+    CASE WHEN a.state='failed' THEN 'failed' WHEN a.state='ignored' THEN 'succeeded'
+      WHEN history.running THEN 'active' WHEN history.waiting THEN 'waiting_budget' ELSE 'created' END,0,0,jsonb_build_object('id',a.id),history.error,1,NULL::text
   FROM articles a LEFT JOIN LATERAL (
     SELECT min(p.started_at) started_on,max(p.finished_at) completed_on,
+      bool_or(p.state='running') running,bool_or(p.state='waiting') waiting,
       (array_agg(p.error ORDER BY p.started_at DESC,p.id DESC) FILTER(WHERE p.error IS NOT NULL))[1] error
     FROM processing_steps p WHERE p.subject='article:'||a.id::text
   ) history ON true
-  WHERE a.state IN ('pending','failed') AND NOT EXISTS(SELECT 1 FROM pgboss.job j WHERE j.name='process' AND j.data->>'id'=a.id::text)
+  WHERE (a.state IN ('pending','failed') OR (a.state='ignored' AND EXISTS(SELECT 1 FROM article_screenings sc WHERE sc.article_id=a.id)))
+    AND NOT EXISTS(SELECT 1 FROM pgboss.job j WHERE j.name='process' AND j.data->>'id'=a.id::text)
   UNION ALL
   SELECT 'batch:'||b.id::text,'reprocess',
     CASE WHEN b.regenerate_date IS NOT NULL THEN b.regenerate_date::text||' 日报：重处理并重新生成'
@@ -185,8 +189,18 @@ export async function taskDetail(id: string) {
         : `brief:${task.data.kind}:${task.data.date}`;
   const [steps, article, source, attempts, attemptsForArticle] = await Promise.all([
     pool.query<TaskStep>(
-      `SELECT p.*,c.model,c.input_tokens,c.output_tokens,c.input_summary,c.response
-      FROM processing_steps p LEFT JOIN model_calls c ON c.id=p.call_id WHERE p.subject=$1
+      `SELECT p.*,c.model,
+        CASE WHEN sc.article_id IS NULL THEN c.input_tokens ELSE screen_cost.input_tokens END input_tokens,
+        CASE WHEN sc.article_id IS NULL THEN c.output_tokens ELSE screen_cost.output_tokens END output_tokens,
+        c.input_summary,c.response
+      FROM processing_steps p LEFT JOIN model_calls c ON c.id=p.call_id
+      LEFT JOIN article_screenings sc ON sc.article_id::text=$5 AND sc.input_key=p.run_key AND p.stage='screening'
+      LEFT JOIN LATERAL (
+        SELECT coalesce(sum(${screeningTokenShare('input_tokens')}),0)::int input_tokens,
+          coalesce(sum(${screeningTokenShare('output_tokens')}),0)::int output_tokens
+        FROM model_calls mc WHERE sc.article_id IS NOT NULL AND mc.subject='screening:'||sc.batch_key
+      ) screen_cost ON true
+      WHERE p.subject=$1
       AND (
         ($3::boolean AND (
           p.stage<>'task' OR $6::boolean OR p.run_key IN (
@@ -240,7 +254,7 @@ export async function taskDetail(id: string) {
   const assignedSteps = new Set<string>();
   const articleAttempts = [...attemptsForArticle.rows]
     .sort((a, b) => new Date(a.created_on).getTime() - new Date(b.created_on).getTime())
-    .map((row) => {
+    .map((row, index) => {
       const direct = steps.rows.filter(
         (step) =>
           step.run_key === `job:${row.id}` || step.run_key.startsWith(`job:${row.id}:retry:`),
@@ -252,7 +266,8 @@ export async function taskDetail(id: string) {
         (step) =>
           !step.run_key.startsWith('job:') &&
           !assignedSteps.has(step.id) &&
-          new Date(step.started_at).getTime() >= from &&
+          (new Date(step.started_at).getTime() >= from ||
+            (index === 0 && step.stage === 'screening')) &&
           new Date(step.started_at).getTime() <= to,
       );
       business.forEach((step) => assignedSteps.add(step.id));

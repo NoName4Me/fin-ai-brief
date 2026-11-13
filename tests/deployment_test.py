@@ -82,7 +82,7 @@ class DeploymentTest(unittest.TestCase):
         return config.release(self.root, verify=True)
 
     def initialize(self, installed=True):
-        self.command('deploy.sh', 'init', '80', '198.51.100.1/32')
+        self.command('deploy.sh', 'init', '80')
         env_file = self.root / 'deploy/.env'
         env_file.write_text(env_file.read_text().replace('SITE_URL=\n',
                                                        'SITE_URL=http://203.0.113.1\n'))

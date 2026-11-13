@@ -77,17 +77,12 @@ export async function dispatchGenerationRequests() {
             );
           } else {
             // An exhausted/legacy failure must remain visible and must not be requeued forever.
-            const prior = await client.query(
-              "SELECT 1 FROM pgboss.job WHERE name='process' AND data->>'id'=$1 AND state<>'cancelled' LIMIT 1",
-              [article.id],
-            );
             await client.query(
               `UPDATE pgboss.job j SET priority=100 WHERE j.name='process' AND j.data->>'id'=$1 AND j.state='completed'
               AND EXISTS(SELECT 1 FROM processing_steps s WHERE s.run_key='job:'||j.id::text AND s.stage='task' AND s.state='waiting')`,
               [article.id],
             );
-            if (!prior.rows.length)
-              await enqueue('process', { id: article.id }, article.id, { priority: 100, db });
+            // New material stays pending until the screening dispatcher promotes it.
           }
         }
         continue;

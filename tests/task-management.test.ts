@@ -10,6 +10,7 @@ import { saveSettings } from '../src/server/settings.ts';
 import { defaultSettings } from '../src/server/types.ts';
 import { taskStamp, taskStartStamp } from '../src/server/task-labels.ts';
 import type { PgBoss } from 'pg-boss';
+import { enqueueScreenedArticles } from './screening-fixture.ts';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
   throw new Error('任务管理测试必须使用独立_test库');
 let boss: PgBoss;
@@ -171,6 +172,7 @@ test('未入队资讯不伪造开始时间，入队后不重复显示占位任�
   assert.equal(waiting[0].started_on, null);
   assert.equal(waiting[0].target_id, id);
   const requestId = await requestGeneration('daily', '2026-10-22', { force: true });
+  await enqueueScreenedArticles();
   const tasks = await taskOverview();
   assert.equal(tasks.length, 2);
   assert.equal(tasks.filter((t) => t.queue === 'process').length, 1);

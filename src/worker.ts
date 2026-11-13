@@ -140,6 +140,7 @@ const dispatcher = setInterval(() => {
     if (!(await getModelConnection()).enabled) return;
     await reconcileFailedArticles();
     await dispatchReprocessingBatches();
+    await enqueuePendingArticles();
     await dispatchGenerationRequests();
   })()
     .catch((error) => console.error('出刊调度:', error.message))

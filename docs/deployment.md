@@ -94,7 +94,7 @@ sudo chown "$USER":"$(id -gn)" /opt/fin-ai-brief
 
 服务器Compose需要v2.20以上。Docker安装来源见[官方Ubuntu安装文档](https://docs.docker.com/engine/install/ubuntu/)。后续应用更新不重复安装环境。
 
-阿里云安全组仅向办公公网IP或可信网段开放SSH及页面入口端口，默认页面端口80。Nginx另有来源限制。HTTP不加密登录和配置内容，建议使用可信网络或文末的SSH隧道；直接公网长期使用时，另配适用于IP的HTTPS。
+阿里云安全组的页面入口端口应允许所有需要访问的网络，默认页面端口80；SSH仅向可信来源开放。Nginx不限制访问来源IP。HTTP不加密登录和配置内容，直接公网长期使用时，另配适用于IP的HTTPS。
 
 ### 2.4 本地：上传部署包
 
@@ -109,13 +109,13 @@ scp .data/releases/fin-ai-brief-full-amd64-本次版本.tar.gz 用户名@服务�
 ```bash
 tar -xzf /tmp/fin-ai-brief-full-amd64-本次版本.tar.gz -C /opt/fin-ai-brief
 cd /opt/fin-ai-brief
-./scripts/deploy.sh init 80 198.51.100.8/32
+./scripts/deploy.sh init 80
 # 在 deploy/.env 中填写 SITE_URL，例如 http://203.0.113.20
 ./scripts/deploy.sh deploy
 ./scripts/deploy.sh status
 ```
 
-初始化命令填写容器入口端口和**办公网络的出口公网IP**。若使用8080端口，初始化时填 `8080`，安全组同步开放8080。将 `SITE_URL` 填为读者实际访问的地址，可以是反向代理提供的HTTPS域名。
+初始化命令只需填写容器入口端口。若使用8080端口，初始化时填 `8080`，安全组同步开放8080。将 `SITE_URL` 填为读者实际访问的地址，可以是反向代理提供的HTTPS域名。
 
 `init`生成权限为600的 `deploy/.env`，自动生成密码和签名密钥；已有配置时拒绝覆盖。查看管理员初始密码：
 
@@ -145,7 +145,7 @@ grep '^ADMIN_PASSWORD=' deploy/.env
 5. 开启模型调用、自动采集，检查任务结果，再手动生成一期验证。
 6. 确认内容、订阅名单及SMTP后，开启页面推送总开关。
 
-SMTP优先使用465和SSL/TLS。邮件确认、退订及刊期阅读链接使用 `SITE_URL`，打开链接的收件人也必须在安全组与Nginx允许的来源范围内。
+SMTP优先使用465和SSL/TLS。邮件确认、退订及刊期阅读链接使用 `SITE_URL`，安全组需允许收件人访问页面入口端口。
 
 ## 3. 后续迭代更新
 
@@ -251,7 +251,6 @@ chmod 600 deploy/.env
 | 配置                                   | 含义                                                        |
 | -------------------------------------- | ----------------------------------------------------------- |
 | `SITE_URL`                             | 实际访问地址，用于邮件链接及管理员登录 Cookie 的 HTTPS 设置 |
-| `ACCESS_CIDR`                          | 办公公网IP或可信网段；单IP用 `/32`，不接受全网开放          |
 | `BIND_ADDRESS`                         | 默认 `0.0.0.0`；仅SSH隧道访问可设为 `127.0.0.1`             |
 | `HTTP_PORT`                            | Nginx 映射到服务器的端口，默认80                            |
 | `POSTGRES_PASSWORD`、`APP_DB_PASSWORD` | 初始化生成的数据库密码，单改文件不会更改已有数据库角色密码  |
@@ -266,7 +265,6 @@ Worker健康检查验证心跳和数据库连接；Web验证 `/api/health`。健
 | ---------------- | -------------------------------------------------------- |
 | 部署包平台不符   | 按服务器 `uname -m`重新选择 `--platform`打包             |
 | 包校验失败       | 重新上传并解压完整包，不手动修改包内脚本或配置模板       |
-| 页面403          | 办公出口IP是否匹配安全组与 `ACCESS_CIDR`                 |
 | 页面超时         | 入口端口、安全组、服务器防火墙及容器状态                 |
 | 页面正常但不出刊 | Worker、采集和模型开关、信源启停、额度、任务错误         |
 | 邮件失败         | 页面测试SMTP、端口、加密方式及授权码                     |
