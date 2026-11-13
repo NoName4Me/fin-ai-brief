@@ -26,6 +26,7 @@ export function ManagedModelList({
   const router = useRouter();
   const [rows, setRows] = useState(models);
   const rowsRef = useRef(rows);
+  const editSequence = useRef(0);
   const dragging = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -199,7 +200,7 @@ export function ManagedModelList({
                         type="button"
                         className="text-button"
                         onClick={() => {
-                          editParams.set('event', crypto.randomUUID());
+                          editParams.set('event', `${Date.now()}-${++editSequence.current}`);
                           void router.push(`/admin/models?${editParams.toString()}`, {
                             scroll: false,
                           });

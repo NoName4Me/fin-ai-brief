@@ -6,8 +6,23 @@ export async function POST(request: Request) {
   if (!(await isAdmin()))
     return NextResponse.json({ ok: false, response: '请重新登录管理台' }, { status: 401 });
   const origin = request.headers.get('origin');
-  if (origin && origin !== new URL(request.url).origin)
-    return NextResponse.json({ ok: false, response: '请求来源无效' }, { status: 403 });
+  if (origin) {
+    // Nginx replaces these headers with the external host/protocol. request.url
+    // can instead contain the container's bind address behind the proxy.
+    const url = new URL(request.url);
+    const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? url.host;
+    const protocol = request.headers.get('x-forwarded-proto') ?? url.protocol.slice(0, -1);
+    let expectedOrigin = '';
+    try {
+      const external = new URL(`${protocol}://${host}`);
+      if (['http:', 'https:'].includes(external.protocol) && external.host === host)
+        expectedOrigin = external.origin;
+    } catch {
+      /* Malformed proxy headers must fail closed. */
+    }
+    if (origin !== expectedOrigin)
+      return NextResponse.json({ ok: false, response: '请求来源无效' }, { status: 403 });
+  }
   const body = await request.json().catch(() => null);
   if (!body || typeof body.id !== 'string')
     return NextResponse.json({ ok: false, response: '模型参数无效' }, { status: 400 });

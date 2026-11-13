@@ -16,6 +16,9 @@ test('七天和三十天趋势中日报采用柱与绿色图例一致', async ({
 });
 
 test('系统设置与模型管理拆分保存，模型可测试，桌面和手机布局完整', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, 'randomUUID', { value: undefined, configurable: true });
+  });
   const db = new Pool({ connectionString: process.env.DATABASE_URL });
   const original = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
   let received: unknown;
@@ -39,6 +42,22 @@ test('系统设置与模型管理拆分保存，模型可测试，桌面和手�
     await page.getByLabel('管理员密码').fill(process.env.ADMIN_PASSWORD!);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await expect(page).toHaveURL(/\/admin$/);
+    const proxyHeaders = {
+      origin: 'http://203.0.113.10:8080',
+      'x-forwarded-host': '203.0.113.10:8080',
+      'x-forwarded-proto': 'http',
+    };
+    const proxied = await page.request.post('/api/admin/models/test', {
+      headers: proxyHeaders,
+      data: { id: '__missing__' },
+    });
+    expect(proxied.status()).toBe(400);
+    expect((await proxied.json()).response).toBe('模型配置不存在');
+    const foreign = await page.request.post('/api/admin/models/test', {
+      headers: { ...proxyHeaders, origin: 'http://evil.invalid' },
+      data: { id: '__missing__' },
+    });
+    expect(foreign.status()).toBe(403);
     await page.goto('/admin/settings');
     await expect(page.getByText('连接状态', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '保存', exact: true })).toHaveCount(1);
