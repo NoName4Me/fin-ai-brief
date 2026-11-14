@@ -6,7 +6,7 @@ import { subscriptionConfirmations, subscriptions } from './schema.ts';
 import { hash } from './crypto.ts';
 import { subscriptionInput, unsubscribeToken } from './subscriptions.ts';
 import { requireMailConfig } from './mail-config.ts';
-import { createMailTransport } from './mail-transport.ts';
+import { sendMail } from './mail-sender.ts';
 import { renderSubscriptionConfirmation } from './subscription-confirmation-template.ts';
 
 const emailInput = z
@@ -18,18 +18,13 @@ async function sendConfirmationMail(email: string, token: string) {
   const url = new URL('/subscribe/confirm', process.env.SITE_URL!);
   url.searchParams.set('token', token);
   const connection = await requireMailConfig();
-  const transport = createMailTransport(connection);
-  try {
-    await transport.sendMail({
-      from: connection.from,
-      to: email,
-      subject: '《数智参阅》请确认邮箱订阅',
-      html: renderSubscriptionConfirmation(url.href),
-      text: `确认订阅《数智参阅》\n\n请打开以下链接完成订阅，链接24小时内有效：\n${url.href}\n\n如果不是你本人申请，请忽略此邮件。`,
-    });
-  } finally {
-    transport.close();
-  }
+  await sendMail(connection, {
+    from: connection.from,
+    to: email,
+    subject: '《数智参阅》请确认邮箱订阅',
+    html: renderSubscriptionConfirmation(url.href),
+    text: `确认订阅《数智参阅》\n\n请打开以下链接完成订阅，链接24小时内有效：\n${url.href}\n\n如果不是你本人申请，请忽略此邮件。`,
+  });
 }
 
 export async function requestSubscription(input: unknown, now = new Date()) {

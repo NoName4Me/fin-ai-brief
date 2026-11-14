@@ -1,6 +1,7 @@
-import { desc, eq, isNotNull } from 'drizzle-orm';
+import { desc, isNotNull } from 'drizzle-orm';
 import { db } from '../server/db.ts';
-import { briefs, deliveries, subscriptionConfirmations, subscriptions } from '../server/schema.ts';
+import { briefs, subscriptionConfirmations, subscriptions } from '../server/schema.ts';
+import { deliveryHistory } from '../server/delivery-history.ts';
 import { getSettings } from '../server/settings.ts';
 import { kindNames, type Kind } from '../server/types.ts';
 import { taskStamp } from '../server/task-labels.ts';
@@ -15,7 +16,7 @@ export async function SubscriptionPage({
   active: 'subscribers' | 'history';
   query: Query;
 }) {
-  const [rows, confirmations, issues, sends, config] = await Promise.all([
+  const [rows, confirmations, issues, history, config] = await Promise.all([
     db.select().from(subscriptions).orderBy(desc(subscriptions.createdAt)),
     db
       .select({
@@ -39,24 +40,8 @@ export async function SubscriptionPage({
       .where(isNotNull(briefs.published))
       .orderBy(desc(briefs.periodDate)),
     active === 'history'
-      ? db
-          .select({
-            id: deliveries.id,
-            state: deliveries.state,
-            error: deliveries.error,
-            email: subscriptions.email,
-            kind: briefs.kind,
-            periodDate: briefs.periodDate,
-            issueNumber: briefs.issueNumber,
-            briefId: briefs.id,
-            createdAt: deliveries.createdAt,
-          })
-          .from(deliveries)
-          .innerJoin(subscriptions, eq(deliveries.subscriptionId, subscriptions.id))
-          .innerJoin(briefs, eq(deliveries.briefId, briefs.id))
-          .orderBy(desc(deliveries.createdAt))
-          .limit(50)
-      : Promise.resolve([]),
+      ? deliveryHistory(query.page)
+      : Promise.resolve({ items: [], total: 0, page: 1, pages: 1 }),
     getSettings(),
   ]);
   const { password, ...connection } = await getMailConnection();
@@ -114,7 +99,8 @@ export async function SubscriptionPage({
           id: b.id,
           label: `${b.periodDate}${b.issueNumber ? ` · 第${b.issueNumber}期` : ''} · ${cleanBriefTitle(b.content!.title)}`,
         }))}
-        sends={sends.map((r) => ({
+        historyPagination={{ page: history.page, pages: history.pages, total: history.total }}
+        sends={history.items.map((r) => ({
           ...r,
           issue: `${kindNames[r.kind as Kind]} · ${r.periodDate}${r.issueNumber ? ` · 第${r.issueNumber}期` : ''}`,
           createdAt: taskStamp(r.createdAt),

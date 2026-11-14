@@ -2,6 +2,7 @@ import { syncMailSettings } from './mail-settings-fixture.ts';
 import { test, before, beforeEach, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import nodemailer from 'nodemailer';
+import { closeMailTransports } from '../src/server/mail-sender.ts';
 import { pool } from '../src/server/db.ts';
 import { migrate } from '../scripts/migrate.ts';
 import {
@@ -21,8 +22,9 @@ function token() {
 }
 before(migrate);
 beforeEach(async () => {
+  closeMailTransports();
   mock.restoreAll();
-  await pool.query('TRUNCATE subscription_confirmations,subscriptions CASCADE');
+  await pool.query('TRUNCATE mail_send_runtime, subscription_confirmations,subscriptions CASCADE');
   Object.assign(process.env, {
     MAIL_ENABLED: 'true',
     SMTP_HOST: 'smtp.example.invalid',
@@ -42,6 +44,7 @@ beforeEach(async () => {
   await syncMailSettings();
 });
 after(async () => {
+  closeMailTransports();
   mock.restoreAll();
   await pool.end();
 });
@@ -82,6 +85,7 @@ test('管理员登记立即生效，无需确认或发信', async () => {
   assert.equal(messages.length, 0);
 });
 test('发送失败不产生订阅，并允许重新申请', async () => {
+  closeMailTransports();
   mock.restoreAll();
   mock.method(nodemailer, 'createTransport', () => ({
     sendMail: async () => {

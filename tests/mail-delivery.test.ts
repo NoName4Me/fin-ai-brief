@@ -3,6 +3,7 @@ import { test, before, beforeEach, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import nodemailer from 'nodemailer';
+import { closeMailTransports } from '../src/server/mail-sender.ts';
 import { eq } from 'drizzle-orm';
 import { db, pool } from '../src/server/db.ts';
 import { briefs, subscriptions, deliveries } from '../src/server/schema.ts';
@@ -18,8 +19,9 @@ before(async () => {
   await migrate();
 });
 beforeEach(async () => {
+  closeMailTransports();
   mock.restoreAll();
-  await pool.query('TRUNCATE deliveries, subscriptions, briefs CASCADE');
+  await pool.query('TRUNCATE mail_send_runtime, deliveries, subscriptions, briefs CASCADE');
   Object.assign(process.env, {
     MAIL_ENABLED: 'true',
     SMTP_HOST: 'smtp.example.invalid',
@@ -45,13 +47,14 @@ beforeEach(async () => {
   await syncMailSettings();
 });
 after(async () => {
+  closeMailTransports();
   mock.restoreAll();
   await pool.end();
 });
 for (const scenario of [
   {
     name: 'TLS连接未建立',
-    code: 'ESOCKET',
+    code: 'ETLS',
     command: 'CONN',
     message: 'TLS connection disconnected',
     expected: 'failed',
@@ -77,6 +80,13 @@ for (const scenario of [
     code: 'ECONNECTION',
     command: 'DATA',
     message: 'Connection lost',
+    expected: 'uncertain',
+  },
+  {
+    name: '提交结果不明且底层仅报告CONN',
+    code: 'ECONNECTION',
+    command: 'CONN',
+    message: 'Connection closed unexpectedly',
     expected: 'uncertain',
   },
 ])
@@ -172,4 +182,106 @@ test('强制重发实际调用发送流程并使用新的Message-ID', async () =
     (await db.select().from(deliveries).where(eq(deliveries.id, deliveryId)))[0].state,
     'sent',
   );
+});
+
+test('连续投递复用同一SMTP连接池，不逐封关闭或重新认证', async () => {
+  let created = 0;
+  let closed = 0;
+  let sent = 0;
+  const started: number[] = [];
+  mock.method(nodemailer, 'createTransport', (options: unknown) => {
+    assert.equal((options as { pool: boolean }).pool, true);
+    assert.equal((options as { maxConnections: number }).maxConnections, 1);
+    assert.equal((options as { maxRequeues: number }).maxRequeues, 0);
+    created++;
+    return {
+      sendMail: async () => {
+        started.push(Date.now());
+        sent++;
+        return {};
+      },
+      close: () => {
+        closed++;
+      },
+    };
+  });
+  const [first] = await db.select().from(deliveries).where(eq(deliveries.id, deliveryId));
+  await subscribe({ email: 'second@example.invalid', kinds: ['daily'] });
+  const [second] = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.email, 'second@example.invalid'));
+  const [next] = await db
+    .insert(deliveries)
+    .values({ briefId: first.briefId, subscriptionId: second.id })
+    .returning();
+  await Promise.all([deliver(deliveryId), deliver(next.id)]);
+  assert.equal(sent, 2);
+  assert.equal(created, 1);
+  assert.equal(closed, 0);
+  assert.ok(started[1] - started[0] >= 4_950, '两封邮件至少间隔5秒');
+});
+
+test('认证失败持久化冷却，其他投递保持待发送；重建连接池也不绕过冷却，到期只继续未发送邮件', async () => {
+  let attempts = 0;
+  mock.method(nodemailer, 'createTransport', () => ({
+    sendMail: async () => {
+      attempts++;
+      if (attempts === 1)
+        throw Object.assign(new Error('535 Login fail'), {
+          code: 'EAUTH',
+          command: 'AUTH PLAIN',
+          responseCode: 535,
+        });
+      return {};
+    },
+    close: () => {},
+  }));
+  await assert.rejects(deliver(deliveryId), /EAUTH/);
+  const [first] = await db.select().from(deliveries).where(eq(deliveries.id, deliveryId));
+  await subscribe({ email: 'waiting@example.invalid', kinds: ['daily'] });
+  const [recipient] = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.email, 'waiting@example.invalid'));
+  const [waiting] = await db
+    .insert(deliveries)
+    .values({ briefId: first.briefId, subscriptionId: recipient.id })
+    .returning();
+  const {
+    rows: [runtime],
+  } = await pool.query(
+    "SELECT cooldown_until > clock_timestamp() + interval '14 minutes' AS cooling FROM mail_send_runtime",
+  );
+  assert.equal(runtime.cooling, true);
+  closeMailTransports();
+  await deliver(waiting.id);
+  let [row] = await db.select().from(deliveries).where(eq(deliveries.id, waiting.id));
+  assert.equal(row.state, 'pending');
+  assert.match(row.error!, /SMTP认证冷却/);
+  assert.equal(row.sentAt, null);
+  assert.equal(attempts, 1);
+  await pool.query(
+    "UPDATE mail_send_runtime SET cooldown_until=clock_timestamp()-interval '1 second',next_send_at=clock_timestamp()",
+  );
+  await deliver(waiting.id);
+  [row] = await db.select().from(deliveries).where(eq(deliveries.id, waiting.id));
+  assert.equal(row.state, 'sent');
+  assert.equal(row.error, null);
+  assert.equal(attempts, 2);
+  await deliver(deliveryId);
+  assert.equal(attempts, 2, '此前明确失败的邮件仍需手动重排');
+});
+
+test('并发投递同一记录仍只发送一次', async () => {
+  let sent = 0;
+  mock.method(nodemailer, 'createTransport', () => ({
+    sendMail: async () => {
+      sent++;
+      return {};
+    },
+    close: () => {},
+  }));
+  await Promise.all([deliver(deliveryId), deliver(deliveryId)]);
+  assert.equal(sent, 1);
 });

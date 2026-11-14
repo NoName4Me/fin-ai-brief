@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useFormStatus } from 'react-dom';
+import Link from 'next/link';
 import {
   addSubscriberAction,
   cancelSubscriberAction,
@@ -8,6 +9,7 @@ import {
   manualDeliveryAction,
   removeSubscriberAction,
   resendSubscriptionConfirmationAction,
+  retryDeliveryAction,
 } from '../app/actions.ts';
 import { GlobalSwitch } from './global-switch.tsx';
 import { SubscriptionTabs } from './admin-page-tabs.tsx';
@@ -32,6 +34,7 @@ type Send = {
   issue: string;
   briefId: string;
   createdAt: string;
+  recipientActive: boolean;
 };
 function Modal({
   title,
@@ -72,6 +75,14 @@ function SendButton({ disabled, count }: { disabled: boolean; count: number }) {
     </button>
   );
 }
+function RetrySendButton({ disabled }: { disabled: boolean }) {
+  const { pending } = useFormStatus();
+  return (
+    <button className="quiet-button" disabled={disabled || pending}>
+      {pending ? '正在提交…' : '重新推送'}
+    </button>
+  );
+}
 const states: Record<string, string> = {
   pending: '待发送',
   sending: '发送中',
@@ -93,6 +104,7 @@ export function SubscriptionDelivery({
   mailConnection,
   deliveryEnabled,
   active,
+  historyPagination,
 }: {
   recipients: Recipient[];
   issues: Issue[];
@@ -101,6 +113,7 @@ export function SubscriptionDelivery({
   mailConnection: PublicMailConnection;
   deliveryEnabled: boolean;
   active: 'subscribers' | 'history';
+  historyPagination: { page: number; pages: number; total: number };
 }) {
   const [modal, setModal] = useState<'add' | 'send' | 'config' | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -196,7 +209,7 @@ export function SubscriptionDelivery({
         </>
       ) : (
         <>
-          <div className="table-wrap subscription-table">
+          <div className="table-wrap subscription-table delivery-history-table">
             <table>
               <thead>
                 <tr>
@@ -204,6 +217,7 @@ export function SubscriptionDelivery({
                   <th>刊期</th>
                   <th>推送时间</th>
                   <th>状态</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -218,12 +232,55 @@ export function SubscriptionDelivery({
                       {states[row.state] ?? row.state}
                       {row.error && <p className="form-hint">{row.error}</p>}
                     </td>
+                    <td>
+                      {row.state === 'failed' ? (
+                        <div className="row-actions subscription-actions">
+                          <form action={retryDeliveryAction}>
+                            <input type="hidden" name="id" value={row.id} />
+                            <input type="hidden" name="page" value={historyPagination.page} />
+                            <RetrySendButton
+                              disabled={!deliveryEnabled || !!configError || !row.recipientActive}
+                            />
+                            {(!row.recipientActive || !deliveryEnabled || configError) && (
+                              <p className="form-hint">
+                                {!row.recipientActive
+                                  ? '该邮箱已退订'
+                                  : !deliveryEnabled
+                                    ? '请先开启推送'
+                                    : '请先完善推送配置'}
+                              </p>
+                            )}
+                          </form>
+                        </div>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           {!sends.length && <p className="empty-state">暂无推送记录。</p>}
+          <nav className="pagination" aria-label="推送记录分页">
+            <span>
+              共{historyPagination.total}条 · 第{historyPagination.page}/{historyPagination.pages}页
+            </span>
+            {historyPagination.page > 1 ? (
+              <Link href={`/admin/subscriptions/history?page=${historyPagination.page - 1}`}>
+                上一页
+              </Link>
+            ) : (
+              <span aria-disabled="true">上一页</span>
+            )}
+            {historyPagination.page < historyPagination.pages ? (
+              <Link href={`/admin/subscriptions/history?page=${historyPagination.page + 1}`}>
+                下一页
+              </Link>
+            ) : (
+              <span aria-disabled="true">下一页</span>
+            )}
+          </nav>
         </>
       )}
       {modal === 'add' && (

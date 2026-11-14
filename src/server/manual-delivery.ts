@@ -45,3 +45,15 @@ export async function requestManualDelivery(input: unknown) {
     return { created: created.length, skipped: ids.length - created.length };
   });
 }
+
+export async function retryDelivery(id: unknown) {
+  const deliveryId = z.uuid().parse(id);
+  const [row] = await db.select().from(deliveries).where(eq(deliveries.id, deliveryId));
+  if (!row) throw new Error('推送记录不存在，请刷新页面');
+  if (row.state !== 'failed') throw new Error('仅支持重新推送发送失败的记录，请刷新页面');
+  return requestManualDelivery({
+    briefId: row.briefId,
+    subscriptionIds: [row.subscriptionId],
+    force: false,
+  });
+}

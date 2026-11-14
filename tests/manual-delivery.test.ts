@@ -197,3 +197,74 @@ test('关闭推送阻止自动创建、手动推送和已排队邮件发送，�
     await saveSettingsPatch({ deliveryEnabled: true });
   }
 });
+
+test('从推送记录重试只重排指定失败记录，并发点击不重复，其他状态拒绝', async () => {
+  const { retryDelivery } = await import('../src/server/manual-delivery.ts');
+  const a = await recipient('retry-one@example.invalid');
+  const b = await recipient('retry-two@example.invalid');
+  await requestManualDelivery({ briefId, subscriptionIds: [a.id, b.id] });
+  await db.update(deliveries).set({ state: 'failed', error: 'EAUTH' });
+  const [first] = await db.select().from(deliveries).where(eq(deliveries.subscriptionId, a.id));
+  const results = await Promise.allSettled([retryDelivery(first.id), retryDelivery(first.id)]);
+  assert.equal(
+    results.reduce((n, r) => n + (r.status === 'fulfilled' ? r.value.created : 0), 0),
+    1,
+  );
+  const [other] = await db.select().from(deliveries).where(eq(deliveries.subscriptionId, b.id));
+  assert.equal(other.state, 'failed');
+  for (const state of ['pending', 'sending', 'sent', 'uncertain']) {
+    await db.update(deliveries).set({ state }).where(eq(deliveries.id, first.id));
+    await assert.rejects(retryDelivery(first.id), /仅支持.*失败/);
+  }
+  await assert.rejects(retryDelivery(randomUUID()), /不存在/);
+});
+
+test('从推送记录重试仍检查推送开关和收件人订阅状态', async () => {
+  const { retryDelivery } = await import('../src/server/manual-delivery.ts');
+  const { saveSettingsPatch } = await import('../src/server/settings.ts');
+  const a = await recipient('retry-guard@example.invalid');
+  await requestManualDelivery({ briefId, subscriptionIds: [a.id] });
+  await db.update(deliveries).set({ state: 'failed' });
+  const [row] = await db.select().from(deliveries);
+  await saveSettingsPatch({ deliveryEnabled: false });
+  await assert.rejects(retryDelivery(row.id), /推送已暂停/);
+  await saveSettingsPatch({ deliveryEnabled: true });
+  await unsubscribe(a.token);
+  await assert.rejects(retryDelivery(row.id), /退订或删除/);
+  assert.equal((await db.select().from(deliveries))[0].state, 'failed');
+});
+
+test('推送记录分页覆盖50条之后的记录，同一时间戳稳定排序并约束异常页码', async () => {
+  const { deliveryHistory } = await import('../src/server/delivery-history.ts');
+  const recipients = await db
+    .insert(subscriptions)
+    .values(
+      Array.from({ length: 55 }, (_, i) => ({
+        email: `page-${i}@example.invalid`,
+        kinds: ['daily'],
+        tokenHash: randomUUID(),
+      })),
+    )
+    .returning();
+  await db.insert(deliveries).values(
+    recipients.map((r) => ({
+      briefId,
+      subscriptionId: r.id,
+      createdAt: new Date('2026-11-12T00:00:00Z'),
+    })),
+  );
+  const first = await deliveryHistory('1');
+  const second = await deliveryHistory('2');
+  assert.equal(first.total, 55);
+  assert.equal(first.pages, 2);
+  assert.equal(first.items.length, 50);
+  assert.equal(second.items.length, 5);
+  assert.equal(new Set([...first.items, ...second.items].map((r) => r.id)).size, 55);
+  assert.deepEqual(
+    (await deliveryHistory(1)).items.map((r) => r.id),
+    first.items.map((r) => r.id),
+  );
+  assert.equal((await deliveryHistory('999')).page, 2);
+  for (const invalid of ['-1', 'NaN', '1.5', ['2'], Infinity])
+    assert.equal((await deliveryHistory(invalid)).page, 1);
+});

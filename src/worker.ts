@@ -15,6 +15,7 @@ import { collectSource } from './server/collect.ts';
 import { processingController } from './server/processing-worker.ts';
 import { cleanupRetention } from './server/retention.ts';
 import { deliver } from './server/mail.ts';
+import { closeMailTransports } from './server/mail-sender.ts';
 import { getSettings } from './server/settings.ts';
 import { getModelConnection, probeUnavailableModels } from './server/model.ts';
 import { duePeriods, modelWindowOpen, preCollectionCutoff, rangeFor } from './server/periods.ts';
@@ -158,6 +159,7 @@ async function stop() {
   stopping = true;
   clearInterval(dispatcher);
   await boss.stop();
+  closeMailTransports();
   await pool.end();
   process.exit(0);
 }

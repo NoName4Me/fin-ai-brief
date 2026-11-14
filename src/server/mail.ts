@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createMailTransport } from './mail-transport.ts';
+import { MailCooldown, sendMail } from './mail-sender.ts';
 import { mailFailure } from './mail-errors.ts';
 import { requireMailConfig } from './mail-config.ts';
 import { getSettings } from './settings.ts';
@@ -44,9 +44,8 @@ export async function deliver(id: string) {
       .where(and(eq(deliveries.id, id), eq(deliveries.state, 'sending')));
     return;
   }
-  const transport = createMailTransport(connection);
   try {
-    await transport.sendMail({
+    await sendMail(connection, {
       from: connection.from,
       to: recipient.email,
       subject: `《数智参阅》${brief.issueNumber ? `第${String(brief.issueNumber).padStart(3, '0')}期` : ''}｜${brief.content.title}`,
@@ -77,10 +76,15 @@ export async function deliver(id: string) {
       .set({ state: 'sent', sentAt: new Date(), error: null })
       .where(eq(deliveries.id, id));
   } catch (error) {
+    if (error instanceof MailCooldown) {
+      await db
+        .update(deliveries)
+        .set({ state: 'pending', error: error.message })
+        .where(eq(deliveries.id, id));
+      return;
+    }
     const failure = mailFailure(error, [connection.password, connection.user]);
     await db.update(deliveries).set(failure).where(eq(deliveries.id, id));
     throw new Error(failure.error);
-  } finally {
-    transport.close();
   }
 }

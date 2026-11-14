@@ -5,7 +5,7 @@ import {
   resendSubscriptionConfirmation,
 } from '../server/subscription-confirmation.ts';
 import { cleanupRetention } from '../server/retention.ts';
-import { requestManualDelivery } from '../server/manual-delivery.ts';
+import { requestManualDelivery, retryDelivery } from '../server/manual-delivery.ts';
 import { requireModelConfig } from '../server/model.ts';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
@@ -495,6 +495,29 @@ export async function manualDeliveryAction(form: FormData) {
   }
   redirect(
     `/admin/subscriptions?${failed ? 'error' : 'notice'}=${encodeURIComponent(message)}&event=${crypto.randomUUID()}`,
+  );
+}
+export async function retryDeliveryAction(form: FormData) {
+  await requireAdmin();
+  const parsedPage = Number(text(form, 'page'));
+  const page = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+  let message = '';
+  let failed = false;
+  try {
+    const result = await retryDelivery(text(form, 'id'));
+    message = result.created ? '已重新加入发送队列' : '记录状态已变化，本次未重复推送';
+    revalidatePath('/admin/subscriptions/history');
+  } catch (error) {
+    failed = true;
+    message =
+      error instanceof z.ZodError
+        ? '推送记录无效，请刷新页面'
+        : error instanceof Error
+          ? error.message
+          : '重新推送失败';
+  }
+  redirect(
+    `/admin/subscriptions/history?${new URLSearchParams({ page: String(page), [failed ? 'error' : 'notice']: message, event: crypto.randomUUID() })}`,
   );
 }
 export async function addSubscriberAction(form: FormData) {

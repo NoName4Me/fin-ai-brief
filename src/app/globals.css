@@ -5387,6 +5387,28 @@ button:disabled {
 .subscription-table {
   margin-top: 12px;
 }
+.delivery-history-table table {
+  min-width: 1080px;
+  table-layout: fixed;
+}
+.delivery-history-table th:first-child {
+  width: 230px;
+}
+.delivery-history-table th:nth-child(2) {
+  width: 210px;
+}
+.delivery-history-table th:nth-child(3) {
+  width: 180px;
+}
+.delivery-history-table th:last-child {
+  width: 100px;
+}
+.delivery-history-table td {
+  overflow-wrap: anywhere;
+}
+.delivery-history-table button {
+  white-space: nowrap;
+}
 .subscription-state {
   display: inline-flex;
   align-items: center;
