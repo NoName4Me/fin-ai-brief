@@ -54,12 +54,14 @@ class DeploymentTest(unittest.TestCase):
                     'DOCKER_LOG': str(self.log), 'GIT_LOG': str(self.root / 'git.log'),
                     'GIT_MARKER': str(self.root / 'git-committed')}
         for key in ['APP_VERSION', 'POSTGRES_IMAGE', 'NGINX_IMAGE', 'DEPLOY_ENV_FILE',
-                    'DEPLOY_STATE_DIR', 'DEPLOY_BACKUP_DIR', 'DEPLOY_PROJECT']:
+                    'DEPLOY_STATE_DIR', 'DEPLOY_BACKUP_DIR', 'DEPLOY_BACKUP_RETENTION_DAYS',
+                    'DEPLOY_PROJECT']:
             self.env.pop(key, None)
 
     def command(self, script, *args, ok=True):
         result = subprocess.run(['bash', str(self.root / 'scripts' / script), *args],
-                                cwd=self.root, env=self.env, capture_output=True, text=True)
+                                cwd=self.root, env=self.env, capture_output=True,
+                                text=True, encoding='utf-8')
         if ok:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
@@ -120,13 +122,22 @@ class DeploymentTest(unittest.TestCase):
         self.assertTrue(saved[1].startswith('fin-ai-brief-worker:'))
         self.assertFalse(any(c[0] == 'pull' or 'postgres:17-bookworm' in c or
                              'nginx:stable-alpine' in c for c in self.calls()))
+        archive = next((self.root / '.data/releases').glob('*.tar.gz'))
+        with tarfile.open(archive) as package:
+            members = package.getnames()
+        for path in ['./docs', './docs-site', './README.md', './GLOSSARY.md']:
+            self.assertFalse(any(name == path or name.startswith(path + '/') for name in members))
 
     def test_full_package_supports_new_machine(self):
         value = self.package(full=True)
         self.assertEqual(value['mode'], 'full')
         self.assertEqual(len(json.loads((self.root / 'release/images.tar').read_text())), 4)
         self.initialize(installed=False)
-        self.command('deploy.sh', 'deploy')
+        result = self.command('deploy.sh', 'deploy')
+        for marker in ['[部署 1/8]', '开始加载镜像', '[部署 4/8]',
+                       '[备份] 正在导出数据库', '[部署 6/8]', '[启动] 启动 Web 和 Worker',
+                       '[部署 8/8]']:
+            self.assertIn(marker, result.stdout)
         self.assertTrue((self.root / 'deploy/.state/current').exists())
 
     def test_legacy_full_package_still_loads(self):
@@ -165,6 +176,27 @@ class DeploymentTest(unittest.TestCase):
         web_index = next(i for i, c in enumerate(calls) if 'up' in c and 'web' in c)
         self.assertLess(backup_index, migrate_index)
         self.assertLess(migrate_index, web_index)
+
+    def test_backup_prunes_files_older_than_retention(self):
+        original = self.initialize()
+        old_stamp = '20200101T000000Z-1'
+        recent_stamp = '20261101T000000Z-1'
+        backup_dir = self.root / 'deploy/backups'
+        for stamp in [old_stamp, recent_stamp]:
+            for suffix in ['dump', 'env', 'version']:
+                (backup_dir / f'{stamp}.{suffix}').write_text('fixture')
+        old_time = 1_600_000_000
+        for path in backup_dir.glob(f'{old_stamp}.*'):
+            os.utime(path, (old_time, old_time))
+        log = backup_dir / 'backup.log'
+        log.write_text('keep me')
+        os.utime(log, (old_time, old_time))
+        result = self.command('deploy.sh', 'backup')
+        self.assertIn('已清理 14 天前的 1 份数据库备份', result.stdout)
+        self.assertFalse(list(backup_dir.glob(f'{old_stamp}.*')))
+        self.assertTrue((backup_dir / f'{recent_stamp}.dump').exists())
+        self.assertEqual(log.read_text(), 'keep me')
+        self.assertEqual((self.root / 'deploy/.env').read_bytes(), original)
 
     def test_update_on_new_machine_fails_before_stopping_services(self):
         self.package()

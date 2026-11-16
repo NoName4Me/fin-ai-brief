@@ -139,6 +139,7 @@ test('订阅与推送顶部操作、时间字段和总开关', async ({ page }) 
     await dialog.getByRole('button', { name: '添加订阅', exact: true }).click();
     await expect(page.getByRole('row').filter({ hasText: email })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: '记录时间' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: '订阅类型' })).toHaveCount(0);
     const toggle = page.getByRole('switch', { name: '启动推送' });
     await expect(toggle).toBeChecked();
     await toggle.click();
@@ -146,7 +147,9 @@ test('订阅与推送顶部操作、时间字段和总开关', async ({ page }) 
     await page.getByRole('button', { name: '手动推送', exact: true }).click();
     await expect(page.getByText('推送已关闭，请先开启推送。')).toBeVisible();
     await expect(page.getByRole('button', { name: /推送至/ })).toBeDisabled();
-    await page.getByRole('dialog').getByRole('button', { name: '关闭' }).click();
+    const closeButton = page.getByRole('dialog').getByRole('button', { name: '关闭' });
+    await expect(closeButton.locator('svg')).toHaveCount(1);
+    await closeButton.click();
     await page.screenshot({ path: '.data/subscriptions-desktop.png', fullPage: true });
     await page.getByRole('link', { name: '推送记录', exact: true }).click();
     await expect(page.getByRole('switch', { name: '启动推送' })).not.toBeChecked();

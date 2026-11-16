@@ -1,5 +1,6 @@
 'use client';
 import { useId, useRef } from 'react';
+import { X } from 'lucide-react';
 export function SourceDialog({
   title,
   children,
@@ -30,9 +31,10 @@ export function SourceDialog({
           <button
             className="dialog-close"
             aria-label="关闭来源弹窗"
+            title="关闭"
             onClick={() => dialog.current?.close()}
           >
-            关闭
+            <X className="icon" strokeWidth={1.75} aria-hidden="true" />
           </button>
         </header>
         <div className="dialog-body">{children}</div>

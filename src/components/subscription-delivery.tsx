@@ -15,12 +15,11 @@ import { GlobalSwitch } from './global-switch.tsx';
 import { SubscriptionTabs } from './admin-page-tabs.tsx';
 import { MailSettingsForm } from './mail-settings-form.tsx';
 import type { PublicMailConnection } from '../server/mail-connection.ts';
-import { UserPlus, Send, Settings } from 'lucide-react';
+import { UserPlus, Send, Settings, X } from 'lucide-react';
 
 type Recipient = {
   id: string | null;
   email: string;
-  kinds: string;
   status: 'registered' | 'unsubscribed' | 'pending' | 'expired';
   at: string;
   expiresAt?: string;
@@ -59,8 +58,14 @@ function Modal({
     >
       <header className="dialog-header">
         <h2 id={titleId}>{title}</h2>
-        <button type="button" className="dialog-close" onClick={() => ref.current?.close()}>
-          关闭
+        <button
+          type="button"
+          className="dialog-close"
+          aria-label="关闭"
+          title="关闭"
+          onClick={() => ref.current?.close()}
+        >
+          <X className="icon" strokeWidth={1.75} aria-hidden="true" />
         </button>
       </header>
       <div className="source-management-body">{children}</div>
@@ -152,7 +157,6 @@ export function SubscriptionDelivery({
               <thead>
                 <tr>
                   <th>邮箱</th>
-                  <th>订阅类型</th>
                   <th>记录时间</th>
                   <th>状态</th>
                   <th>操作</th>
@@ -162,7 +166,6 @@ export function SubscriptionDelivery({
                 {recipients.map((row) => (
                   <tr key={row.email}>
                     <td>{row.email}</td>
-                    <td>{row.kinds}</td>
                     <td>{row.at}</td>
                     <td>
                       <span className={`subscription-state ${row.status}`}>

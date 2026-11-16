@@ -953,6 +953,7 @@ body[data-active-view='live'] .workspace {
 .source-dialog {
   width: min(620px, calc(100vw - 36px));
   max-height: 85dvh;
+  overflow-y: auto;
   border: 1px solid var(--line);
   padding: 0;
   background: var(--paper);
@@ -962,12 +963,16 @@ body[data-active-view='live'] .workspace {
   background: #18253270;
 }
 .dialog-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
   align-items: start;
   justify-content: space-between;
   gap: 20px;
   padding: 25px 27px 19px;
   border-bottom: 1px solid var(--line);
+  background: var(--paper);
 }
 .dialog-header h2 {
   font: 600 23px/1.5 var(--serif);
@@ -979,7 +984,12 @@ body[data-active-view='live'] .workspace {
   margin-top: 5px;
 }
 .dialog-close {
-  padding: 4px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  flex: none;
+  place-items: center;
+  padding: 0;
 }
 .dialog-close .icon {
   width: 19px;
@@ -7266,7 +7276,13 @@ button:disabled {
 }
 .model-event-dialog-heading {
   align-items: flex-start;
-  margin-bottom: 18px;
+  position: sticky;
+  top: -24px;
+  z-index: 2;
+  margin: -24px -24px 18px;
+  padding: 24px 24px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
 }
 .model-event-dialog-heading h3 {
   color: var(--blue);

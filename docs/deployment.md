@@ -11,7 +11,28 @@
 
 服务器常驻4个容器：Nginx、Web、Worker、PostgreSQL。只有Nginx映射入口端口，Web3100和数据库5432不对公网开放。数据库使用独立数据卷，更新应用不删除数据。
 
-部署包分为两种：默认更新包只含Web、Worker镜像；`--full`完整包另外包含PostgreSQL、Nginx镜像，用于首次安装或新机恢复。两者都包含Compose、Nginx配置、初始化/部署/备份/恢复脚本和本文档。它不包含本地真实 `.env`、数据库或备份；Web和Worker所需的代码及依赖已经在镜像内。服务器在部署时不需要连接GitHub、npm或镜像仓库，业务运行仍需访问配置的信源、模型接口及SMTP。
+部署包分为两种：默认更新包只含Web、Worker镜像；`--full`完整包另外包含PostgreSQL、Nginx镜像，用于首次安装或新机恢复。两者都包含Compose、Nginx配置、初始化/部署/备份/恢复脚本，不包含项目文档。它也不包含本地真实 `.env`、数据库或备份；Web和Worker所需的代码及依赖已经在镜像内。服务器在部署时不需要连接GitHub、npm或镜像仓库，业务运行仍需访问配置的信源、模型接口及SMTP。
+
+```mermaid
+sequenceDiagram
+  participant L as 本地电脑
+  participant S as 生产服务器
+  participant D as 部署脚本
+  participant P as PostgreSQL
+  participant A as Web / Worker
+  L->>L: 验证并提交代码
+  L->>L: 构建 Linux 镜像并打包
+  L->>S: 上传部署包
+  S->>D: 解压并执行 deploy
+  D->>D: 校验架构与文件清单
+  D->>D: 加载镜像
+  D->>A: 停止旧 Web / Worker
+  D->>P: 备份数据库
+  D->>P: 执行迁移
+  D->>A: 启动新 Web / Worker
+  A-->>D: 健康检查通过
+  D->>D: 记录成功版本并重载 Nginx
+```
 
 ## 2. 首次部署
 
@@ -140,7 +161,7 @@ grep '^ADMIN_PASSWORD=' deploy/.env
 
 1. 在「模型管理」添加模型，填写接口、密钥及模型名，保存并测试；第一项作为主力，其余启用模型按顺序备用。
 2. 在「订阅与推送 → 推送配置」填写SMTP与发件人，测试并保存，暂不开启推送总开关。
-3. 在「信源管理」参考[项目内信源清单](sources.md)添加需要的来源，验证样本，再启用。部署包中的 `docs/sources.md`仅作入口参考，不自动导入业务数据。
+3. 在「信源管理」参考仓库中的[项目内信源清单](sources.md)添加需要的来源，验证样本，再启用。该清单仅作本地入口参考，不随部署包发布，也不自动导入业务数据。
 4. 检查栏目、评分门槛、起刊日期和每日截稿时间。
 5. 在「模型管理 → 模型调用」开启模型调用总开关，并按需开启自动采集，检查任务结果，再手动生成一期验证。模型切换、调度及重试细节见[运行规则](model-runtime.md)。
 6. 确认内容、订阅名单及SMTP后，开启页面推送总开关。
@@ -173,7 +194,7 @@ cd /opt/fin-ai-brief
 
 不用拉代码、安装npm依赖、重新初始化或重新填写模型和邮件配置。包中不含真实 `deploy/.env`、`.state`和备份目录，覆盖解压会保留它们，包括手动补充的 `JIANYU_RSA_PRIVATE_KEY`、`JIANYU_COOKIE`、管理员密码和签名密钥。首次迁移需单独填写这些环境配置，本地真实 `.env` 不会自动上传。不要先删除 `/opt/fin-ai-brief`，也不要同时进行两次解压部署。
 
-加载镜像期间旧服务继续运行；停应用、备份、迁移和重启期间短暂停机。失败时不会自动混用旧代码和新数据库，检查日志后修复重试，或按下一节恢复。
+加载镜像期间旧服务继续运行；停应用、备份、迁移和重启期间短暂停机。部署脚本会按 `[部署 1/8]` 至 `[部署 8/8]` 打印阶段和完成时间；镜像加载、数据库备份及健康检查可能各需数分钟，最后看到健康检查通过和部署完成才表示切换成功。失败时不会自动混用旧代码和新数据库，检查日志后修复重试，或按下一节恢复。
 
 ```bash
 ./scripts/deploy.sh logs web
@@ -183,6 +204,25 @@ cd /opt/fin-ai-brief
 每条日志命令用 `Ctrl+C`退出。检查登录、最新刊期与任务列表。数据库镜像升级属于独立维护，不包含在日常应用更新中。
 
 ## 4. 备份、恢复与回退
+
+```mermaid
+flowchart TD
+  Incident[需要恢复] --> Same{是否原服务器?}
+  Same -->|是| Check[核对备份版本与镜像]
+  Same -->|否，新机器| Full[准备对应版本完整包]
+  Check --> Image{所需镜像存在?}
+  Image -->|否| Load[解压旧部署包并只加载镜像]
+  Image -->|是| Safety[再次备份当前数据库]
+  Load --> Safety
+  Full --> Env[恢复并核对 deploy/.env]
+  Env --> Safety
+  Safety --> Restore[停止应用并恢复指定数据库]
+  Restore --> Start[启动对应应用版本]
+  Start --> Verify[核对队列、订阅和投递状态]
+  Verify --> Enable[按需开启采集、模型、出刊和推送]
+```
+
+恢复会撤销备份之后的数据。流程先验证备份和镜像，再备份当前数据库，避免修复一次故障时丢失另一份现场。恢复后先核对投递状态和发件箱，再开启推送，防止旧队列造成重复投递。
 
 ### 4.1 备份
 
@@ -199,7 +239,15 @@ cd /opt/fin-ai-brief
 15 2 * * * cd /opt/fin-ai-brief && /bin/bash scripts/deploy.sh backup >> /opt/fin-ai-brief/deploy/backups/backup.log 2>&1
 ```
 
-按服务器时区运行，首次安装步骤已设为北京时间。部署、备份和恢复通过文件锁避免并发。脚本不自动删除备份，定期复制到本地或OSS，再按需清理旧文件。
+按服务器时区运行，首次安装步骤已设为北京时间。部署、备份和恢复通过文件锁避免并发。每次成功备份后会归档当前生产配置与版本，并默认清理超过14天的同名 `.dump`、`.env`和 `.version`，`backup.log`保持不变；新备份写入成功后才执行清理，因此始终保留当前现场。
+
+需要延长保留期时，在单次命令前设置 `DEPLOY_BACKUP_RETENTION_DAYS`：
+
+```bash
+DEPLOY_BACKUP_RETENTION_DAYS=30 ./scripts/deploy.sh backup
+```
+
+设为 `0` 可关闭自动清理。重要节点仍应下载到本地或OSS，避免只依赖服务器上的定时备份。
 
 本地电脑下载备份：
 

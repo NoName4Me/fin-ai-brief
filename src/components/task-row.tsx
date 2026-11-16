@@ -12,6 +12,7 @@ import {
 } from '../server/admin-task-labels.ts';
 import { retryManagedTaskAction } from '../app/actions.ts';
 import { assessmentSchema, ratingFor, defaultRatingRules } from '../server/editorial.ts';
+import { X } from 'lucide-react';
 type Detail = NonNullable<Awaited<ReturnType<typeof taskDetail>>>;
 export function TaskRow({ task }: { task: ManagedTask }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -156,9 +157,10 @@ export function TaskRow({ task }: { task: ManagedTask }) {
               type="button"
               className="dialog-close"
               aria-label="关闭任务详情"
+              title="关闭"
               onClick={() => dialog.current?.close()}
             >
-              关闭
+              <X className="icon" strokeWidth={1.75} aria-hidden="true" />
             </button>
           </header>
           <div className="dialog-body">

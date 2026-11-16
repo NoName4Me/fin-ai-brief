@@ -25,6 +25,7 @@
     "test": "tsx --env-file-if-exists=.data/test.env --test --test-concurrency=1 tests/*.test.ts",
     "test:browser": "playwright test",
     "test:deploy": "python3 -m unittest discover -s tests -p deployment_test.py",
+    "docs:build": "node scripts/build-docs.mjs",
     "check": "npm run typecheck && npm test && npm run test:deploy && npm run build",
     "format": "prettier --write src scripts tests *.ts *.json *.md docs",
     "format:check": "prettier --check src scripts tests *.ts *.json *.md docs"
@@ -51,6 +52,8 @@
     "@types/pg": "^8.15.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "marked": "^18.2.0",
+    "mermaid": "^12.3.0",
     "prettier": "^3.9.10",
     "typescript": "7.0.2"
   }

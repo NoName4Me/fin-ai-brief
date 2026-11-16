@@ -29,7 +29,7 @@ mkdir -p "$OUTPUT"
 OUTPUT=$(cd "$OUTPUT" && pwd)
 STAGING=$(mktemp -d)
 trap 'rm -rf "$STAGING"' EXIT
-mkdir -p "$STAGING/scripts" "$STAGING/deploy/nginx" "$STAGING/deploy/postgres" "$STAGING/release" "$STAGING/docs"
+mkdir -p "$STAGING/scripts" "$STAGING/deploy/nginx" "$STAGING/deploy/postgres" "$STAGING/release"
 WEB_IMAGE=fin-ai-brief-web:$VERSION
 WORKER_IMAGE=fin-ai-brief-worker:$VERSION
 printf '打包版本: %s\n目标平台: %s\n包类型: %s\n' "$VERSION" "$PLATFORM" "$MODE"
@@ -62,7 +62,6 @@ cp scripts/deploy.sh "$STAGING/scripts/"
 cp deploy/compose.yaml deploy/config.py deploy/.env.example "$STAGING/deploy/"
 cp deploy/nginx/default.conf.template "$STAGING/deploy/nginx/"
 cp deploy/postgres/10-app-role.sh "$STAGING/deploy/postgres/"
-cp docs/deployment.md docs/sources.md docs/architecture.md docs/model-runtime.md "$STAGING/docs/"
 python3 - "$STAGING" "$VERSION" "$PLATFORM" "$MODE" "$POSTGRES_IMAGE" "$NGINX_IMAGE" "$GIT_COMMIT" <<'PY'
 import hashlib, json, sys
 from pathlib import Path

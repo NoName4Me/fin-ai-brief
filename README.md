@@ -2,7 +2,7 @@
 
 每日 AI 资讯简报，覆盖政策监管、技术模型、同业场景、资本项目、风险安全及工具开源，重点关注金融与 AMC。
 
-[部署：本地打包与服务器更新](docs/deployment.md) · [架构](docs/architecture.md) · [信源入口](docs/sources.md) · [术语](GLOSSARY.md)
+[文档导航](docs/README.md) · [部署：本地打包与服务器更新](docs/deployment.md) · [架构](docs/architecture.md) · [邮件推送方案](docs/mail-delivery.md) · [信源入口](docs/sources.md) · [术语](GLOSSARY.md)
 
 ## 本地运行
 
@@ -44,10 +44,13 @@ npm run dev
 | `npm run check`          | 类型检查、业务测试、生产构建                 |
 | `npm run test:browser`   | 浏览器测试                                   |
 | `npm run test:deploy`    | 发布脚本测试，模拟Docker，不操作真实容器     |
+| `npm run docs:build`     | 从 Markdown 生成离线静态文档站               |
 | `npm run format`         | 格式化代码及文档                             |
 | `npm run format:check`   | 检查格式                                     |
 
 单机生产部署在本地构建镜像包，再上传服务器加载运行；服务器不拉源码、不执行npm安装或构建。日常默认打包只包含Web和Worker镜像，首次安装或新机恢复加 `--full` 包含数据库与Nginx镜像。首次和更新步骤见[部署文档](docs/deployment.md)，迁移和进程切换由部署脚本处理。
+
+文档以 Markdown 为正文源，`npm run docs:build` 会生成供本地查阅的离线文档站 `docs-site/index.html`。文档和静态页都不进入部署包，也不由 Nginx 对外发布。
 
 ## 管理入口
 

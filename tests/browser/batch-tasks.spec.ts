@@ -38,6 +38,7 @@ test('批次汇入紧凑列表，详情显示逐条结果，仅重试失败项',
     await row.getByRole('button', { name: '详情', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: '批量重处理详情' });
     await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.dialog-header')).toHaveCSS('position', 'sticky');
     await expect(
       dialog.getByRole('table', { name: '批次逐条结果' }).locator('tbody tr'),
     ).toHaveCount(2);

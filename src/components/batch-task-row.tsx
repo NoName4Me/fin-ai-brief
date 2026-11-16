@@ -5,6 +5,7 @@ import type { ManagedTask } from '../server/admin-tasks.ts';
 import type { batchDetail } from '../server/admin-reprocessing.ts';
 import { taskStamp } from '../server/admin-task-labels.ts';
 import { retryManagedTaskAction } from '../app/actions.ts';
+import { X } from 'lucide-react';
 type Detail = NonNullable<Awaited<ReturnType<typeof batchDetail>>>;
 const labels: Record<string, string> = {
   waiting: '排队中',
@@ -117,8 +118,14 @@ export function BatchTaskRow({
               <h2 id={`${id}-title`}>批量重处理详情</h2>
               <p>{task.name}</p>
             </div>
-            <button className="dialog-close" type="button" onClick={() => dialog.current?.close()}>
-              关闭
+            <button
+              className="dialog-close"
+              type="button"
+              aria-label="关闭"
+              title="关闭"
+              onClick={() => dialog.current?.close()}
+            >
+              <X className="icon" strokeWidth={1.75} aria-hidden="true" />
             </button>
           </header>
           <div className="dialog-body">

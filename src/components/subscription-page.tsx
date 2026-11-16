@@ -17,11 +17,20 @@ export async function SubscriptionPage({
   query: Query;
 }) {
   const [rows, confirmations, issues, history, config] = await Promise.all([
-    db.select().from(subscriptions).orderBy(desc(subscriptions.createdAt)),
+    db
+      .select({
+        id: subscriptions.id,
+        email: subscriptions.email,
+        active: subscriptions.active,
+        unsubscribedAt: subscriptions.unsubscribedAt,
+        subscribedAt: subscriptions.subscribedAt,
+        createdAt: subscriptions.createdAt,
+      })
+      .from(subscriptions)
+      .orderBy(desc(subscriptions.createdAt)),
     db
       .select({
         email: subscriptionConfirmations.email,
-        kinds: subscriptionConfirmations.kinds,
         requestedAt: subscriptionConfirmations.requestedAt,
         expiresAt: subscriptionConfirmations.expiresAt,
         confirmedAt: subscriptionConfirmations.confirmedAt,
@@ -52,7 +61,6 @@ export async function SubscriptionPage({
     {
       id: string | null;
       email: string;
-      kinds: string;
       status: 'registered' | 'unsubscribed' | 'pending' | 'expired';
       at: Date;
       expiresAt?: Date;
@@ -62,7 +70,6 @@ export async function SubscriptionPage({
     recipients.set(row.email, {
       id: row.id,
       email: row.email,
-      kinds: row.kinds.map((k) => kindNames[k as Kind]).join('、'),
       status: row.active ? 'registered' : 'unsubscribed',
       at: row.unsubscribedAt ?? row.subscribedAt,
     });
@@ -74,7 +81,6 @@ export async function SubscriptionPage({
     recipients.set(row.email, {
       id: null,
       email: row.email,
-      kinds: row.kinds.map((k) => kindNames[k as Kind]).join('、'),
       status: row.expiresAt > now ? 'pending' : 'expired',
       at: row.requestedAt,
       expiresAt: row.expiresAt,

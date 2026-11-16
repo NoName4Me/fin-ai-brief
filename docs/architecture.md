@@ -2,6 +2,45 @@
 
 Web 与 Worker 共用业务模块和 PostgreSQL。Web 处理页面及管理操作，Worker 执行采集、资讯处理、出刊和邮件投递，任务队列使用 pg-boss。
 
+## 系统概览
+
+```mermaid
+flowchart LR
+  Reader[读者] --> Nginx[Nginx]
+  Admin[管理员] --> Nginx
+  Nginx --> Web[Next.js Web]
+  Web --> DB[(PostgreSQL)]
+  Web --> Queue[pg-boss 队列]
+  Worker[常驻 Worker] --> Queue
+  Worker --> DB
+  Worker --> Sources[RSS、公开接口与网页]
+  Worker --> Models[模型 API]
+  Worker --> SMTP[SMTP 服务]
+  SMTP --> Mailboxes[订阅者邮箱]
+```
+
+Web 负责页面、鉴权和管理操作；Worker 常驻处理采集、模型任务、出刊、邮件和清理。两者不直接互调，通过 PostgreSQL 中的业务状态和 pg-boss 队列协作。
+
+## 业务主链路
+
+```mermaid
+flowchart LR
+  Sources[信源] --> Collect[采集]
+  Collect --> Articles[资讯与原文快照]
+  Articles --> Process[筛选、评分与事件归组]
+  Process --> Generate[栏目与整刊生成]
+  Generate --> Review{自动发布}
+  Review -->|开启| Published[正式刊期]
+  Review -->|关闭| Draft[待审稿]
+  Draft -->|管理员发布| Published
+  Published --> Delivery[创建投递记录]
+  Delivery --> MailWorker[Worker 投递]
+  MailWorker --> Readers[邮件订阅者]
+  Published --> Website[网页阅读]
+```
+
+采集、模型处理与出刊都由可恢复的队列任务执行。正式刊期保存结构化快照，网页和邮件读取同一份已发布内容；待审稿在人工发布前不会进入投递出箱。
+
 ## 代码结构
 
 | 目录                  | 职责                               |
@@ -16,8 +55,24 @@ Web 与 Worker 共用业务模块和 PostgreSQL。Web 处理页面及管理操�
 
 ## 采集与事件归组
 
+```mermaid
+flowchart LR
+  Due[到达 next_fetch_at] --> Fetch[Worker 请求信源]
+  Fetch -->|304| Wait[更新下次采集时间]
+  Fetch -->|新内容| Normalize[规范化 URL 与时间]
+  Normalize --> Dedup[保存并跨来源去重]
+  Dedup --> Screen[AI 筛选、评分与事实提取]
+  Screen --> Recall[召回同期相似事件]
+  Recall --> Group[模型判定重复或新增事实]
+  Group --> Review[程序校验引用与增量]
+  Review --> Event[事件与进展]
+  Fetch -->|429 / 网络失败| Backoff[限流或延长等待]
+  Backoff --> Wait
+  Event --> Wait
+```
+
 1. `collect` 读取 RSS、公开接口及已适配网页，规范化 URL，保存来源文本、时间精度和采集记录；详情与 PDF 的抽取由对应来源适配器处理。
-2. `process` 进行 AI 关联筛选、指标评分、事实提取、主栏目判断和事件归组。信源的栏目范围限制可参与栏目，辅助关键词只提供线索。
+2. `process` 进行 AI 关联筛选、指标评分、事实提取、主栏目判断和事件归组。初筛明确无实质AI关联，或全文分析判定不相关、证据质量不足、超出信源栏目范围时，资讯标记为“未入选”；这属于已完成处理后的确定结论，不是失败或待处理。信源的栏目范围限制可参与栏目，辅助关键词只提供线索。
 3. 单篇分析仅召回同一期统计窗口内的已评分事件，按相似度取前 12 个，只发送标题和最多 500 字符的摘要，不携带跨期历史。中文连续双字、英文词和数字参与匹配，英文词及数字加权，并按文本长度归一。
 4. 模型对照本期候选事件区分重复报道和实质新增事实。后续进展必须返回新增事实索引，程序校验范围、重复及空增量；文章保存完整事实，事件进展只写入新增部分。
 5. 重复报道仅增加关联来源，不新增进展。疑难归组和事实冲突可触发独立复核；复核拒绝的资料以低分保留，不进入日报。
@@ -60,7 +115,7 @@ Web 与 Worker 共用业务模块和 PostgreSQL。Web 处理页面及管理操�
 
 用户订阅需通过有效期 24 小时的邮件确认；管理员添加可直接生效。SMTP 连接、认证及明确拒收保留失败原因；提交结果不确定时停止自动重发。手动推送与自动推送共用投递去重规则。
 
-邮件发送复用单连接 SMTP 池，每连接最多发送 100 封，空闲 60 秒后关闭；连接池自身不重试断线邮件。日报与订阅确认信共用发送节流，同一连接配置的两次发送之间至少间隔 5 秒，Web 与 Worker 通过 `mail_send_runtime` 行锁串行发送。认证失败后冷却 15 分钟，冷却状态保存在数据库，重启不会清除；更换连接配置或凭据后使用新的运行状态。冷却期间尚未发送的日报保留待发送，由 Worker 后续继续；已经明确失败的邮件仍需手动重排，已发送和结果不明的记录不自动重发。SMTP 连接测试使用独立连接，不发送邮件、不清除冷却。
+邮件发送复用单连接 SMTP 池，每连接最多发送 100 封，空闲 60 秒后关闭；连接池自身不重试断线邮件。日报与订阅确认信共用发送节流，同一连接配置的两次发送之间至少间隔 5 秒，Web 与 Worker 通过 `mail_send_runtime` 行锁串行发送。认证失败后冷却 15 分钟，冷却状态保存在数据库，重启不会清除；更换连接配置或凭据后使用新的运行状态。冷却期间尚未发送的日报保留待发送，由 Worker 后续继续；已经明确失败的邮件仍需手动重排，已发送和结果不明的记录不自动重发。SMTP 连接测试使用独立连接，不发送邮件、不清除冷却。自动、手动、单条重推及完整状态机见[邮件推送运行方案](mail-delivery.md)。
 
 ## 任务、配置与数据保留
 
@@ -75,3 +130,22 @@ Worker 按已保存的并发、重试和调用额度执行任务，每分钟检�
 模型地址、密钥、模型名与调用开关保存在数据库，环境中的旧模型配置仅首次迁移时导入。SMTP 连接与发件人保存在数据库，页面推送开关统一控制所有邮件，旧环境邮件配置及双开关的有效状态仅首次迁移时导入。连接测试不发送邮件、不保存临时表单，密码留空保留原值，密码不传入客户端。数据库、管理员密码与签名密钥来自环境变量；管理写操作及任务详情接口检查管理员会话。
 
 迁移记录文件名和校验和；已应用 SQL 不修改、不删除。升级先停止 Worker，再迁移并重启。部署与验证命令见 [README](../README.md)，信源入口见 [sources.md](sources.md)。
+
+## 部署运行
+
+```mermaid
+flowchart TB
+  Internet[公网请求] --> Nginx[Nginx]
+  Nginx --> Web[Web 容器]
+  Web --> DB[(PostgreSQL 数据卷)]
+  Worker[Worker 容器] --> DB
+  Worker --> Queue[pg-boss 队列]
+  Queue --> DB
+  Web --> Queue
+  Worker --> External[信源、模型 API 与 SMTP]
+  Backup[备份脚本] --> DB
+  Health[健康检查] --> Web
+  Health --> Worker
+```
+
+单机生产部署常驻 Nginx、Web、Worker 与 PostgreSQL 四个容器。只有 Nginx 暴露入口；Web 和数据库端口不对外公开。Worker 使用持久心跳和数据库连接参与健康检查。更新包替换 Web 与 Worker 镜像，数据库使用独立数据卷，部署脚本在切换应用前执行迁移和备份。具体步骤见[部署文档](deployment.md)。
