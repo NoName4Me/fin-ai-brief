@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, inArray, isNotNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, pool } from './db.ts';
 import { articles, events, sources } from './schema.ts';
@@ -11,7 +11,7 @@ import {
   weightedRating,
   keywordMatches,
 } from './editorial.ts';
-import { sourcePassages, sourceFactSchema } from './source-evidence.ts';
+import { prepareSourceText, sourcePassages, sourceFactSchema } from './source-evidence.ts';
 import { modelJSON, getModelConnection } from './model.ts';
 import { getSettings } from './settings.ts';
 import { fingerprint, stage } from './processing-log.ts';
@@ -22,8 +22,10 @@ class EventChanged extends Error {
     this.name = 'EventChanged';
   }
 }
-export const PROCESS_VERSION = 'ai-editorial-v10';
-function decisionSchema(passages: ReturnType<typeof sourcePassages>) {
+export const PROCESS_VERSION = 'ai-editorial-v11';
+const EVENT_RECALL_LIMIT = 12;
+const ORIGINAL_TITLE_BYPASS_SIMILARITY = 0.2;
+function decisionSchema(passages: ReturnType<typeof sourcePassages>, sourceExcerpt: string) {
   const selectedDecisionSchema = z.object({
     relevant: z.literal(true),
     title: z.string().min(1).max(200),
@@ -38,7 +40,7 @@ function decisionSchema(passages: ReturnType<typeof sourcePassages>) {
     scoreReason: z.string().max(1000).default(''),
     existingEventId: z.uuid().nullable(),
     facts: z
-      .array(sourceFactSchema(passages))
+      .array(sourceFactSchema(passages, sourceExcerpt))
       .max(
         12,
         '事实条目最多12条。请筛选、合并为最多12条核心事实，覆盖标题和摘要中的主要陈述；不要逐句罗列全文',
@@ -89,6 +91,49 @@ export function recallScore(a: string, b: string) {
     [...terms].reduce((n, t) => n + (/^[a-z0-9]/.test(t) ? 5 : 1), 0);
   return overlap / Math.sqrt(Math.max(1, weight(left) * weight(right)));
 }
+type RecallEvent = {
+  title: string;
+  summary: string;
+  sourceTitles?: string[];
+};
+export function rankEventCandidates<T extends RecallEvent>(
+  article: { title: string; excerpt: string },
+  candidates: T[],
+  options: { enabled: boolean; minSimilarity: number },
+) {
+  const articleText = `${article.title} ${article.excerpt}`;
+  return candidates
+    .map((candidate, originalIndex) => {
+      const bodySimilarity = recallScore(articleText, `${candidate.title} ${candidate.summary}`);
+      const titleSimilarity = Math.max(
+        recallScore(article.title, candidate.title),
+        ...(candidate.sourceTitles ?? []).map((title) => recallScore(article.title, title)),
+      );
+      const originalTitleMatch = titleSimilarity >= ORIGINAL_TITLE_BYPASS_SIMILARITY;
+      const rankScore = options.enabled ? bodySimilarity + titleSimilarity * 0.2 : bodySimilarity;
+      const keep =
+        !options.enabled || bodySimilarity >= options.minSimilarity || originalTitleMatch;
+      const { sourceTitles: _sourceTitles, ...event } = candidate;
+      return {
+        ...event,
+        similarity: bodySimilarity,
+        titleSimilarity,
+        rankScore,
+        originalTitleMatch,
+        keep,
+        originalIndex,
+      };
+    })
+    .filter((candidate) => candidate.keep)
+    .sort(
+      (a, b) =>
+        b.rankScore - a.rankScore ||
+        b.similarity - a.similarity ||
+        a.originalIndex - b.originalIndex,
+    )
+    .slice(0, EVENT_RECALL_LIMIT)
+    .map(({ keep: _keep, originalIndex: _originalIndex, ...candidate }) => candidate);
+}
 export async function processArticle(id: string, reprocessBatchId?: string) {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -134,6 +179,8 @@ async function processArticleAttempt(id: string, reprocessBatchId?: string) {
     model: connection.model,
     review: config.reviewEnabled,
     reviewModel: connection.model,
+    eventRecallOptimizationEnabled: config.eventRecallOptimizationEnabled,
+    eventRecallMinSimilarity: config.eventRecallMinSimilarity,
   });
   await stage(subject, runKey, 'validate', async () => {
     if (!article.title.trim() || !article.excerpt.trim()) throw new Error('材料缺少标题或摘要');
@@ -148,7 +195,11 @@ async function processArticleAttempt(id: string, reprocessBatchId?: string) {
       endpoint: connection.baseUrl.replace(/\/+$/, ''),
     };
   });
-  const passages = sourcePassages(article.excerpt);
+  const preparedSource = config.eventRecallOptimizationEnabled
+    ? prepareSourceText(article.excerpt)
+    : { text: article.excerpt, ranges: undefined };
+  const analysisExcerpt = preparedSource.text;
+  const passages = sourcePassages(article.excerpt, preparedSource.ranges);
   const publicationAt = new Date(`${localDate(article.publishedAt)}T${config.dailyTime}:00+08:00`);
   const periodDate = localDate(
     new Date(publicationAt.getTime() + (article.publishedAt >= publicationAt ? 86400_000 : 0)),
@@ -166,13 +217,35 @@ async function processArticleAttempt(id: string, reprocessBatchId?: string) {
         ),
       )
       .orderBy(desc(events.updatedAt));
-    return recent
-      .map((e) => ({
-        ...e,
-        similarity: recallScore(article.title + ' ' + article.excerpt, e.title + ' ' + e.summary),
-      }))
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, 12);
+    const originalTitles = new Map<string, string[]>();
+    if (config.eventRecallOptimizationEnabled && recent.length) {
+      const linkedArticles = await db
+        .select({ eventId: articles.eventId, title: articles.title })
+        .from(articles)
+        .where(
+          inArray(
+            articles.eventId,
+            recent.map((event) => event.id),
+          ),
+        );
+      for (const linked of linkedArticles) {
+        if (!linked.eventId) continue;
+        const titles = originalTitles.get(linked.eventId) ?? [];
+        titles.push(linked.title);
+        originalTitles.set(linked.eventId, titles);
+      }
+    }
+    return rankEventCandidates(
+      { title: article.title, excerpt: analysisExcerpt },
+      recent.map((event) => ({
+        ...event,
+        sourceTitles: originalTitles.get(event.id),
+      })),
+      {
+        enabled: config.eventRecallOptimizationEnabled,
+        minSimilarity: config.eventRecallMinSimilarity,
+      },
+    );
   });
   const decision = await stage(subject, runKey, 'analyze', async () => {
     const value = await modelJSON(
@@ -185,10 +258,10 @@ async function processArticleAttempt(id: string, reprocessBatchId?: string) {
         keywords,
         reportedAt: article.publishedPrecision === 'observed' ? undefined : article.publishedAt,
         observedAt: article.publishedPrecision === 'observed' ? article.publishedAt : undefined,
-        matchedKeywords: keywordMatches(article.title + ' ' + article.excerpt, keywords),
+        matchedKeywords: keywordMatches(article.title + ' ' + analysisExcerpt, keywords),
         article: {
           title: article.title,
-          passages,
+          passages: passages.map(({ id, text }) => ({ id, text })),
           source: article.sourceName,
           publishedAt: article.publishedPrecision === 'observed' ? undefined : article.publishedAt,
           observedAt: article.publishedPrecision === 'observed' ? article.publishedAt : undefined,
@@ -201,7 +274,7 @@ async function processArticleAttempt(id: string, reprocessBatchId?: string) {
           summary: e.summary.slice(0, 500),
         })),
       },
-      decisionSchema(passages).superRefine((value, ctx) => {
+      decisionSchema(passages, article.excerpt).superRefine((value, ctx) => {
         if (!value.relevant) return;
         const scoreCheck = assessmentFor(config.ratingRules).safeParse(value.assessment);
         if (!scoreCheck.success)
@@ -250,6 +323,7 @@ async function processArticleAttempt(id: string, reprocessBatchId?: string) {
     return value;
   });
   let target = decision.relevant ? decision.existingEventId : null;
+  const targetCandidate = target ? candidates.find((event) => event.id === target) : undefined;
   let reviewNote: string | null = null;
   let reviewRejected = false;
   if (
@@ -257,7 +331,9 @@ async function processArticleAttempt(id: string, reprocessBatchId?: string) {
     config.reviewEnabled &&
     (decision.needsReview ||
       decision.conflict ||
-      (target && candidates.find((e) => e.id === target)?.similarity === 0))
+      (targetCandidate &&
+        targetCandidate.similarity === 0 &&
+        targetCandidate.titleSimilarity === 0))
   ) {
     const review = await stage(subject, runKey, 'review', () =>
       modelJSON(
@@ -266,7 +342,7 @@ async function processArticleAttempt(id: string, reprocessBatchId?: string) {
         {
           article: {
             title: article.title,
-            excerpt: article.excerpt,
+            excerpt: analysisExcerpt,
             source: article.sourceName,
             url: article.url,
             publishedAt:

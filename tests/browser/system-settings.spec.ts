@@ -29,7 +29,7 @@ test('系统设置与模型管理拆分保存，模型可测试，桌面和手�
     res.setHeader('Content-Type', 'application/json');
     res.end(
       JSON.stringify({
-        choices: [{ message: { content: '模型已收到 test' } }],
+        choices: [{ message: { content: '模型已收到 测试' } }],
         usage: { prompt_tokens: 1, completion_tokens: 2 },
       }),
     );
@@ -205,14 +205,14 @@ test('系统设置与模型管理拆分保存，模型可测试，桌面和手�
     await primaryTestButton.click();
     const testResult = primaryRow.locator('.managed-model-test-result');
     await expect(testResult.locator('strong')).toHaveText('连通');
-    await expect(page.getByText('模型已收到 test', { exact: true })).toBeVisible();
+    await expect(page.getByText('模型已收到 测试', { exact: true })).toBeVisible();
     expect((await testResult.boundingBox())!.y).toBeGreaterThan(
       (await primaryTestButton.boundingBox())!.y + (await primaryTestButton.boundingBox())!.height,
     );
     await page.screenshot({ path: '.data/model-test-result-row-1440.png', fullPage: true });
     expect(received).toMatchObject({
       model: 'configured-model',
-      messages: [{ role: 'user', content: 'test' }],
+      messages: [{ role: 'user', content: '测试' }],
     });
     expect(
       (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value.modelConnections[0]

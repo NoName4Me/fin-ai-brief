@@ -7,7 +7,7 @@ import { migrate } from '../scripts/migrate.ts';
 import { defaultSettings } from '../src/server/types.ts';
 
 import { importArticle } from '../src/server/collect.ts';
-import { processArticle } from '../src/server/process.ts';
+import { processArticle, rankEventCandidates } from '../src/server/process.ts';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
   throw new Error('必须使用独立_test数据库');
 const originalFetch = globalThis.fetch;
@@ -237,5 +237,104 @@ test('后续报道保存完整原文事实，但事件进展只写入新增条�
   assert.deepEqual(
     development.facts.map((f: { statement: string }) => f.statement),
     ['贷款需要设备残值支持。'],
+  );
+});
+
+test('低分候选被过滤，原始关联标题仍可保护正文改写后的同事件', async () => {
+  await syncModelSettings();
+  const now = new Date('2026-11-06T12:00:00+08:00').getTime();
+  const [linked] = await db
+    .insert(events)
+    .values({
+      industryId: 'ai',
+      title: 'zzzz unrelated normalized title',
+      summary: 'zzzz unrelated normalized summary',
+      section: '资本与项目',
+      score: 80,
+      assessment,
+      occurredAt: new Date(now - 3600_000),
+    })
+    .returning();
+  const [priorArticle] = await importArticle({
+    sourceName: '媒体',
+    title: 'Anthropic完成630亿美元算力融资',
+    excerpt: '历史材料',
+    url: 'https://example.invalid/recall-original-title',
+    publishedAt: new Date(now - 3600_000).toISOString(),
+  });
+  await pool.query("UPDATE articles SET event_id=$1,state='processed' WHERE id=$2", [
+    linked.id,
+    priorArticle.id,
+  ]);
+  for (let i = 0; i < 15; i++)
+    await db.insert(events).values({
+      industryId: 'ai',
+      title: `yyyy unrelated event ${i}`,
+      summary: 'yyyy unrelated summary',
+      section: '工具与开源',
+      score: 80,
+      assessment,
+      occurredAt: new Date(now),
+    });
+  const [article] = await importArticle({
+    sourceName: '媒体',
+    title: 'Anthropic完成630亿美元算力融资',
+    excerpt: 'qqqq 完全改写后的正文。\n免责声明：本文不构成投资建议。',
+    url: 'https://example.invalid/recall-rewritten',
+    publishedAt: new Date(now).toISOString(),
+  });
+  globalThis.fetch = async (_url, init) => {
+    const input = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+    assert.equal(input.candidates.length, 1);
+    assert.equal(input.candidates[0].id, linked.id);
+    assert.ok(
+      !input.article.passages.some((passage: { text: string }) =>
+        passage.text.includes('免责声明'),
+      ),
+    );
+    return new Response(
+      JSON.stringify({
+        usage: { prompt_tokens: 10, completion_tokens: 20 },
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: {
+              content: JSON.stringify({
+                relevant: false,
+                reason: '测试仅验证召回，不做收录',
+              }),
+            },
+          },
+        ],
+      }),
+    );
+  };
+  await processArticle(article.id);
+  assert.equal(
+    (await pool.query('SELECT state FROM articles WHERE id=$1', [article.id])).rows[0].state,
+    'ignored',
+  );
+});
+
+test('关闭召回优化时维持最多12条全量候选的原行为', () => {
+  const candidates = Array.from({ length: 15 }, (_, index) => ({
+    id: String(index),
+    title: `zzzz event ${index}`,
+    summary: 'zzzz summary',
+  }));
+  const article = { title: 'qqqq title', excerpt: 'qqqq excerpt' };
+  assert.equal(
+    rankEventCandidates(article, candidates, {
+      enabled: false,
+      minSimilarity: 0.2,
+    }).length,
+    12,
+  );
+  assert.equal(
+    rankEventCandidates(article, candidates, {
+      enabled: true,
+      minSimilarity: 0.03,
+    }).length,
+    0,
   );
 });

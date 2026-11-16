@@ -228,6 +228,8 @@ export async function taskSettingsAction(form: FormData) {
     saveSettingsPatch({
       taskRetryLimit: Number(text(form, 'taskRetryLimit')),
       processingConcurrency: Number(text(form, 'processingConcurrency')),
+      eventRecallOptimizationEnabled: form.has('eventRecallOptimizationEnabled'),
+      eventRecallMinSimilarity: Number(text(form, 'eventRecallMinSimilarity')),
     }),
   );
 }

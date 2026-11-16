@@ -57,6 +57,34 @@ export function TaskSettingsForm({ config }: { config: Settings }) {
           required
         />
       </label>
+      <fieldset>
+        <legend>事件召回优化</legend>
+        <label className="settings-switch-label">
+          <Switch
+            name="eventRecallOptimizationEnabled"
+            defaultChecked={config.eventRecallOptimizationEnabled}
+            aria-label="启用事件召回优化"
+          />
+          启用正文清洁、原始标题召回与低分过滤
+        </label>
+        <p className="form-hint">
+          最多向模型提供 12 个本期事件；低相似度时可以少提供甚至不提供。关闭后恢复原有的前 12
+          条全量候选行为。
+        </p>
+        <label>
+          事件候选最低相似度
+          <input
+            type="number"
+            name="eventRecallMinSimilarity"
+            min={0.005}
+            max={0.2}
+            step={0.005}
+            defaultValue={config.eventRecallMinSimilarity}
+            required
+          />
+        </label>
+        <p className="form-hint">仅在事件召回优化开启时生效，默认 0.03。</p>
+      </fieldset>
       <button className="solid-button">
         <Save className="icon" strokeWidth={1.75} aria-hidden="true" />
         保存

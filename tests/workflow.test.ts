@@ -250,9 +250,9 @@ test('手工导入按规范化URL去重，模型归入已有事件', async () =>
   await syncModelSettings();
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
   const input = {
-    title: '新的进展',
+    title: '模型接口支持结构化输出新进展',
     url: 'https://example.com/news?utm_source=a',
-    excerpt: '新的事实',
+    excerpt: '模型接口增加结构化输出，应用接入仍需校验结果。',
     sourceName: '测试',
     industryId: 'ai',
     publishedAt: '2026-10-21T20:00:00+08:00',
@@ -668,9 +668,9 @@ test('重复报道只挂接证据，不重写事件或制造实时新增提示',
   await syncModelSettings();
   await saveSettings({ ...(await getSettings()), reviewEnabled: false });
   const [row] = await importArticle({
-    title: '转载材料',
+    title: '人工智能应用治理试点转载',
     url: 'https://example.invalid/repeat-fact',
-    excerpt: '同一公告。',
+    excerpt: '机构启动人工智能应用治理试点，明确数据与人工复核边界。',
     sourceName: '转载测试',
     industryId: 'finance',
     publishedAt: '2026-10-22T07:00:00+08:00',
@@ -867,14 +867,14 @@ test('并发更新同一事件时检测过期摘要，重试重新召回而不�
   const base = { sourceName: '测试', industryId: 'ai', publishedAt: '2026-10-22T07:00:00+08:00' };
   const [a] = await importArticle({
     ...base,
-    title: '进展甲',
-    excerpt: '新增事实甲。',
+    title: '模型接口结构化输出进展甲',
+    excerpt: '模型接口新增事实甲，应用接入仍需校验结果。',
     url: 'https://example.invalid/update-a',
   });
   const [b] = await importArticle({
     ...base,
-    title: '进展乙',
-    excerpt: '新增事实乙。',
+    title: '模型接口结构化输出进展乙',
+    excerpt: '模型接口新增事实乙，应用接入仍需校验结果。',
     url: 'https://example.invalid/update-b',
   });
   let started = 0;

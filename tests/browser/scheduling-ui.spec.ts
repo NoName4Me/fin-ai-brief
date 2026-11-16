@@ -18,6 +18,9 @@ test('重试与并发通过弹窗保存，操作通知固定右上角并可关�
     await page.goto('/admin/articles?configure=tasks');
     await page.getByLabel('失败后自动重试次数').fill('2');
     await page.getByLabel('资讯处理并发数').fill('4');
+    await expect(page.getByRole('switch', { name: '启用事件召回优化' })).toBeChecked();
+    await page.getByRole('switch', { name: '启用事件召回优化' }).click();
+    await page.getByLabel('事件候选最低相似度').fill('0.04');
     await page.getByRole('button', { name: '保存' }).click();
     const notice = page.getByRole('status');
     await expect(notice).toHaveText('操作已完成');
@@ -32,6 +35,17 @@ test('重试与并发通过弹窗保存，操作通知固定右上角并可关�
     await page.goto('/admin/articles?configure=tasks');
     await expect(page.getByLabel('失败后自动重试次数')).toHaveValue('2');
     await expect(page.getByLabel('资讯处理并发数')).toHaveValue('4');
+    await expect(page.getByRole('switch', { name: '启用事件召回优化' })).not.toBeChecked();
+    await expect(page.getByLabel('事件候选最低相似度')).toHaveValue('0.04');
+    const saved = (
+      await db.query(
+        `SELECT value->>'eventRecallOptimizationEnabled' enabled,
+          value->>'eventRecallMinSimilarity' min_similarity
+        FROM settings WHERE id=1`,
+      )
+    ).rows[0];
+    expect(saved.enabled).toBe('false');
+    expect(saved.min_similarity).toBe('0.04');
     await page.getByRole('button', { name: '保存' }).click();
     await page.setViewportSize({ width: 375, height: 812 });
     await expect(notice).toBeInViewport();

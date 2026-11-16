@@ -93,7 +93,7 @@ export async function testModelConnection(form: FormData, fetcher: typeof fetch 
         model: config.model,
         stream: false,
         max_tokens: 256,
-        messages: [{ role: 'user', content: 'test' }],
+        messages: [{ role: 'user', content: '测试' }],
       }),
       signal: AbortSignal.timeout(30_000),
     });

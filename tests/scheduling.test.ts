@@ -49,13 +49,19 @@ async function until(check: () => Promise<boolean>, timeout = 5000) {
   }
 }
 
-test('配置默认重试1次、并发3篇，拒绝超过3次重试或20个并发', () => {
+test('任务配置包含召回优化默认值，并拒绝越界重试、并发和相似度', () => {
   assert.equal(settingsSchema.parse(defaultSettings).taskRetryLimit, 1);
   assert.equal(settingsSchema.parse(defaultSettings).processingConcurrency, 3);
+  assert.equal(settingsSchema.parse(defaultSettings).eventRecallOptimizationEnabled, true);
+  assert.equal(settingsSchema.parse(defaultSettings).eventRecallMinSimilarity, 0.03);
   for (const value of [-1, 4, 1.5])
     assert.throws(() => settingsSchema.parse({ ...defaultSettings, taskRetryLimit: value }));
   for (const value of [0, 21, 1.5])
     assert.throws(() => settingsSchema.parse({ ...defaultSettings, processingConcurrency: value }));
+  for (const value of [0, 0.201, Number.NaN])
+    assert.throws(() =>
+      settingsSchema.parse({ ...defaultSettings, eventRecallMinSimilarity: value }),
+    );
 });
 
 test('配置的重试次数写入任务，耗尽后失败不再阻塞，并支持手动重开', async () => {

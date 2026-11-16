@@ -81,13 +81,13 @@ test('配置无效时整次保存拒绝，不部分覆盖额度或数据保留',
   assert.equal(saved.modelDailyLimit, defaultSettings.modelDailyLimit);
   assert.deepEqual(saved.modelConnection, connection);
 });
-test('连通测试发送当前表单的test，不修改已保存配置，成功和失败都计额度', async () => {
+test('连通测试发送当前表单的测试，不修改已保存配置，成功和失败都计额度', async () => {
   const data = form();
   data.set('modelName', 'unsaved-model');
   data.set('modelBaseUrl', 'https://temporary.invalid/v1');
   const result = await testModelConnection(data, async (url, init) => {
     assert.equal(url, 'https://temporary.invalid/v1/chat/completions');
-    assert.deepEqual(JSON.parse(String(init?.body)).messages, [{ role: 'user', content: 'test' }]);
+    assert.deepEqual(JSON.parse(String(init?.body)).messages, [{ role: 'user', content: '测试' }]);
     assert.equal(JSON.parse(String(init?.body)).model, 'unsaved-model');
     return Response.json({
       choices: [{ message: { content: 'test received' } }],
