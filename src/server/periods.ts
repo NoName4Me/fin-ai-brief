@@ -9,7 +9,28 @@ export function validDate(value: string) {
     new Date(value).toISOString().slice(0, 10) === value
   );
 }
-type Schedule = { weeklyDay?: number; monthlyDay?: number };
+type Schedule = {
+  weeklyDay?: number;
+  monthlyDay?: number;
+  weekendPublicationRules?: Settings['weekendPublicationRules'];
+};
+const dayMs = 86400_000;
+const shiftDate = (date: string, days: number) =>
+  new Date(Date.parse(date) + days * dayMs).toISOString().slice(0, 10);
+const cutoffAt = (date: string, time: string) => new Date(`${date}T${time}:00+08:00`);
+
+export function updateWeekendPublicationRules(
+  config: Pick<Settings, 'dailyTime' | 'weekendPublicationRules'>,
+  skip: boolean,
+  now = new Date(),
+): Settings['weekendPublicationRules'] {
+  const date = localDate(now);
+  let saturday = shiftDate(date, 6 - new Date(date).getUTCDay());
+  if (now >= cutoffAt(saturday, config.dailyTime)) saturday = shiftDate(saturday, 7);
+  const rules = config.weekendPublicationRules.filter((rule) => rule.from < saturday);
+  if ((rules.at(-1)?.skip ?? false) !== skip) rules.push({ from: saturday, skip });
+  return rules;
+}
 function monthDate(year: number, month: number, requested: number) {
   const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   return new Date(Date.UTC(year, month, Math.min(requested, last))).toISOString().slice(0, 10);
@@ -19,15 +40,21 @@ function isScheduled(kind: Kind, date: string, config: Schedule) {
   if (kind === 'weekly') return day.getUTCDay() === (config.weeklyDay ?? 1);
   if (kind === 'monthly')
     return date === monthDate(day.getUTCFullYear(), day.getUTCMonth(), config.monthlyDay ?? 1);
+  if ([0, 6].includes(day.getUTCDay()))
+    return !config.weekendPublicationRules?.findLast((rule) => rule.from <= date)?.skip;
   return true;
 }
 export function rangeFor(kind: Kind, date: string, time: string, config: Schedule = {}) {
   if (!validDate(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))
     throw new Error('无效日期或出刊时间');
   if (!isScheduled(kind, date, config)) throw new Error('出刊日期不符合当前出刊规则');
-  const end = new Date(`${date}T${time}:00+08:00`);
+  const end = cutoffAt(date, time);
   let start = new Date(end);
-  if (kind === 'daily') start.setUTCDate(start.getUTCDate() - 1);
+  if (kind === 'daily') {
+    let previous = shiftDate(date, -1);
+    while (!isScheduled(kind, previous, config)) previous = shiftDate(previous, -1);
+    start = cutoffAt(previous, time);
+  }
   if (kind === 'weekly') start.setUTCDate(start.getUTCDate() - 7);
   if (kind === 'monthly') {
     const day = new Date(date);
@@ -36,10 +63,16 @@ export function rangeFor(kind: Kind, date: string, time: string, config: Schedul
   }
   return { start, end };
 }
-export function publicationCycle(now: Date, dailyTime: string) {
-  const today = rangeFor('daily', localDate(now), dailyTime);
-  const start = now >= today.end ? today.end : today.start;
-  return { start, end: now, previousStart: new Date(start.getTime() - 86400000) };
+export function dailyPeriodAt(now: Date, dailyTime: string, config: Schedule = {}) {
+  let date = localDate(now);
+  if (now >= cutoffAt(date, dailyTime)) date = shiftDate(date, 1);
+  while (!isScheduled('daily', date, config)) date = shiftDate(date, 1);
+  return { date, ...rangeFor('daily', date, dailyTime, config) };
+}
+export function publicationCycle(now: Date, dailyTime: string, config: Schedule = {}) {
+  const { start } = dailyPeriodAt(now, dailyTime, config);
+  const previous = rangeFor('daily', localDate(start), dailyTime, config);
+  return { start, end: now, previousStart: previous.start };
 }
 export function duePeriods(
   now: Date,
@@ -69,17 +102,9 @@ export function duePeriods(
   }
   return due;
 }
-export function preCollectionCutoff(now: Date, dailyTime: string) {
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(dailyTime)) throw new Error('无效出刊时间');
-  const todayPublication = new Date(`${localDate(now)}T${dailyTime}:00+08:00`);
-  for (const publicationAt of [
-    todayPublication,
-    new Date(todayPublication.getTime() + 86400_000),
-  ]) {
-    if (now >= new Date(publicationAt.getTime() - 3600_000) && now < publicationAt)
-      return new Date(publicationAt.getTime() - 2 * 3600_000);
-  }
-  return null;
+export function preCollectionCutoff(now: Date, dailyTime: string, config: Schedule = {}) {
+  const { end } = dailyPeriodAt(now, dailyTime, config);
+  return now.getTime() >= end.getTime() - 3600_000 ? new Date(end.getTime() - 2 * 3600_000) : null;
 }
 export function backfillPeriods(start: string, end: string, kind: Kind, config: Schedule = {}) {
   if (!validDate(start) || !validDate(end) || start > end) throw new Error('补刊日期范围无效');

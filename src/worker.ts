@@ -45,7 +45,7 @@ async function tick() {
   const config = await getSettings();
   if (config.collectionEnabled) {
     const preCollectionBefore = config.dailyEnabled
-      ? preCollectionCutoff(new Date(), config.dailyTime)
+      ? preCollectionCutoff(new Date(), config.dailyTime, config)
       : null;
     const due = await db
       .select()

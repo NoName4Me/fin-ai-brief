@@ -4,7 +4,7 @@ import { briefTokenUsage } from './brief-token-usage.ts';
 import { pool } from './db.ts';
 import { getSettings } from './settings.ts';
 import { modelUsage } from './model.ts';
-import { localDate, publicationCycle } from './periods.ts';
+import { localDate, dailyPeriodAt } from './periods.ts';
 import { runtimeExceptions } from './runtime-exceptions.ts';
 import { modelOverviewStatus } from './admin-models.ts';
 
@@ -48,9 +48,11 @@ async function latestGeneration(date: string) {
 export async function adminOverview(now = new Date()) {
   const date = localDate(now);
   const config = await getSettings();
-  const { start, end } = publicationCycle(now, config.dailyTime);
-  const cycleEnd = new Date(start.getTime() + 86400000);
-  const nextIssueDate = localDate(cycleEnd);
+  const {
+    start,
+    end: cycleEnd,
+    date: nextIssueDate,
+  } = dailyPeriodAt(now, config.dailyTime, config);
   const [usage, counts, health, issues, sections, generation] = await Promise.all([
     modelUsage(),
     pool.query<{
@@ -77,7 +79,7 @@ export async function adminOverview(now = new Date()) {
         i.pending,
         i.failed,
         (SELECT count(*)::int FROM briefs WHERE kind='daily' AND period_date=$3::date AND draft IS NOT NULL) drafts FROM incoming_cycle i`,
-      [start, end, nextIssueDate],
+      [start, now, nextIssueDate],
     ),
     pool.query<{ id: string; name: string; state: string; last_error: string | null }>(
       `SELECT id,name,last_error,CASE
@@ -104,7 +106,7 @@ export async function adminOverview(now = new Date()) {
     ),
     latestGeneration(nextIssueDate),
   ]);
-  const exceptions = await runtimeExceptions(now, config.dailyTime);
+  const exceptions = await runtimeExceptions(now, config.dailyTime, config);
   const model = await modelOverviewStatus(now);
   const editionTask =
     sections.rows[0]?.period_date === nextIssueDate
@@ -122,6 +124,7 @@ export async function adminOverview(now = new Date()) {
     latestPublished?.period_date,
     config.dailyTime,
     now,
+    config,
   );
   const run = generation.rows[0];
   const running =
@@ -163,7 +166,7 @@ export async function adminOverview(now = new Date()) {
                 ? '自动出刊已暂停'
                 : nextIssueDate < config.startDate
                   ? '尚未到启用日期'
-                  : now < new Date(`${nextIssueDate}T${config.dailyTime}:00+08:00`)
+                  : now < cycleEnd
                     ? '未到截稿时间'
                     : '尚未生成';
   // Paused collection is not a scheduling fault. Actual failures and uncollected sources remain visible.

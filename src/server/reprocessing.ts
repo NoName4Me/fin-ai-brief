@@ -19,7 +19,8 @@ export async function requestReprocessing(input: unknown) {
     throw new Error('重新处理范围须在31天以内，结束时间应晚于开始时间');
   if (end.getTime() > Date.now() + 60000) throw new Error('结束时间不能晚于当前时间');
   if (value.regenerateDate) {
-    const range = rangeFor('daily', value.regenerateDate, '08:00');
+    const config = await getSettings();
+    const range = rangeFor('daily', value.regenerateDate, config.dailyTime, config);
     if (range.start < start || range.end > end)
       throw new Error('时间范围必须完整覆盖需要更新的日报，且该日报已经截稿');
   }
@@ -144,7 +145,7 @@ export async function dispatchReprocessingBatches() {
           ],
         );
       } else if (batch.date) {
-        const range = rangeFor('daily', batch.date, '08:00');
+        const range = rangeFor('daily', batch.date, config.dailyTime, config);
         const unfinished = await client.query(
           "SELECT 1 FROM articles WHERE state='pending' AND published_at >= $1 AND published_at < $2 LIMIT 1",
           [range.start, range.end],

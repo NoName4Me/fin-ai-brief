@@ -68,7 +68,7 @@ export async function recordEdition(
 }
 async function prepareDaily(date: string) {
   const config = await getSettings();
-  const range = rangeFor('daily', date, config.dailyTime);
+  const range = rangeFor('daily', date, config.dailyTime, config);
   if (range.end > new Date()) throw new Error('该期统计区间尚未结束');
   const unfinished = await pool.query(
     "SELECT 1 FROM articles WHERE state='pending' AND published_at >= $1 AND published_at < $2 LIMIT 1",

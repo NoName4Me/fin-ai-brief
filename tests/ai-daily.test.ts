@@ -229,6 +229,53 @@ test('每天08:00连续覆盖，含周末且不再安排周月报', () => {
     );
   }
 });
+test('周一刊召回周五事件并纳入周末进展，截稿时的新资讯归下一期', async () => {
+  await syncModelSettings();
+  await saveSettings({
+    ...(await getSettings()),
+    weekendPublicationRules: [{ from: '2026-10-24', skip: true }],
+  });
+  const before = await seed('2026-10-22T23:59:59Z');
+  const friday = await seed('2026-10-23T00:00:00Z');
+  await seed('2026-10-24T12:00:00Z', assessment, '政策与监管');
+  const monday = await seed('2026-10-26T00:00:00Z');
+  const [article] = await importArticle({
+    title: '工具发布更新',
+    url: 'https://example.invalid/weekend-update',
+    excerpt: '机构公布更新计划，周日开放了代码。',
+    sourceName: '工具官方博客',
+    publishedAt: '2026-10-25T12:00:00Z',
+  });
+  globalThis.fetch = async (_url, init) => {
+    const { candidates } = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+    const ids = candidates.map(({ id }: { id: string }) => id);
+    assert.ok(ids.includes(friday.id));
+    assert.ok(!ids.includes(before.id));
+    assert.ok(!ids.includes(monday.id));
+    return reply({
+      relevant: true,
+      title: '工具发布更新',
+      summary: '机构公布更新计划，周日开放了代码。',
+      section: '工具与开源',
+      assessment: topAssessment,
+      tags: [],
+      existingEventId: friday.id,
+      facts: [
+        { statement: '周日开放了代码', evidenceIds: ['S1'], status: 'announced', entities: [] },
+      ],
+      novelty: 'update',
+      newFactIndexes: [0],
+    });
+  };
+  await processArticle(article.id);
+  const saved = await pool.query('SELECT event_id FROM articles WHERE id=$1', [article.id]);
+  assert.equal(saved.rows[0].event_id, friday.id);
+  const preview = await previewBrief('daily', '2026-10-26');
+  assert.equal(preview.range.start.toISOString(), '2026-10-23T00:00:00.000Z');
+  assert.equal(preview.range.end.toISOString(), '2026-10-26T00:00:00.000Z');
+  assert.equal(preview.count, 2);
+  assert.equal((await previewBrief('daily', '2026-10-27')).count, 1);
+});
 test('隔周排期按基准所在周计算，关键词命中只作线索', () => {
   assert.equal(rotationRules('2026-10-28', '2026-10-30')[1].scheduled, false);
   assert.equal(rotationRules('2026-11-04', '2026-10-30')[1].scheduled, false);

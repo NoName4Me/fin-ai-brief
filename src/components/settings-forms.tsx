@@ -9,21 +9,35 @@ import { Switch } from './switch.tsx';
 export function PublicationSettingsForm({ config }: { config: Settings }) {
   return (
     <form action={publicationSettingsAction} className="stack-form settings-dialog-form">
-      <label>
-        起刊日期
-        <input type="date" name="startDate" defaultValue={config.startDate} required />
+      <div className="settings-field-grid publication-settings-fields">
+        <label>
+          起刊日期
+          <input type="date" name="startDate" defaultValue={config.startDate} required />
+        </label>
+        <label>
+          出刊时间
+          <input type="time" value={config.dailyTime} readOnly />
+        </label>
+      </div>
+      <label className="settings-switch-label">
+        <Switch name="dailyEnabled" defaultChecked={config.dailyEnabled} aria-label="自动出刊" />
+        自动出刊
       </label>
-      <label className="check">
-        <input type="checkbox" name="dailyEnabled" defaultChecked={config.dailyEnabled} />
-        开启每日自动出刊
+      <label className="settings-switch-label">
+        <Switch
+          name="skipWeekends"
+          defaultChecked={config.weekendPublicationRules.at(-1)?.skip}
+          aria-label="周六、周日不出刊"
+        />
+        周六、周日不出刊
       </label>
-      <label>
-        截稿时间（北京时间）
-        <input type="time" value="08:00" readOnly />
-      </label>
-      <label className="check">
-        <input type="checkbox" name="autoPublish" defaultChecked={config.autoPublish} />
-        生成成功后直接发布
+      <label className="settings-switch-label">
+        <Switch
+          name="autoPublish"
+          defaultChecked={config.autoPublish}
+          aria-label="出刊后直接发布"
+        />
+        出刊后直接发布
       </label>
       <button className="solid-button">
         <Save className="icon" strokeWidth={1.75} aria-hidden="true" />

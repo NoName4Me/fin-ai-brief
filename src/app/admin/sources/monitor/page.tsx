@@ -58,10 +58,10 @@ const filters: Record<string, string> = {
 export default async function Page({ searchParams }: { searchParams: Promise<Query> }) {
   await requireAdmin();
   const query = await searchParams;
-  const cycleStart =
-    query.status === 'cycle_error'
-      ? publicationCycle(new Date(), (await getSettings()).dailyTime).start
-      : null;
+  const cycleSettings = query.status === 'cycle_error' ? await getSettings() : null;
+  const cycleStart = cycleSettings
+    ? publicationCycle(new Date(), cycleSettings.dailyTime, cycleSettings).start
+    : null;
   const days = query.days === '7' ? 7 : 30;
   const date =
     typeof query.date === 'string' && validDate(query.date) && query.date <= localDate()

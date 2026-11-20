@@ -40,7 +40,7 @@ async function CurrentCycle({ overview }: { overview: Overview }) {
     primaryEnabled: data.model.primary?.enabled,
   });
   const latestCycle = data.latestPublished
-    ? rangeFor('daily', data.latestPublished.period_date, data.config.dailyTime)
+    ? rangeFor('daily', data.latestPublished.period_date, data.config.dailyTime, data.config)
     : null;
   return (
     <>

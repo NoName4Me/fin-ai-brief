@@ -85,3 +85,55 @@ test('配置归位、栏目要求与关键词、拖拽保存及轮动自动规�
     await db.end();
   }
 });
+
+test('出刊设置双列布局和三个开关可保存并回显', async ({ page }, testInfo) => {
+  const db = new Pool({ connectionString: process.env.DATABASE_URL });
+  const original = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
+  try {
+    await page.goto('/login');
+    await page.getByLabel('管理员密码').fill(process.env.ADMIN_PASSWORD!);
+    await page.getByRole('button', { name: '登录', exact: true }).click();
+    await expect(page).toHaveURL(/\/admin$/);
+    await page.goto('/admin/publications');
+    await page.getByRole('link', { name: '出刊设置', exact: true }).click();
+    const publication = page.getByRole('dialog', { name: '出刊设置' });
+    const startDate = publication.getByLabel('起刊日期', { exact: true });
+    const issueTime = publication.getByLabel('出刊时间', { exact: true });
+    const automatic = publication.getByRole('switch', { name: '自动出刊', exact: true });
+    const weekends = publication.getByRole('switch', { name: '周六、周日不出刊', exact: true });
+    const publish = publication.getByRole('switch', { name: '出刊后直接发布', exact: true });
+    await expect(issueTime).toHaveValue('08:00');
+    await expect(issueTime).not.toBeEditable();
+    await expect(automatic).toBeChecked();
+    await expect(weekends).not.toBeChecked();
+    const wasAutoPublish = await publish.getAttribute('aria-checked');
+    await startDate.fill('2026-10-01');
+    await automatic.click();
+    await weekends.focus();
+    await weekends.press('Space');
+    await publish.click();
+    await expect(weekends).toBeChecked();
+    await publication.screenshot({ path: testInfo.outputPath('publication-settings-desktop.png') });
+    await publication.getByRole('button', { name: '保存' }).click();
+    await expect(publication).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('link', { name: '出刊设置', exact: true }).click();
+    await expect(automatic).not.toBeChecked();
+    await expect(weekends).toBeChecked();
+    await expect(publish).toHaveAttribute(
+      'aria-checked',
+      wasAutoPublish === 'true' ? 'false' : 'true',
+    );
+    await expect(startDate).toHaveValue('2026-10-01');
+    expect((await startDate.boundingBox())?.y).toBe((await issueTime.boundingBox())?.y);
+    await publication.screenshot({ path: testInfo.outputPath('publication-settings-mobile.png') });
+    await weekends.click();
+    await publication.getByRole('button', { name: '保存' }).click();
+    await expect(publication).toHaveCount(0);
+    await page.getByRole('link', { name: '出刊设置', exact: true }).click();
+    await expect(weekends).not.toBeChecked();
+  } finally {
+    await db.query('UPDATE settings SET value=$1 WHERE id=1', [original]);
+    await db.end();
+  }
+});

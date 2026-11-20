@@ -28,7 +28,13 @@ import { reviseBriefTitle } from '../server/brief-title-revision.ts';
 import { importArticle } from '../server/collect.ts';
 import { kindSchema } from '../server/types.ts';
 
-import { rangeFor, validDate, backfillPeriods, localDate } from '../server/periods.ts';
+import {
+  rangeFor,
+  validDate,
+  backfillPeriods,
+  localDate,
+  updateWeekendPublicationRules,
+} from '../server/periods.ts';
 import { retryArticle, retryJob, retryManagedTask } from '../server/admin-tasks.ts';
 import { requestReprocessing } from '../server/reprocessing.ts';
 import { saveSourceConfig, toggleSource } from '../server/source-config.ts';
@@ -216,11 +222,12 @@ export async function editorialAction(form: FormData) {
 }
 export async function publicationSettingsAction(form: FormData) {
   await perform('/admin/publications', () =>
-    saveSettingsPatch({
+    saveSettingsPatch((current) => ({
       autoPublish: form.has('autoPublish'),
       dailyEnabled: form.has('dailyEnabled'),
       startDate: text(form, 'startDate'),
-    }),
+      weekendPublicationRules: updateWeekendPublicationRules(current, form.has('skipWeekends')),
+    })),
   );
 }
 export async function taskSettingsAction(form: FormData) {

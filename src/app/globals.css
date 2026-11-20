@@ -6833,6 +6833,13 @@ button:disabled {
 .settings-field-grid input {
   min-width: 0;
 }
+.settings-field-grid.publication-settings-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+}
+.publication-settings-fields input {
+  width: 100%;
+}
 .settings-control-row,
 .settings-switch-label {
   display: flex;

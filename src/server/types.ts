@@ -292,6 +292,9 @@ export const settingsSchema = z.preprocess(
         .optional(),
       dailyTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
       dailyEnabled: z.boolean(),
+      weekendPublicationRules: z
+        .array(z.object({ from: z.iso.date(), skip: z.boolean() }))
+        .default([]),
       weeklyEnabled: z.boolean(),
       monthlyEnabled: z.boolean(),
       minScore: z.number().int().min(0).max(100),
@@ -379,6 +382,7 @@ export const defaultSettings: Settings = {
   modelConnection: undefined,
   dailyTime: '08:00',
   dailyEnabled: true,
+  weekendPublicationRules: [],
   weeklyEnabled: false,
   monthlyEnabled: false,
   minScore: 70,

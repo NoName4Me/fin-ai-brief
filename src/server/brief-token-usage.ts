@@ -12,9 +12,10 @@ export async function briefTokenUsage(
   previousDate: string | null | undefined,
   dailyTime: string,
   now = new Date(),
+  config?: Parameters<typeof rangeFor>[3],
 ): Promise<BriefTokenUsage> {
-  const currentRange = rangeFor('daily', currentDate, dailyTime);
-  const previousRange = previousDate ? rangeFor('daily', previousDate, dailyTime) : null;
+  const currentRange = rangeFor('daily', currentDate, dailyTime, config);
+  const previousRange = previousDate ? rangeFor('daily', previousDate, dailyTime, config) : null;
   const currentEnd = new Date(Math.min(now.getTime(), currentRange.end.getTime()));
   const [briefs, articles] = await Promise.all([
     pool.query<{ subject: string; tokens: string }>(

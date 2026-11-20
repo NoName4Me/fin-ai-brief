@@ -15,7 +15,7 @@ import { prepareSourceText, sourcePassages, sourceFactSchema } from './source-ev
 import { modelJSON, getModelConnection } from './model.ts';
 import { getSettings } from './settings.ts';
 import { fingerprint, stage } from './processing-log.ts';
-import { rangeFor, localDate } from './periods.ts';
+import { dailyPeriodAt } from './periods.ts';
 class EventChanged extends Error {
   constructor(message: string) {
     super(message);
@@ -165,8 +165,13 @@ async function processArticleAttempt(id: string, reprocessBatchId?: string) {
   const keywords = sectionRules.map((section) => `${section.name}：${section.keywords}`).join('\n');
   const connection = await getModelConnection();
   const subject = `article:${id}`;
+  const articleRange = dailyPeriodAt(article.publishedAt, config.dailyTime, config);
   const runKey = fingerprint({
     version: PROCESS_VERSION,
+    // Keep existing cached work for the unchanged daily window.
+    ...(articleRange.end.getTime() - articleRange.start.getTime() > 86400_000
+      ? { recallRange: articleRange }
+      : {}),
     reprocessBatchId,
     endpoint: connection.baseUrl.replace(/\/+$/, ''),
     title: article.title,
@@ -200,11 +205,6 @@ async function processArticleAttempt(id: string, reprocessBatchId?: string) {
     : { text: article.excerpt, ranges: undefined };
   const analysisExcerpt = preparedSource.text;
   const passages = sourcePassages(article.excerpt, preparedSource.ranges);
-  const publicationAt = new Date(`${localDate(article.publishedAt)}T${config.dailyTime}:00+08:00`);
-  const periodDate = localDate(
-    new Date(publicationAt.getTime() + (article.publishedAt >= publicationAt ? 86400_000 : 0)),
-  );
-  const articleRange = rangeFor('daily', periodDate, config.dailyTime);
   const candidates = await stage(subject, runKey, 'recall', async () => {
     const recent = await db
       .select()

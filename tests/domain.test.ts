@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rangeFor, duePeriods, localDate, preCollectionCutoff } from '../src/server/periods.ts';
+import {
+  backfillPeriods,
+  dailyPeriodAt,
+  duePeriods,
+  localDate,
+  preCollectionCutoff,
+  publicationCycle,
+  rangeFor,
+  updateWeekendPublicationRules,
+} from '../src/server/periods.ts';
+import { defaultSettings } from '../src/server/types.ts';
 import { canonicalUrl, articleInput } from '../src/server/collect.ts';
 import { publicAddress } from '../src/server/fetch.ts';
 import { requestModel, modelConfig } from '../src/server/model.ts';
@@ -52,6 +62,65 @@ test('出刊前一小时补采，跳过此前一小时已采集的信源，并�
     '2026-06-01T14:15:00.000Z',
   );
   assert.equal(preCollectionCutoff(at('2026-06-01T15:14:00Z'), '00:15'), null);
+});
+test('周末停刊时取材、自动出刊、补刊和刊前补采共用同一排期', () => {
+  const config = {
+    ...defaultSettings,
+    startDate: '2026-01-01',
+    weekendPublicationRules: [{ from: '2026-10-24', skip: true }],
+  };
+  const friday = new Date('2026-10-23T00:00:00Z');
+  const monday = new Date('2026-10-26T00:00:00Z');
+  for (const date of [friday, new Date('2026-10-24T00:00:00Z'), new Date(monday.getTime() - 1)]) {
+    assert.deepEqual(dailyPeriodAt(date, '08:00', config), {
+      date: '2026-10-26',
+      start: friday,
+      end: monday,
+    });
+  }
+  assert.equal(dailyPeriodAt(new Date(friday.getTime() - 1), '08:00', config).date, '2026-10-23');
+  assert.equal(dailyPeriodAt(monday, '08:00', config).date, '2026-10-27');
+  for (const date of ['2026-10-24', '2026-10-25']) {
+    assert.deepEqual(duePeriods(new Date(`${date}T08:00:00+08:00`), config), []);
+    assert.equal(preCollectionCutoff(new Date(`${date}T07:00:00+08:00`), '08:00', config), null);
+  }
+  assert.deepEqual(duePeriods(monday, config), [{ kind: 'daily', date: '2026-10-26' }]);
+  assert.deepEqual(
+    backfillPeriods('2026-10-23', '2026-10-27', 'daily', config).map((period) => period.date),
+    ['2026-10-23', '2026-10-26', '2026-10-27'],
+  );
+  const beforeMonday = new Date('2026-10-26T07:00:00+08:00');
+  assert.equal(
+    preCollectionCutoff(beforeMonday, '08:00', config)?.toISOString(),
+    '2026-10-25T22:00:00.000Z',
+  );
+  assert.deepEqual(publicationCycle(beforeMonday, '08:00', config).start, friday);
+});
+test('调整周末开关从尚未截稿的周六生效，历史刊期保留各自窗口', () => {
+  const beforeSaturday = new Date('2026-10-24T07:59:59+08:00');
+  const config = {
+    dailyTime: '08:00',
+    weekendPublicationRules: updateWeekendPublicationRules(defaultSettings, true, beforeSaturday),
+  };
+  assert.deepEqual(config.weekendPublicationRules, [{ from: '2026-10-24', skip: true }]);
+  assert.deepEqual(updateWeekendPublicationRules(config, false, beforeSaturday), []);
+  config.weekendPublicationRules = updateWeekendPublicationRules(
+    config,
+    false,
+    new Date('2026-10-24T08:00:00+08:00'),
+  );
+  assert.equal(
+    rangeFor('daily', '2026-10-18', '08:00', config).start.toISOString(),
+    '2026-10-17T00:00:00.000Z',
+  );
+  assert.equal(
+    rangeFor('daily', '2026-10-26', '08:00', config).start.toISOString(),
+    '2026-10-23T00:00:00.000Z',
+  );
+  assert.equal(
+    rangeFor('daily', '2026-10-31', '08:00', config).start.toISOString(),
+    '2026-10-30T00:00:00.000Z',
+  );
 });
 test('去重剔除跟踪参数，保留影响正文的查询参数', () => {
   assert.equal(

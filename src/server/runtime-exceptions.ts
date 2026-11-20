@@ -2,8 +2,12 @@ import { pool } from './db.ts';
 import { publicationCycle } from './periods.ts';
 
 type Counts = { collection: number; processing: number; generation: number; total: number };
-export async function runtimeExceptions(now: Date, dailyTime: string) {
-  const cycle = publicationCycle(now, dailyTime);
+export async function runtimeExceptions(
+  now: Date,
+  dailyTime: string,
+  config?: Parameters<typeof publicationCycle>[2],
+) {
+  const cycle = publicationCycle(now, dailyTime, config);
   const { rows } = await pool.query<
     Counts & {
       previous_collection: number;
