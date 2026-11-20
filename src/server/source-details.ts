@@ -240,6 +240,150 @@ export function officialListItems(
   return items;
 }
 export class UnsupportedSourceContentError extends Error {}
+type FlightRows = Map<string, unknown>;
+type FlightElement = [string, string, unknown, Record<string, unknown> | null];
+const flightSkippedClass =
+  /Feature_metaWrapper|Feature_metaInner|FeatureArticleMeta|Feature_footerMeta|Feature_relatedFeed|Feature_meta__|Byline_|AvatarSet_|Avatar_|Tag_|NewsletterSignup/;
+const flightSkippedTag = new Set([
+  'aside',
+  'button',
+  'footer',
+  'form',
+  'header',
+  'iframe',
+  'img',
+  'input',
+  'nav',
+  'script',
+  'style',
+  'svg',
+]);
+function isFlightElement(value: unknown): value is FlightElement {
+  return Array.isArray(value) && value[0] === '$' && typeof value[1] === 'string';
+}
+function flightRefId(value: string) {
+  return /^\$L?([0-9a-f]+)$/.exec(value)?.[1];
+}
+function flightRows(input: string) {
+  const rows: FlightRows = new Map();
+  for (const line of input.split('\n')) {
+    const match = /^([0-9a-f]+):([\[{].*)$/s.exec(line);
+    if (!match) continue;
+    try {
+      rows.set(match[1], JSON.parse(match[2]));
+    } catch {
+      // Non-JSON flight rows carry module metadata rather than article content.
+    }
+  }
+  return rows;
+}
+function flightFind(
+  value: unknown,
+  rows: FlightRows,
+  predicate: (element: FlightElement) => boolean,
+  stack = new Set<string>(),
+): FlightElement | null {
+  if (typeof value === 'string') {
+    const id = flightRefId(value);
+    if (!id || stack.has(id) || !rows.has(id)) return null;
+    return flightFind(rows.get(id), rows, predicate, new Set([...stack, id]));
+  }
+  if (isFlightElement(value)) {
+    if (predicate(value)) return value;
+    const id = flightRefId(value[1]);
+    if (id) {
+      if (!stack.has(id) && rows.has(id)) {
+        const found = flightFind(rows.get(id), rows, predicate, new Set([...stack, id]));
+        if (found) return found;
+      }
+    }
+    return flightFind(value[3]?.children, rows, predicate, stack);
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = flightFind(item, rows, predicate, stack);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (value && typeof value === 'object' && 'children' in value)
+    return flightFind(value.children, rows, predicate, stack);
+  return null;
+}
+function flightString(
+  value: unknown,
+  key: string,
+  rows: FlightRows,
+  stack = new Set<string>(),
+): string {
+  if (typeof value === 'string') {
+    const id = flightRefId(value);
+    if (!id || stack.has(id) || !rows.has(id)) return '';
+    return flightString(rows.get(id), key, rows, new Set([...stack, id]));
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = flightString(item, key, rows, stack);
+      if (found) return found;
+    }
+    return '';
+  }
+  if (!value || typeof value !== 'object') return '';
+  const record = value as Record<string, unknown>;
+  if (typeof record[key] === 'string') return record[key];
+  for (const item of Object.values(record)) {
+    const found = flightString(item, key, rows, stack);
+    if (found) return found;
+  }
+  return '';
+}
+function flightText(value: unknown, rows: FlightRows, stack = new Set<string>()): string {
+  const parts: string[] = [];
+  const walk = (node: unknown, path: Set<string>) => {
+    if (typeof node === 'string') {
+      const id = flightRefId(node);
+      if (id) {
+        if (!path.has(id) && rows.has(id)) walk(rows.get(id), new Set([...path, id]));
+      } else if (!node.startsWith('$')) parts.push(node);
+      return;
+    }
+    if (isFlightElement(node)) {
+      const type = node[1];
+      const id = flightRefId(type);
+      if (id) {
+        if (!path.has(id) && rows.has(id)) walk(rows.get(id), new Set([...path, id]));
+        else walk(node[3]?.children, path);
+        return;
+      }
+      if (flightSkippedTag.has(type)) return;
+      const props = node[3];
+      if (typeof props?.className === 'string' && flightSkippedClass.test(props.className)) return;
+      walk(props?.children, path);
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, path);
+      return;
+    }
+    if (node && typeof node === 'object' && 'children' in node) walk(node.children, path);
+  };
+  walk(value, stack);
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
+}
+function nextFlightArticle(input: string) {
+  const rows = flightRows(input);
+  for (const root of rows.values()) {
+    const article = flightFind(root, rows, (element) => element[1] === 'article');
+    if (!article) continue;
+    const excerpt = flightText(article[3]?.children, rows);
+    if (excerpt.length < 20) continue;
+    const header = flightFind(article, rows, (element) => element[1] === 'header');
+    const heading = header ? flightString(header, 'heading', rows) : '';
+    const title = heading.replace(/\s*\|\s*Stanford HAI$/i, '').trim();
+    return { excerpt: excerpt.slice(0, 12000), ...(title ? { title: title.slice(0, 500) } : {}) };
+  }
+  return null;
+}
 export async function readSourceDetail(
   url: string,
   fetcher: (url: string, options?: SourceFetchOptions) => Promise<string | null>,
@@ -250,6 +394,11 @@ export async function readSourceDetail(
   const target = nfra
     ? `https://www.nfra.gov.cn/cbircweb/DocInfo/SelectByDocId?docId=${u.searchParams.get('docId')}`
     : url;
+  if (u.hostname === 'hai.stanford.edu') {
+    const flight = await fetcher(url, { headers: { RSC: '1' } });
+    const article = flight && nextFlightArticle(flight);
+    if (article) return article;
+  }
   let html = await fetcher(target);
   if (!html) throw new Error('详情页返回空响应');
   if (nfra) {

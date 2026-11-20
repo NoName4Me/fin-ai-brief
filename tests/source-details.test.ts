@@ -359,6 +359,45 @@ test('证券时报两个栏目独立解析时间，重复链接只保留一次�
   assert.match(detail.excerpt, /事实依据/);
   assert.doesNotMatch(detail.excerpt, /版权|热文|推广脚本/);
 });
+test('Stanford HAI 从 Next RSC 数据读取懒加载正文，不混入作者和相关推荐', async () => {
+  const flight = [
+    '1:["$","article",null,{"children":[["$","header",null,{"children":["$","$L2",null,{"heading":"AI’s Future Is Still a Choice | Stanford HAI"}]}],["$","div",null,{"className":"Feature_content__abc","children":[["$","div",null,{"className":"Feature_metaWrapper__meta","children":["Shana Lynch","November 18, 2026"]}],["$","div",null,{"className":"Feature_featureTierWrapper__body","children":["$","$L3"]}],["$","section",null,{"className":"Feature_relatedFeedSection__related","children":["Related News"]}]]}]]}]',
+    '2:{"heading":"AI’s Future Is Still a Choice | Stanford HAI"}',
+    '3:["$","div",null,{"className":"RichText_root__text","children":[["$","p",null,{"children":["AI today is a polarizing topic. People worry about its impact, while others expect major scientific progress."]}],["$","p",null,{"children":["The conference focused on the choices that shape how AI affects work, education, and public life."]}]]}]',
+  ].join('\n');
+  const calls: { url: string; rsc?: string }[] = [];
+  const detail = await readSourceDetail(
+    'https://hai.stanford.edu/news/ais-future-is-still-a-choice',
+    async (url, options) => {
+      calls.push({ url, rsc: options?.headers?.RSC });
+      return flight;
+    },
+  );
+  assert.deepEqual(calls, [
+    {
+      url: 'https://hai.stanford.edu/news/ais-future-is-still-a-choice',
+      rsc: '1',
+    },
+  ]);
+  assert.equal(detail.title, 'AI’s Future Is Still a Choice');
+  assert.match(detail.excerpt, /polarizing topic/);
+  assert.match(detail.excerpt, /choices that shape/);
+  assert.doesNotMatch(detail.excerpt, /Shana Lynch|November|Related News/);
+});
+test('Stanford HAI 的 RSC 不可解析时回退普通正文页面', async () => {
+  let calls = 0;
+  const detail = await readSourceDetail(
+    'https://hai.stanford.edu/news/ais-future-still-choice',
+    async (_url, options) => {
+      calls++;
+      return options?.headers?.RSC
+        ? '<div class="HaiLoading_root__x"></div>'
+        : '<section class="Article_content__fallback"><p>这是回退读取到的完整正文，包含足够长的文章内容。</p></section>';
+    },
+  );
+  assert.equal(calls, 2);
+  assert.match(detail.excerpt, /回退读取到的完整正文/);
+});
 test('纯图片资讯记为无有效文本，不阻断同批可读正文', async () => {
   const [source] = await db
     .insert(sources)
