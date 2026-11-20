@@ -10,6 +10,7 @@ import { requestGeneration } from '../src/server/generation-requests.ts';
 
 import { defaultSettings } from '../src/server/types.ts';
 import { taskStamp, taskStartStamp } from '../src/server/task-labels.ts';
+import { taskStatusGroup } from '../src/server/admin-task-labels.ts';
 import type { PgBoss } from 'pg-boss';
 import { enqueueScreenedArticles } from './screening-fixture.ts';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
@@ -100,6 +101,8 @@ test('完成的队列记录仍区分等待波谷和等待额度，列表与详�
     [offPeak],
   );
   assert.equal((await taskOverview('', 'process', 'waiting_budget'))[0]?.target_id, budget);
+  const queued = await taskOverview('', 'process', taskStatusGroup('queued')!.states);
+  assert.deepEqual(new Set(queued.map((row) => row.target_id)), new Set([offPeak, budget]));
   assert.equal((await taskDetail(`job:${jobs[0]}`))?.task.state, 'waiting_model_window');
   assert.equal((await taskDetail(`job:${jobs[1]}`))?.task.state, 'waiting_budget');
 });
@@ -113,6 +116,10 @@ test('自动重试保留一行，手动重试后仍按资讯合并，并保留�
   await boss.fail('process', first.id, { message: '临时失败' });
   assert.equal((await taskOverview('', 'process')).length, 1);
   assert.equal((await taskOverview('', 'process'))[0].state, 'retry');
+  assert.equal(
+    (await taskOverview('', 'process', taskStatusGroup('queued')!.states))[0].state,
+    'retry',
+  );
   const [second] = await boss.fetch('process');
   await assert.rejects(
     executeTask('process', second.id, { id }, async () => {

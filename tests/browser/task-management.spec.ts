@@ -109,8 +109,18 @@ test('统一任务表支持筛选、详情和失败重试，刷新保留筛选�
       "INSERT INTO brief_requests(id,kind,period_date,range_start,range_end,force) VALUES($1,'daily','2026-10-21','2026-10-20T00:00:00Z','2026-10-21T00:00:00Z',true)",
       [requestId],
     );
-    await page.goto('/admin/articles');
+    await page.goto('/admin/articles?state=waiting_articles');
     const table = page.getByRole('table', { name: '任务列表' });
+    const state = page.getByRole('combobox', { name: '状态', exact: true });
+    await expect(state.getByRole('option')).toHaveText([
+      '全部状态',
+      '排队',
+      '处理中',
+      '成功',
+      '失败',
+      '已取消',
+    ]);
+    await expect(state).toHaveValue('queued');
     await expect(page.getByRole('table')).toHaveCount(1);
     await expect(table.getByRole('columnheader')).toHaveText([
       '任务类型',
@@ -121,14 +131,19 @@ test('统一任务表支持筛选、详情和失败重试，刷新保留筛选�
     ]);
     await expect(page.getByText('采集与出刊任务', { exact: true })).toHaveCount(0);
     await expect(page.locator('.task-import form[action] input[name="title"]')).toHaveCount(0);
-    await expect(
-      table.getByRole('row').filter({ hasText: '日报 2026-10-21（手动）' }),
-    ).toContainText('等待资讯处理');
+    const waiting = table.getByRole('row').filter({ hasText: '日报 2026-10-21（手动）' });
+    await expect(waiting.getByRole('cell', { name: '排队', exact: true })).toBeVisible();
+    await expect(table.getByRole('row').filter({ hasText: tag + '信源' })).toHaveCount(0);
     await expect(
       table.getByRole('row').filter({ hasText: '日报 2026-10-20（自动）' }),
     ).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: '任务详情' });
+    await waiting.getByRole('button', { name: '详情', exact: true }).click();
+    await expect(dialog.getByText('等待资讯处理', { exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
     await page.screenshot({ path: '.data/task-management-desktop.png', fullPage: true });
     await page.getByRole('combobox', { name: '任务类型', exact: true }).selectOption('collect');
+    await state.selectOption('failed');
     await page.getByLabel('任务名', { exact: true }).fill(tag);
     await page.getByRole('button', { name: '筛选', exact: true }).click();
     const row = table.getByRole('row').filter({ hasText: tag + '信源' });
@@ -139,8 +154,8 @@ test('统一任务表支持筛选、详情和失败重试，刷新保留筛选�
       'collect',
     );
     await expect(page.getByLabel('任务名', { exact: true })).toHaveValue(tag);
+    await expect(state).toHaveValue('failed');
     await row.getByRole('button', { name: '详情', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: '任务详情' });
     await expect(dialog.getByText('完成时间', { exact: true })).toBeVisible();
     await expect(dialog).toContainText('本地失败记录');
     await page.keyboard.press('Escape');

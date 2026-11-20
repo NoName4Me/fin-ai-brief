@@ -9,6 +9,7 @@ import { defaultSettings } from '../src/server/types.ts';
 import { requestReprocessing } from '../src/server/reprocessing.ts';
 import { taskOverview, retryManagedTask } from '../src/server/admin-tasks.ts';
 import { batchDetail } from '../src/server/admin-reprocessing.ts';
+import { taskStatusGroup } from '../src/server/admin-task-labels.ts';
 if (!process.env.DATABASE_URL || !/_test$/.test(new URL(process.env.DATABASE_URL).pathname))
   throw new Error('仅允许独立_test数据库');
 let boss: PgBoss;
@@ -85,6 +86,13 @@ test('重试仅重置失败项，保留成功结果并拒绝重复重试运行�
     "UPDATE reprocessing_batches SET state='completed_with_errors',finished_at=now() WHERE id=$1",
     [b.id],
   );
+  const failures = await taskOverview(b.id, 'reprocess', taskStatusGroup('failed')!.states);
+  assert.equal(failures[0]?.state, 'completed_with_errors');
+  assert.equal(failures[0]?.data.failed, 1);
+  assert.equal(
+    (await taskOverview(b.id, 'reprocess', taskStatusGroup('succeeded')!.states)).length,
+    0,
+  );
   await retryManagedTask(`batch:${b.id}`);
   const detail = await batchDetail(b.id);
   assert.equal(detail?.batch.state, 'waiting');
@@ -111,4 +119,8 @@ test('日报生成失败重试仍属于同一批次，不重做资讯且保留�
   assert.equal((await batchDetail(b.id))?.counts.ignored, 1);
   assert.equal((await taskOverview('', 'generate')).length, 1);
   assert.equal((await taskOverview('', 'reprocess', 'generating')).length, 1);
+  assert.equal(
+    (await taskOverview('', 'reprocess', taskStatusGroup('active')!.states))[0]?.state,
+    'generating',
+  );
 });

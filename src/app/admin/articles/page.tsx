@@ -8,7 +8,7 @@ import { SourceManagementDialog } from '../../../components/source-management-di
 import { requireAdmin } from '../../../server/auth.ts';
 import { Notice, type Query } from '../../../components/notice.tsx';
 import { taskOverview } from '../../../server/admin-tasks.ts';
-import { taskTypes } from '../../../server/admin-task-labels.ts';
+import { taskStatusGroup, taskStatusGroups, taskTypes } from '../../../server/admin-task-labels.ts';
 import { BatchTaskRow } from '../../../components/batch-task-row.tsx';
 import { TaskRow } from '../../../components/task-row.tsx';
 import { Reprocessing } from '../../../components/reprocessing.tsx';
@@ -19,19 +19,8 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
   const query = await searchParams;
   const q = typeof query.q === 'string' ? query.q : '';
   const type = typeof query.type === 'string' && query.type in taskTypes ? query.type : '';
-  const states = {
-    created: '排队中',
-    active: '执行中',
-    retry: '等待重试',
-    waiting_articles: '等待资讯处理',
-    waiting_budget: '等待额度',
-    succeeded: '成功',
-    failed: '失败',
-    cancelled: '已取消',
-    generating: '生成日报中',
-    completed_with_errors: '完成，有失败项',
-  };
-  const state = typeof query.state === 'string' && query.state in states ? query.state : '';
+  const status = typeof query.state === 'string' ? taskStatusGroup(query.state) : undefined;
+  const state = status?.value ?? '';
   const page = Math.max(1, Math.min(1000000, Number.parseInt(String(query.page), 10) || 1));
   const params = new URLSearchParams({
     q,
@@ -99,7 +88,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
         <label>
           <select aria-label="状态" name="state" defaultValue={state}>
             <option value="">全部状态</option>
-            {Object.entries(states).map(([value, label]) => (
+            {taskStatusGroups.map(({ value, label }) => (
               <option key={value} value={value}>
                 {label}
               </option>
@@ -134,7 +123,7 @@ export default async function Tasks({ searchParams }: { searchParams: Promise<Qu
           </div>
         }
       >
-        <TaskResults q={q} type={type} state={state} page={page} batch={query.batch} />
+        <TaskResults q={q} type={type} status={status} page={page} batch={query.batch} />
       </Suspense>
     </>
   );
@@ -146,19 +135,20 @@ async function TaskConfiguration() {
 async function TaskResults({
   q,
   type,
-  state,
+  status,
   page,
   batch,
 }: {
   q: string;
   type: string;
-  state: string;
+  status: ReturnType<typeof taskStatusGroup>;
   page: number;
   batch: Query['batch'];
 }) {
-  const tasks = await taskOverview(q, type, state, page, 50);
+  const state = status?.value ?? '';
+  const tasks = await taskOverview(q, type, status?.states, page, 50);
   if (!tasks.length && page > 1) {
-    const first = await taskOverview(q, type, state, 1, 50);
+    const first = await taskOverview(q, type, status?.states, 1, 50);
     const last = Math.max(1, Math.ceil((first[0]?.total_count ?? 0) / 50));
     redirect(`/admin/articles?${new URLSearchParams({ q, type, state, page: String(last) })}`);
   }

@@ -139,7 +139,14 @@ const taskProjection = `WITH waiting_jobs AS MATERIALIZED (
     LEFT JOIN batch_starts bs ON bs.batch_id=b.id::text GROUP BY b.id,bs.started_on
 
 )`;
-export async function taskOverview(query = '', type = '', state = '', page = 1, pageSize = 100) {
+export async function taskOverview(
+  query = '',
+  type = '',
+  states: string | readonly string[] = '',
+  page = 1,
+  pageSize = 100,
+) {
+  const stateFilter = typeof states === 'string' ? (states ? [states] : null) : states;
   const rows = await pool.query<ManagedTask>(
     `${taskProjection},
     ranked AS (
@@ -150,7 +157,8 @@ export async function taskOverview(query = '', type = '', state = '', page = 1, 
       FROM unified WHERE ($1='' OR queue=$1)
       AND ($3='' OR name ILIKE '%'||$3||'%' OR id=$3 OR target_id=$3)
     )
-    SELECT *,count(*) OVER()::int total_count FROM ranked WHERE position=1 AND ($2='' OR state=$2)
+    SELECT *,count(*) OVER()::int total_count FROM ranked WHERE position=1
+      AND ($2::text[] IS NULL OR state=ANY($2))
       AND NOT ((queue='process' OR (queue='generate' AND $1<>'generate')) AND data->>'reprocessBatchId' IS NOT NULL)
       AND NOT (queue='process' AND (
         coalesce(target_id IN (
@@ -164,7 +172,7 @@ export async function taskOverview(query = '', type = '', state = '', page = 1, 
     ORDER BY CASE WHEN queue='reprocess' AND state IN ('created','active','generating','waiting_articles','waiting_budget') THEN 0 ELSE 1 END,CASE WHEN queue='reprocess' THEN coalesce(completed_on,created_on) ELSE created_on END DESC,id DESC LIMIT $4 OFFSET $5`,
     [
       type,
-      state,
+      stateFilter,
       query.trim().slice(0, 200),
       Math.min(100, Math.max(1, pageSize)),
       (Math.max(1, page) - 1) * Math.min(100, Math.max(1, pageSize)),

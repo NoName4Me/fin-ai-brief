@@ -6,6 +6,7 @@ import type { batchDetail } from '../server/admin-reprocessing.ts';
 import { taskStamp } from '../server/admin-task-labels.ts';
 import { retryManagedTaskAction } from '../app/actions.ts';
 import { X } from 'lucide-react';
+import { taskStatusGroup } from '../server/admin-task-labels.ts';
 type Detail = NonNullable<Awaited<ReturnType<typeof batchDetail>>>;
 const labels: Record<string, string> = {
   waiting: '排队中',
@@ -65,6 +66,9 @@ export function BatchTaskRow({
   }, [initiallyOpen]);
   const done = (task.data.processed ?? 0) + (task.data.ignored ?? 0) + (task.data.failed ?? 0);
   const canRetry = ['failed', 'completed_with_errors'].includes(task.state);
+  const status = taskStatusGroup(task.state);
+  const partiallyFailed =
+    task.state === 'completed_with_errors' && (task.data.failed ?? 0) < (task.data.total ?? 0);
   return (
     <tr
       className="article-task-row batch-task-row"
@@ -81,7 +85,10 @@ export function BatchTaskRow({
       </td>
       <td className="task-time">{taskStamp(task.started_on)}</td>
       <td>
-        <span className={`state-${task.state}`}>{labels[task.state] ?? task.state}</span>
+        <span className={`state-${status?.value ?? task.state}`}>
+          {status?.label ?? labels[task.state] ?? task.state}
+        </span>
+        {partiallyFailed && <span className="batch-inline-progress">部分失败</span>}
         <span className="batch-inline-progress">
           {done}/{task.data.total ?? 0}
         </span>

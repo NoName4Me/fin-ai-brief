@@ -28,9 +28,12 @@ test('批次汇入紧凑列表，详情显示逐条结果，仅重试失败项',
     await page.goto('/admin/articles');
     await expect(page.getByRole('heading', { name: '重新处理批次' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: '批量重新处理', exact: true })).toBeVisible();
+    await page.getByRole('combobox', { name: '状态', exact: true }).selectOption('failed');
+    await page.getByRole('button', { name: '筛选', exact: true }).click();
     const row = page.locator(`tr[data-task-id="batch:${batchId}"]`);
+    await expect(row).toBeVisible();
     await expect(row).toContainText('批量重处理');
-    await expect(row).toContainText('完成，有失败项');
+    await expect(row).toContainText('部分失败');
     await expect(row).toContainText('2/2');
     expect((await row.boundingBox())!.height).toBeLessThan(55);
     await expect(page.getByRole('row').filter({ hasText: '批内资讯-1' })).toHaveCount(0);
@@ -38,6 +41,7 @@ test('批次汇入紧凑列表，详情显示逐条结果，仅重试失败项',
     await row.getByRole('button', { name: '详情', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: '批量重处理详情' });
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('完成，有失败项', { exact: true })).toBeVisible();
     await expect(dialog.locator('.dialog-header')).toHaveCSS('position', 'sticky');
     await expect(
       dialog.getByRole('table', { name: '批次逐条结果' }).locator('tbody tr'),

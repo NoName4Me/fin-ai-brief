@@ -6,6 +6,7 @@ import {
   stageDescription,
   stageLabel,
   stateNames,
+  taskStatusGroup,
   taskTypes,
   taskStamp,
   taskStartStamp,
@@ -45,6 +46,7 @@ export function TaskRow({ task }: { task: ManagedTask }) {
     }
   }
   const current = detail?.task ?? task;
+  const status = taskStatusGroup(task.state);
   const assessment = assessmentSchema.safeParse(detail?.article?.assessment);
   const scoringRules = detail?.ratingRules ?? defaultRatingRules;
   const dimensionName = (key: string, rules = scoringRules) => {
@@ -116,12 +118,9 @@ export function TaskRow({ task }: { task: ManagedTask }) {
       </td>
       <td className="task-time">{taskStartStamp(task.started_on, task.state)}</td>
       <td>
-        <span className={'state-' + task.state}>{stateNames[task.state] ?? task.state}</span>
-        {task.state === 'retry' && (
-          <small>
-            {task.retry_count} / {task.retry_limit} 次
-          </small>
-        )}
+        <span className={`state-${status?.value ?? task.state}`}>
+          {status?.label ?? stateNames[task.state] ?? task.state}
+        </span>
       </td>
       <td>
         <div className="row-actions">
