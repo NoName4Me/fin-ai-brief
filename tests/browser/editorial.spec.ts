@@ -97,19 +97,38 @@ test('栏目、评分和收录分页面原地编辑，分别保存互不覆盖',
     await expect(dialog.getByRole('checkbox', { name: '技术与模型', exact: true })).toHaveCount(0);
     await page.goto('/admin/editorial/columns');
     await page.getByRole('button', { name: '工程实践删除', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByLabel('工程实践名称', { exact: true })).toHaveCount(0);
+    expect(
+      (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value.sections.some(
+        (section: { name: string }) => section.name === '工程实践',
+      ),
+    ).toBe(true);
+    if (!previous.highlightsDeleted) {
+      await page.getByRole('button', { name: '今日要览删除', exact: true }).click();
+      await expect(page.getByLabel('今日要览名称', { exact: true })).toHaveCount(0);
+      await page.getByRole('button', { name: '恢复要览', exact: true }).click();
+    }
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.goto('/admin/editorial/ratings');
     await page.getByRole('button', { name: '可复用性删除', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByLabel('可复用性名称', { exact: true })).toHaveCount(0);
+    expect(
+      (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value.ratingRules.some(
+        (rule: { name: string }) => rule.name === '可复用性',
+      ),
+    ).toBe(true);
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
     await page.reload();
     await expect(page.getByLabel('可复用性名称')).toHaveCount(0);
-    expect(
-      (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value.sections.some(
-        (s: { name: string }) => s.name === '工程实践',
-      ),
-    ).toBe(false);
+    const deletedConfig = (await db.query('SELECT value FROM settings WHERE id=1')).rows[0].value;
+    expect(deletedConfig.sections.some((s: { name: string }) => s.name === '工程实践')).toBe(false);
+    expect(deletedConfig.ratingRules.some((r: { name: string }) => r.name === '可复用性')).toBe(
+      false,
+    );
   } finally {
     await db.query('UPDATE settings SET value=$1::jsonb WHERE id=1', [JSON.stringify(previous)]);
     await db.end();

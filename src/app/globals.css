@@ -2508,6 +2508,42 @@ body {
   margin: 50px auto;
   padding: 0 24px 100px;
 }
+.unsubscribe-dialog {
+  width: min(460px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+}
+.unsubscribe-dialog::backdrop {
+  background: #18253270;
+}
+.unsubscribe-dialog-body {
+  padding: 28px 30px 22px;
+}
+.unsubscribe-dialog h2 {
+  font: 600 25px/1.5 var(--serif);
+  color: var(--blue);
+}
+.unsubscribe-dialog p {
+  margin-top: 13px;
+  color: var(--body);
+  font-size: 14px;
+  line-height: 1.9;
+}
+.unsubscribe-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 17px 30px 22px;
+  border-top: 1px solid var(--line);
+}
+.unsubscribe-dialog-actions .solid-button {
+  justify-self: auto;
+}
+.unsubscribe-confirm {
+  background: #82392f;
+}
 .stack-form {
   display: grid;
   gap: 20px;
@@ -3050,6 +3086,17 @@ button:disabled {
 @media (max-width: 650px) {
   .form-page {
     margin-top: 28px;
+  }
+  .unsubscribe-dialog-body {
+    padding: 24px 22px 18px;
+  }
+  .unsubscribe-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    padding: 16px 22px 22px;
+  }
+  .unsubscribe-dialog-actions button {
+    width: 100%;
   }
   .admin-shell {
     display: block;

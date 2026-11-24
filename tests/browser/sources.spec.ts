@@ -184,3 +184,35 @@ test('详情读取开关及多入口配置可编辑保存', async ({ page }) => 
     await db.end();
   }
 });
+
+test('信源详情删除后从列表和数据库移除', async ({ page }) => {
+  const db = new Pool({ connectionString: process.env.DATABASE_URL });
+  const name = `待删除信源-${randomUUID()}`;
+  const {
+    rows: [source],
+  } = await db.query(
+    "INSERT INTO sources(name,format,industry_id) VALUES($1,'manual','ai') RETURNING id",
+    [name],
+  );
+  try {
+    await page.goto(`/admin/sources?detail=${source.id}`);
+    const dialog = page.getByRole('dialog', { name: `${name}详情` });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: '删除信源', exact: true }).click();
+    const confirmation = page.getByRole('dialog', { name: `确认删除信源「${name}」？` });
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole('button', { name: '取消', exact: true }).click();
+    expect((await db.query('SELECT id FROM sources WHERE id=$1', [source.id])).rowCount).toBe(1);
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: '删除信源', exact: true }).click();
+    await confirmation.getByRole('button', { name: '确认删除', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('操作已完成');
+    await expect(page.getByText(name, { exact: true })).toHaveCount(0);
+    expect(
+      (await db.query('SELECT count(*)::int count FROM sources WHERE id=$1', [source.id])).rows[0],
+    ).toEqual({ count: 0 });
+  } finally {
+    await db.query('DELETE FROM sources WHERE id=$1', [source.id]);
+    await db.end();
+  }
+});

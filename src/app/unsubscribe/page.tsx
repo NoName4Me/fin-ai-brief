@@ -1,6 +1,6 @@
 import Link from 'next/link';
-import { unsubscribeAction } from '../actions.ts';
 import { Notice, type Query } from '../../components/notice.tsx';
+import { unsubscribeAction } from '../actions.ts';
 export const metadata = { title: '取消订阅', robots: { index: false, follow: false } };
 export default async function Unsubscribe({ searchParams }: { searchParams: Promise<Query> }) {
   const q = await searchParams;

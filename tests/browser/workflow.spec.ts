@@ -73,8 +73,14 @@ test('用户端需确认邮箱，确认后可退订与删除', async ({ page }) 
     expect(row.active).toBe(true);
     const cancel = `${row.id}.${createHmac('sha256', process.env.APP_SECRET!).update(row.id).digest('base64url')}`;
     await page.goto(`/unsubscribe?token=${encodeURIComponent(cancel)}`);
-    await page.getByRole('button', { name: '确认退订' }).click();
+    expect(
+      (await db.query('SELECT active FROM subscriptions WHERE id=$1', [row.id])).rows[0],
+    ).toEqual({ active: true });
+    await page.getByRole('button', { name: '确认退订', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('操作已完成');
+    expect(
+      (await db.query('SELECT active FROM subscriptions WHERE id=$1', [row.id])).rows[0],
+    ).toEqual({ active: false });
     await page.goto('/subscribe/confirmed?status=expired');
     await expect(page.getByRole('heading', { name: '确认链接已过期' })).toBeVisible();
     await page.screenshot({ path: '.data/subscription-expired-mobile.png' });
@@ -118,6 +124,15 @@ test('管理台区分待确认、已过期和未确认合计', async ({ page }) 
     const subscribedRow = page.getByRole('row').filter({ hasText: subscribed });
     await expect(subscribedRow).toContainText('订阅中');
     await subscribedRow.getByRole('button', { name: '取消订阅' }).click();
+    const cancelConfirmation = page.getByRole('dialog', { name: '确认取消订阅？' });
+    await cancelConfirmation.getByRole('button', { name: '取消', exact: true }).click();
+    await expect(subscribedRow).toContainText('订阅中');
+    expect(
+      (await db.query('SELECT active FROM subscriptions WHERE email=$1', [subscribed])).rows[0]
+        .active,
+    ).toBe(true);
+    await subscribedRow.getByRole('button', { name: '取消订阅' }).click();
+    await cancelConfirmation.getByRole('button', { name: '确认取消订阅', exact: true }).click();
     await expect(subscribedRow).toContainText('已退订');
     await expect(subscribedRow.getByRole('button', { name: '删除记录' })).toBeVisible();
     await expect(

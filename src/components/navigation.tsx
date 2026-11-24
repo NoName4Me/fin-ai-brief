@@ -3,7 +3,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { logoutAction } from '../app/actions.ts';
 import { SubscribeButton } from './subscribe-dialog.tsx';
-import { CompetitionAnnouncement } from './competition-announcement.tsx';
+import {
+  CompetitionAnnouncement,
+  showCompetitionAnnouncement,
+} from './competition-announcement.tsx';
 import { LogOut } from 'lucide-react';
 const items = [
   ['/', '最新'],
@@ -16,7 +19,7 @@ export function Header() {
   const admin = path === '/admin' || path.startsWith('/admin/');
   return (
     <>
-      {!admin && path !== '/login' && <CompetitionAnnouncement />}
+      {showCompetitionAnnouncement && !admin && path !== '/login' && <CompetitionAnnouncement />}
       <header className={`app-header ${admin ? 'admin-header' : 'reader-header'}`}>
         <Link href={admin ? '/admin' : '/'} className="brand">
           <span className="brand-wordmark">

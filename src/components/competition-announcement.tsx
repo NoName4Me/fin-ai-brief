@@ -5,6 +5,7 @@ import styles from './competition-announcement.module.css';
 
 export const competitionTitle = '2026年中国东方AI赋能金融技能大赛复赛阶段培训计划';
 export const competitionSlogan = '智汇东方·创未来';
+export const showCompetitionAnnouncement = false;
 
 export function CompetitionAnnouncement() {
   return (

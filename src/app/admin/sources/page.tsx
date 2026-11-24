@@ -18,6 +18,7 @@ import { GlobalSwitch } from '../../../components/global-switch.tsx';
 import { getSettings } from '../../../server/settings.ts';
 import { verificationLabels } from '../../../server/source-config.ts';
 import { Save, Plus, ScanSearch, Download, Trash2 } from 'lucide-react';
+import { ConfirmButton } from '../../../components/confirm-button.tsx';
 const formatLabels: Record<string, string> = {
   rss: 'RSS / Atom',
   json: '公开接口',
@@ -301,10 +302,14 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
               </form>
               <form action={sourceRemoveAction}>
                 <input type="hidden" name="id" value={selected.id} />
-                <button className="quiet-button">
+                <ConfirmButton
+                  className="quiet-button"
+                  title={`确认删除信源「${selected.name}」？`}
+                  message="确认后将删除该信源配置并停止后续采集。"
+                >
                   <Trash2 className="icon" strokeWidth={1.75} aria-hidden="true" />
                   删除信源
-                </button>
+                </ConfirmButton>
               </form>
             </div>
             <button className="solid-button" form="source-config-form">

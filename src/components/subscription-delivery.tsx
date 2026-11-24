@@ -16,6 +16,7 @@ import { SubscriptionTabs } from './admin-page-tabs.tsx';
 import { MailSettingsForm } from './mail-settings-form.tsx';
 import type { PublicMailConnection } from '../server/mail-connection.ts';
 import { UserPlus, Send, Settings, X } from 'lucide-react';
+import { ConfirmButton } from './confirm-button.tsx';
 
 type Recipient = {
   id: string | null;
@@ -180,7 +181,14 @@ export function SubscriptionDelivery({
                         {row.status === 'registered' && row.id && (
                           <form action={cancelSubscriberAction}>
                             <input type="hidden" name="id" value={row.id} />
-                            <button className="quiet-button">取消订阅</button>
+                            <ConfirmButton
+                              className="quiet-button"
+                              title="确认取消订阅？"
+                              message={`确认后，${row.email} 将停止接收后续简报。`}
+                              confirmLabel="确认取消订阅"
+                            >
+                              取消订阅
+                            </ConfirmButton>
                           </form>
                         )}
                         {row.status === 'unsubscribed' && row.id && (
